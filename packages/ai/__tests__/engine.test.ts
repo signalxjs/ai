@@ -214,6 +214,18 @@ describe('streamText', () => {
         expect(textOf(chunks)).toBe('hi');
     });
 
+    it('treats an abort with a custom reason as cancellation, not failure', async () => {
+        const ctrl = new AbortController();
+        const model = mockModel({ script: [{ text: 'one two three four five', delayMs: 2 }] });
+        const chunks: UIChunk[] = [];
+        for await (const c of streamText({ model, messages: [userMessage('x')], signal: ctrl.signal })) {
+            chunks.push(c);
+            if (c.type === 'text') ctrl.abort(new Error('user navigated away'));
+        }
+        expect(chunks[chunks.length - 1]).toMatchObject({ type: 'finish' });
+        expect(chunks.some((c) => c.type === 'error')).toBe(false);
+    });
+
     it('passes system, temperature, maxTokens and providerOptions to the model', async () => {
         const model = mockModel();
         await collect(streamText({ model, system: 'be brief', messages: [userMessage('x')], temperature: 0.2, maxTokens: 10, providerOptions: { foo: 1 } }));

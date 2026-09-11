@@ -127,6 +127,12 @@ export function useObject<S extends StandardSchemaV1, In = void>(
             // A stream that never produced parseable JSON is a failure, not an
             // empty success — with or without a schema.
             if (final === undefined) throw new Error('[sigx ai] useObject: the stream produced no parseable JSON.');
+            // The reactive `object` is a JSON OBJECT; an array or a primitive
+            // at the top level has nowhere to go and would leave `object` as
+            // `{}` while onFinish received something else.
+            if (typeof final !== 'object' || final === null || Array.isArray(final)) {
+                throw new Error(`[sigx ai] useObject: expected a JSON object at the top level, got ${Array.isArray(final) ? 'an array' : final === null ? 'null' : `a ${typeof final}`}.`);
+            }
             if (options.schema) final = await validateWith(options.schema, final, 'The streamed object did not match the schema');
             if (id !== seq) return;
             merge(final);

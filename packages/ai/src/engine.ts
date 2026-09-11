@@ -291,10 +291,17 @@ function abortable<T>(signal: AbortSignal | undefined, promise: Promise<T>): Pro
     });
 }
 
+/**
+ * Every abort becomes an `AbortError` — whatever the caller passed as the
+ * reason — so cancellation always takes the cancellation path (a quiet
+ * `finish`) rather than being mistaken for a failure. The original reason
+ * is kept as `cause`.
+ */
 function abortError(signal: AbortSignal): Error {
-    const reason = signal.reason;
-    if (reason instanceof Error) return reason;
-    const err = new Error(typeof reason === 'string' ? reason : 'The operation was aborted');
+    const reason: unknown = signal.reason;
+    if (reason instanceof Error && reason.name === 'AbortError') return reason;
+    const message = reason instanceof Error ? reason.message : typeof reason === 'string' ? reason : 'The operation was aborted';
+    const err = new Error(message, reason !== undefined ? { cause: reason } : undefined);
     err.name = 'AbortError';
     return err;
 }

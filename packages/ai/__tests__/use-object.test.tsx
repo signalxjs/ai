@@ -45,6 +45,21 @@ describe('useObject', () => {
         expect(obj.error?.message).toMatch(/no parseable JSON/);
     });
 
+    it('reports a non-object top-level JSON value as an error', async () => {
+        const model = mockModel({ script: [{ text: '[1, 2, 3]' }] });
+        let obj!: StreamedObject<unknown, void>;
+        const App = component(() => {
+            obj = useObject({ stream: () => streamObject({ model, schema: recipeSchema, messages: [userMessage('x')] }) });
+            return () => <div />;
+        }, { name: 'App' });
+        const c = document.createElement('div');
+        containers.push(c);
+        render(jsx(App, {}), c);
+        await obj.run();
+        expect(obj.status).toBe('error');
+        expect(obj.error?.message).toMatch(/expected a JSON object at the top level, got an array/);
+    });
+
     it('grows the partial key by key and validates the final document', async () => {
         const obj = mount('{"title": "Pancakes", "steps": ["mix", "fry"]}');
         expect(obj.status).toBe('idle');
