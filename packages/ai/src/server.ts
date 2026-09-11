@@ -49,6 +49,7 @@ export async function* toTextStream(chunks: AsyncIterable<UIChunk>): AsyncGenera
 const MAX_MESSAGES = 500;
 const MAX_TEXT = 200_000;
 const MAX_TOOL_JSON = 100_000;
+const JSON_CAP_MESSAGE = `must be JSON-serializable and at most ${MAX_TOOL_JSON} characters as JSON`;
 
 /**
  * `true` when `value` serializes to JSON within the cap; `false` when it is
@@ -86,9 +87,14 @@ function checkPart(p: unknown, path: (string | number)[], issues: StandardSchema
                 issues.push(issue([...path, 'text'], `longer than ${MAX_TEXT} characters`));
                 return undefined;
             }
-            return part.type === 'text'
-                ? { type: 'text', text: part.text }
-                : { type: 'reasoning', text: part.text, ...(part.providerData !== undefined ? { providerData: part.providerData } : {}) };
+            if (part.type === 'text') return { type: 'text', text: part.text };
+            // Replay data is forwarded into provider requests verbatim, so it
+            // gets the same cap as a tool payload.
+            if (part.providerData !== undefined && !withinJsonCap(part.providerData)) {
+                issues.push(issue([...path, 'providerData'], JSON_CAP_MESSAGE));
+                return undefined;
+            }
+            return { type: 'reasoning', text: part.text, ...(part.providerData !== undefined ? { providerData: part.providerData } : {}) };
         }
         case 'tool': {
             if (typeof part.id !== 'string' || typeof part.name !== 'string') {
@@ -107,12 +113,12 @@ function checkPart(p: unknown, path: (string | number)[], issues: StandardSchema
             // consequence of measuring them, proven serializable).
             const input = part.input === undefined ? null : part.input;
             if (!withinJsonCap(input)) {
-                issues.push(issue([...path, 'input'], `larger than ${MAX_TOOL_JSON} characters as JSON`));
+                issues.push(issue([...path, 'input'], JSON_CAP_MESSAGE));
                 return undefined;
             }
             const hasOutput = state !== 'pending' && part.output !== undefined;
             if (hasOutput && !withinJsonCap(part.output)) {
-                issues.push(issue([...path, 'output'], `larger than ${MAX_TOOL_JSON} characters as JSON`));
+                issues.push(issue([...path, 'output'], JSON_CAP_MESSAGE));
                 return undefined;
             }
             return { type: 'tool', id: part.id, name: part.name, input, state, ...(hasOutput ? { output: part.output } : {}) };

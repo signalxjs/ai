@@ -46,7 +46,9 @@ function* tokens(text: string, chunkSize: number | undefined): Generator<string>
         for (let i = 0; i < text.length; i += chunkSize) yield text.slice(i, i + chunkSize);
         return;
     }
-    for (const word of text.split(/(?<=\s)/)) if (word) yield word;
+    // Word tokens that keep their trailing whitespace, so joining them
+    // reproduces the text exactly. No lookbehind — runs on every engine.
+    for (const word of text.match(/\S*\s|\S+$/g) ?? []) yield word;
 }
 
 function tick(ms: number | undefined): Promise<void> {

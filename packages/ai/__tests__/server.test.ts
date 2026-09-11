@@ -58,20 +58,28 @@ describe('ChatInput', () => {
         expect('output' in (r.value as ChatInputType).messages[0]!.parts[0]!).toBe(false);
     });
 
+    it('caps reasoning replay data like a tool payload', () => {
+        const big = 'x'.repeat(100_001);
+        expect(validate({ messages: [{ id: 'a', role: 'assistant', parts: [{ type: 'reasoning', text: 't', providerData: { big } }] }] }).issues).toEqual([
+            { message: 'must be JSON-serializable and at most 100000 characters as JSON', path: ['messages', 0, 'parts', 0, 'providerData'] }
+        ]);
+        expect(validate({ messages: [{ id: 'a', role: 'assistant', parts: [{ type: 'reasoning', text: 't', providerData: { sig: 'ok' } }] }] }).issues).toBeUndefined();
+    });
+
     it('caps tool payload size and rejects unserializable values', () => {
         const big = 'x'.repeat(100_001);
         expect(validate({ messages: [{ id: 'a', role: 'assistant', parts: [{ type: 'tool', id: 'c', name: 't', input: { big }, state: 'pending' }] }] }).issues).toEqual([
-            { message: 'larger than 100000 characters as JSON', path: ['messages', 0, 'parts', 0, 'input'] }
+            { message: 'must be JSON-serializable and at most 100000 characters as JSON', path: ['messages', 0, 'parts', 0, 'input'] }
         ]);
         expect(validate({ messages: [{ id: 'a', role: 'assistant', parts: [{ type: 'tool', id: 'c', name: 't', input: {}, state: 'done', output: big }] }] }).issues).toEqual([
-            { message: 'larger than 100000 characters as JSON', path: ['messages', 0, 'parts', 0, 'output'] }
+            { message: 'must be JSON-serializable and at most 100000 characters as JSON', path: ['messages', 0, 'parts', 0, 'output'] }
         ]);
         expect(validate({ messages: [{ id: 'a', role: 'assistant', parts: [{ type: 'tool', id: 'c', name: 't', input: { n: 1n }, state: 'pending' }] }] }).issues).toEqual([
-            { message: 'larger than 100000 characters as JSON', path: ['messages', 0, 'parts', 0, 'input'] }
+            { message: 'must be JSON-serializable and at most 100000 characters as JSON', path: ['messages', 0, 'parts', 0, 'input'] }
         ]);
         // No JSON form at all (only reachable in-process, never from the wire) is rejected too.
         expect(validate({ messages: [{ id: 'a', role: 'assistant', parts: [{ type: 'tool', id: 'c', name: 't', input: {}, state: 'done', output: () => 1 }] }] }).issues).toEqual([
-            { message: 'larger than 100000 characters as JSON', path: ['messages', 0, 'parts', 0, 'output'] }
+            { message: 'must be JSON-serializable and at most 100000 characters as JSON', path: ['messages', 0, 'parts', 0, 'output'] }
         ]);
     });
 
