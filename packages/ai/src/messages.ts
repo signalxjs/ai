@@ -75,7 +75,12 @@ export function applyChunk(message: UIMessage, chunk: UIChunk): boolean {
             else parts.push({ type: 'reasoning', text: chunk.delta });
             return false;
         case 'reasoning-end':
-            if (last && last.type === 'reasoning' && chunk.providerData !== undefined) last.providerData = chunk.providerData;
+            if (chunk.providerData === undefined) return false;
+            // Replay data closes the open reasoning part; with no open part (a
+            // redacted block arrives as `reasoning-end` alone) it becomes its
+            // own text-less part — the same shape the engine assembles server-side.
+            if (last && last.type === 'reasoning' && last.providerData === undefined) last.providerData = chunk.providerData;
+            else parts.push({ type: 'reasoning', text: '', providerData: chunk.providerData });
             return false;
         case 'tool-call':
             parts.push({ type: 'tool', id: chunk.id, name: chunk.name, input: chunk.input, state: 'pending' });

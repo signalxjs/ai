@@ -73,6 +73,18 @@ describe('applyChunk / assembleMessage', () => {
         expect(last).toEqual({ type: 'finish', reason: 'stop' });
     });
 
+    it('keeps replay data that arrives as a bare reasoning-end (a redacted block)', () => {
+        const m = createMessage('assistant');
+        applyChunk(m, { type: 'reasoning-end', providerData: { type: 'redacted_thinking', data: 'X' } });
+        applyChunk(m, { type: 'reasoning', delta: 'visible' });
+        applyChunk(m, { type: 'reasoning-end', providerData: { type: 'thinking', signature: 'S' } });
+        applyChunk(m, { type: 'reasoning-end' });
+        expect(m.parts).toEqual([
+            { type: 'reasoning', text: '', providerData: { type: 'redacted_thinking', data: 'X' } },
+            { type: 'reasoning', text: 'visible', providerData: { type: 'thinking', signature: 'S' } }
+        ]);
+    });
+
     it('adopts the id a start chunk announces', () => {
         const m = createMessage('assistant', [], 'placeholder');
         applyChunk(m, { type: 'start', messageId: 'srv_1' });

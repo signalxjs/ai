@@ -9,8 +9,8 @@
  * whether it is inside a string — so it is O(n) and never guesses at
  * semantics.
  *
- * Returns `undefined` when nothing parseable exists yet (empty input, or a
- * prefix that is only whitespace or a lone `"`).
+ * Returns `undefined` when nothing parseable exists yet (empty input or
+ * whitespace only). A lone `"` is an empty string being typed and reads as `''`.
  */
 export function parsePartialJson(text: string): unknown {
     const trimmed = text.trimStart();
