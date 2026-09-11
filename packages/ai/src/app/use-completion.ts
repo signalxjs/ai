@@ -80,8 +80,11 @@ async function* textDeltas(
         }
         meta.status = 'done';
     } catch (e) {
-        meta.error = e instanceof Error ? e : new Error(String(e));
+        // Normalize once and rethrow the same Error, so `completion.error`
+        // and what the consumer catches are one and the same object.
+        const err = e instanceof Error ? e : new Error(String(e));
+        meta.error = err;
         meta.status = 'error';
-        throw e;
+        throw err;
     }
 }

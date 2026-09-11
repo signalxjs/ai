@@ -74,7 +74,7 @@ export const App = component(() => {
                 {thread.error && <p class="error">{thread.error.message}</p>}
             </section>
             <form onSubmit={submit}>
-                <textarea rows={2} placeholder="Message…" onInput={(e) => { draft = (e.target as HTMLTextAreaElement).value; }} onKeyDown={onKey} />
+                <textarea rows={2} aria-label="Message" placeholder="Message…" onInput={(e) => { draft = (e.target as HTMLTextAreaElement).value; }} onKeyDown={onKey} />
                 {thread.status === 'streaming' ? (
                     <button type="button" onClick={() => thread.stop()}>Stop</button>
                 ) : (

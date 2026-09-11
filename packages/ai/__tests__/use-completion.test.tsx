@@ -55,6 +55,21 @@ describe('useCompletion', () => {
         await vi.waitFor(() => expect(container.querySelector('.out')?.textContent).toBe('a b'));
     });
 
+    it('normalizes a non-Error throw into the same Error it exposes', async () => {
+        async function* bad(): AsyncGenerator<string> {
+            yield 'x';
+            throw 'plain string';
+        }
+        const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const { completion } = mount('non-error', bad);
+        await vi.waitFor(() => expect(completion.status).toBe('error'));
+        expect(completion.error).toBeInstanceOf(Error);
+        expect(completion.error?.message).toBe('plain string');
+        // useStream logs the rejection it saw — the very object completion.error holds.
+        expect(spy).toHaveBeenCalledWith('[useStream] source error:', completion.error);
+        spy.mockRestore();
+    });
+
     it('reports an error chunk', async () => {
         const model = mockModel({ script: [{ text: 'x', error: 'nope' }] });
         const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
