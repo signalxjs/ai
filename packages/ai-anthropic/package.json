@@ -1,0 +1,63 @@
+{
+    "name": "@sigx/ai-anthropic",
+    "version": "0.1.0",
+    "description": "Claude for @sigx/ai — a LanguageModel on the official @anthropic-ai/sdk: streaming, tool use, adaptive thinking, refusal handling",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "development": "./dist/index.js",
+            "production": "./dist/index.prod.js",
+            "import": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist",
+        "CHANGELOG.md"
+    ],
+    "sideEffects": false,
+    "scripts": {
+        "build": "vite build && vite build --mode prod-dist && tsc --emitDeclarationOnly",
+        "dev": "vite build --watch"
+    },
+    "keywords": [
+        "sigx",
+        "signalx",
+        "ai",
+        "anthropic",
+        "claude",
+        "llm",
+        "streaming"
+    ],
+    "author": "Andreas Ekdahl",
+    "license": "MIT",
+    "engines": {
+        "node": "^20.19.0 || >=22.12.0"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/signalxjs/ai.git",
+        "directory": "packages/ai-anthropic"
+    },
+    "homepage": "https://sigx.dev/ai/",
+    "bugs": {
+        "url": "https://github.com/signalxjs/ai/issues"
+    },
+    "devDependencies": {
+        "@anthropic-ai/sdk": "^0.125.0",
+        "@sigx/ai": "workspace:*",
+        "@sigx/vite": "catalog:",
+        "@types/node": "^25.9.1",
+        "typescript": "^6.0.3",
+        "vite": "^8.0.3"
+    },
+    "publishConfig": {
+        "access": "public"
+    },
+    "peerDependencies": {
+        "@anthropic-ai/sdk": ">=0.100.0",
+        "@sigx/ai": "^0.1.0"
+    }
+}
