@@ -30,6 +30,21 @@ function mount(text: string, chunkSize = 6): StreamedObject<Recipe, void> {
 }
 
 describe('useObject', () => {
+    it('reports a stream with no parseable JSON as an error, even without a schema', async () => {
+        const model = mockModel({ script: [{ text: 'sorry, no JSON here' }] });
+        let obj!: StreamedObject<unknown, void>;
+        const App = component(() => {
+            obj = useObject({ stream: () => streamObject({ model, schema: recipeSchema, messages: [userMessage('x')] }) });
+            return () => <div />;
+        }, { name: 'App' });
+        const c = document.createElement('div');
+        containers.push(c);
+        render(jsx(App, {}), c);
+        await obj.run();
+        expect(obj.status).toBe('error');
+        expect(obj.error?.message).toMatch(/no parseable JSON/);
+    });
+
     it('grows the partial key by key and validates the final document', async () => {
         const obj = mount('{"title": "Pancakes", "steps": ["mix", "fry"]}');
         expect(obj.status).toBe('idle');

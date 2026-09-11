@@ -47,8 +47,10 @@ export interface StepInfo {
 }
 
 function isUIMessages(messages: readonly UIMessage[] | readonly ModelMessage[]): messages is readonly UIMessage[] {
+    // An empty transcript converts to an empty model conversation either way;
+    // treating it as UI keeps every first-turn flow on the same path.
     const first = messages[0];
-    return first !== undefined && 'parts' in first;
+    return first === undefined || 'parts' in first;
 }
 
 /** A single model round, translated to UI chunks; returns what the loop needs. */

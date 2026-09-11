@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { streamText, generateText, generateObject, streamObject, defineTool, userMessage, type LanguageModel, type ModelEvent, type UIChunk } from '@sigx/ai';
+import { streamText, generateText, generateObject, streamObject, defineTool, userMessage, type LanguageModel, type ModelEvent, type UIChunk, type UIMessage } from '@sigx/ai';
 import { mockModel } from '@sigx/ai/testing';
 import { citySchema, collect, textOf, schema } from './helpers';
 
@@ -116,6 +116,13 @@ describe('streamText', () => {
         }
         expect(chunks.filter((c) => c.type === 'text')).toHaveLength(1);
         expect(chunks[chunks.length - 1]).toMatchObject({ type: 'finish' });
+    });
+
+    it('accepts an empty UI transcript (system-only first turn)', async () => {
+        const model = mockModel({ script: [{ text: 'hi' }] });
+        const chunks = await collect(streamText({ model, system: 'greet', messages: [] as UIMessage[] }));
+        expect(model.requests[0]!.messages).toEqual([]);
+        expect(textOf(chunks)).toBe('hi');
     });
 
     it('passes system, temperature, maxTokens and providerOptions to the model', async () => {

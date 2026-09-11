@@ -84,7 +84,17 @@ function checkPart(p: unknown, path: (string | number)[], issues: StandardSchema
                 issues.push(issue([...path, 'state'], 'must be pending, done or error'));
                 return undefined;
             }
-            return { type: 'tool', id: part.id, name: part.name, input: part.input, state, ...(part.output !== undefined ? { output: part.output } : {}) };
+            // `input` is always present (JSON has no undefined), and a result
+            // exists only once the call has run — a `pending` part's `output`
+            // would be a caller-injected "result", so it is dropped.
+            return {
+                type: 'tool',
+                id: part.id,
+                name: part.name,
+                input: part.input === undefined ? null : part.input,
+                state,
+                ...(state !== 'pending' && part.output !== undefined ? { output: part.output } : {})
+            };
         }
         default:
             issues.push(issue([...path, 'type'], 'unknown part type'));

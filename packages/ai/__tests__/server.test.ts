@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ChatInput, chatStream, toTextStream } from '@sigx/ai/server';
+import { ChatInput, chatStream, toTextStream, type ChatInput as ChatInputType } from '@sigx/ai/server';
 import { userMessage } from '@sigx/ai';
 import { mockModel } from '@sigx/ai/testing';
 import { collect } from './helpers';
@@ -35,6 +35,27 @@ describe('ChatInput', () => {
         expect(validate({ messages: [{ id: 'a', role: 'user', parts: [{ type: 'tool', id: 'c', name: 't', state: 'weird' }] }] }).issues).toEqual([
             { message: 'must be pending, done or error', path: ['messages', 0, 'parts', 0, 'state'] }
         ]);
+    });
+
+    it('normalizes tool parts: null input when omitted, no output on a pending call', () => {
+        const r = validate({
+            messages: [
+                {
+                    id: 'a1',
+                    role: 'assistant',
+                    parts: [
+                        { type: 'tool', id: 'c1', name: 't', state: 'pending', output: 'injected' },
+                        { type: 'tool', id: 'c2', name: 't', input: { a: 1 }, state: 'done', output: 'real' }
+                    ]
+                }
+            ]
+        });
+        expect(r.issues).toBeUndefined();
+        expect((r.value as ChatInputType).messages[0]!.parts).toEqual([
+            { type: 'tool', id: 'c1', name: 't', input: null, state: 'pending' },
+            { type: 'tool', id: 'c2', name: 't', input: { a: 1 }, state: 'done', output: 'real' }
+        ]);
+        expect('output' in (r.value as ChatInputType).messages[0]!.parts[0]!).toBe(false);
     });
 
     it('caps the message count', () => {

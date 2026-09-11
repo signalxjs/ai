@@ -113,6 +113,9 @@ export function useObject<S extends StandardSchemaV1, In = void>(
             if (id !== seq) return;
             current = null;
             let final: unknown = parsePartialJson(text);
+            // A stream that never produced parseable JSON is a failure, not an
+            // empty success — with or without a schema.
+            if (final === undefined) throw new Error('[sigx ai] useObject: the stream produced no parseable JSON.');
             if (options.schema) final = await validateWith(options.schema, final, 'The streamed object did not match the schema');
             if (id !== seq) return;
             merge(final);
