@@ -146,7 +146,9 @@ interface RoundResult {
  */
 export async function* streamText(options: StreamTextOptions): AsyncGenerator<UIChunk, void, undefined> {
     const { model, tools, signal } = options;
-    const maxSteps = Math.max(1, options.maxSteps ?? 5);
+    // A finite integer ≥ 1; anything else (NaN, Infinity, a fraction) falls
+    // back to the default rather than producing a loop that never runs.
+    const maxSteps = Number.isFinite(options.maxSteps) ? Math.max(1, Math.floor(options.maxSteps as number)) : 5;
     const messages: ModelMessage[] = isUIMessages(options.messages)
         ? toModelMessages(options.messages)
         : [...(options.messages as readonly ModelMessage[])];

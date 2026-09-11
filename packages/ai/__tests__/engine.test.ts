@@ -93,6 +93,13 @@ describe('streamText', () => {
         expect(textOf(chunks)).toBe('ok');
     });
 
+    it('treats a non-finite maxSteps as the default', async () => {
+        const model = mockModel({ respond: (_r, round) => (round === 0 ? { toolCalls: [{ name: 'weather', input: { city: 'A' } }] } : { text: 'done' }) });
+        const chunks = await collect(streamText({ model, messages: [userMessage('x')], tools: [weather], maxSteps: Number.NaN }));
+        expect(model.rounds).toBe(2);
+        expect(textOf(chunks)).toBe('done');
+    });
+
     it('stops at maxSteps and reports the unrun calls', async () => {
         const model = mockModel({ script: [{ toolCalls: [{ name: 'weather', input: { city: 'Oslo' }, id: 'c' }] }] });
         const chunks = await collect(streamText({ model, messages: [userMessage('x')], tools: [weather], maxSteps: 2 }));

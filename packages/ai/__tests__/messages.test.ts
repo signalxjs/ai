@@ -73,6 +73,17 @@ describe('applyChunk / assembleMessage', () => {
         expect(last).toEqual({ type: 'finish', reason: 'stop' });
     });
 
+    it('assembleMessage stops at the terminal chunk', async () => {
+        const chunks: UIChunk[] = [
+            { type: 'text', delta: 'done' },
+            { type: 'finish', reason: 'stop' },
+            { type: 'text', delta: ' — stray' }
+        ];
+        const { message, last } = await assembleMessage((async function* () { yield* chunks; })());
+        expect(message.parts).toEqual([{ type: 'text', text: 'done' }]);
+        expect(last).toEqual({ type: 'finish', reason: 'stop' });
+    });
+
     it('keeps replay data that arrives as a bare reasoning-end (a redacted block)', () => {
         const m = createMessage('assistant');
         applyChunk(m, { type: 'reasoning-end', providerData: { type: 'redacted_thinking', data: 'X' } });

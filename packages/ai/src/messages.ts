@@ -113,7 +113,9 @@ export async function assembleMessage(chunks: AsyncIterable<UIChunk>): Promise<{
             continue;
         }
         message ??= createMessage('assistant');
-        applyChunk(message, chunk);
+        // A terminal chunk ends the turn; anything a faulty source yields
+        // after it is not part of this message.
+        if (applyChunk(message, chunk)) break;
     }
     return { message: message ?? createMessage('assistant'), last };
 }
