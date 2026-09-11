@@ -67,9 +67,27 @@ describe('streamText', () => {
             respond: (_r, round) =>
                 round === 0 ? { toolCalls: [{ name: 'nothing', input: { city: 'a' }, id: 'c1' }, { name: 'bigint', input: { city: 'b' }, id: 'c2' }] } : { text: 'ok' }
         });
-        const chunks = await collect(streamText({ model, messages: [userMessage('x')], tools: [nothing, bigint] }));
+        const nan = defineTool({ name: 'nan', description: 'n', input: citySchema, execute: () => ({ ratio: NaN }) });
+        const sparse = defineTool({ name: 'sparse', description: 's', input: citySchema, execute: () => ({ kept: 1, dropped: undefined }) });
+        const chunks = await collect(
+            streamText({
+                model: mockModel({
+                    respond: (_r, round) =>
+                        round === 0
+                            ? { toolCalls: [{ name: 'nothing', input: { city: 'a' }, id: 'c1' }, { name: 'bigint', input: { city: 'b' }, id: 'c2' }, { name: 'nan', input: { city: 'c' }, id: 'c3' }, { name: 'sparse', input: { city: 'd' }, id: 'c4' }] }
+                            : { text: 'ok' }
+                }),
+                messages: [userMessage('x')],
+                tools: [nothing, bigint, nan, sparse]
+            })
+        );
+        void model;
         expect(chunks.find((c) => c.type === 'tool-result' && c.id === 'c1')).toEqual({ type: 'tool-result', id: 'c1', output: null });
         expect(chunks.find((c) => c.type === 'tool-result' && c.id === 'c2')).toMatchObject({ isError: true, output: expect.stringMatching(/not JSON-serializable/) });
+        // A non-finite number would silently encode as null — an error instead.
+        expect(chunks.find((c) => c.type === 'tool-result' && c.id === 'c3')).toMatchObject({ isError: true, output: expect.stringMatching(/non-finite number at "ratio"/) });
+        // A nested undefined member is plain JSON semantics: omitted, not an error.
+        expect(chunks.find((c) => c.type === 'tool-result' && c.id === 'c4')).toEqual({ type: 'tool-result', id: 'c4', output: { kept: 1, dropped: undefined } });
         // Every chunk survives the wire codec.
         for (const c of chunks) expect(() => JSON.stringify(c)).not.toThrow();
         expect(textOf(chunks)).toBe('ok');

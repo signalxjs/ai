@@ -239,12 +239,29 @@ export async function* streamText(options: StreamTextOptions): AsyncGenerator<UI
     yield { type: 'finish', reason: finish, ...(usage ? { usage } : {}) };
 }
 
-/** Why `value` has no JSON form (a BigInt, a cycle, a function at the top level), or `''` when it serializes. */
+/**
+ * Why `value` cannot go on the wire as-is, or `''` when it can: a BigInt or a
+ * cycle (stringify throws), a function/symbol at the top level (no JSON
+ * form), or a non-finite number anywhere in the graph — `JSON.stringify`
+ * would silently turn `NaN`/`Infinity` into `null`, which changes the value.
+ * Nested `undefined`, function and symbol MEMBERS are omitted, as in every
+ * JSON encoding of a JS object; that is the documented shape, not a loss.
+ */
 function unserializable(value: unknown): string {
     try {
-        return JSON.stringify(value) === undefined ? `a ${typeof value} has no JSON representation` : '';
+        const s = JSON.stringify(value, (key, v) => {
+            if (typeof v === 'number' && !Number.isFinite(v)) throw new NonFiniteError(key);
+            return v;
+        });
+        return s === undefined ? `a ${typeof value} has no JSON representation` : '';
     } catch (e) {
         return e instanceof Error ? e.message : String(e);
+    }
+}
+
+class NonFiniteError extends Error {
+    constructor(key: string) {
+        super(`a non-finite number${key ? ` at "${key}"` : ''} has no JSON representation (it would encode as null)`);
     }
 }
 
