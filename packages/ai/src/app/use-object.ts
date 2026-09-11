@@ -43,6 +43,17 @@ export interface StreamedObject<T, In> {
     reset(): void;
 }
 
+/** With a schema: the final document — and `onFinish` — are typed by it. */
+export function useObject<S extends StandardSchemaV1, In = void>(
+    options: UseObjectOptions<S, In> & { readonly schema: S }
+): StreamedObject<StandardSchemaV1.InferOutput<S>, In>;
+/** Without a schema: nothing is validated, so the document is `unknown`. */
+export function useObject<In = void>(
+    options: Omit<UseObjectOptions<StandardSchemaV1, In>, 'schema' | 'onFinish'> & {
+        readonly schema?: undefined;
+        readonly onFinish?: (object: unknown) => void;
+    }
+): StreamedObject<unknown, In>;
 export function useObject<S extends StandardSchemaV1, In = void>(
     options: UseObjectOptions<S, In>
 ): StreamedObject<StandardSchemaV1.InferOutput<S>, In> {
