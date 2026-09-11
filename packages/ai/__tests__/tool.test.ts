@@ -23,6 +23,19 @@ describe('defineTool', () => {
         expect(() => defineTool({ name: 'has space', description: 'w', input: citySchema, execute: () => 1 })).toThrow(/not a valid tool name/);
     });
 
+    it('awaits an async validator, including a plain thenable', async () => {
+        const thenableSchema = {
+            '~standard': {
+                version: 1 as const,
+                vendor: 'test',
+                validate: (v: unknown) => ({ then: (ok: (r: { value: unknown }) => void) => ok({ value: { city: String((v as { city: unknown }).city).toUpperCase() } }) }) as unknown as Promise<{ value: { city: string } }>,
+                jsonSchema: citySchema['~standard'].jsonSchema
+            }
+        } as unknown as typeof citySchema;
+        const t = defineTool({ name: 'w', description: 'w', input: thenableSchema, execute: ({ city }) => city });
+        await expect(t.run({ city: 'oslo' }, { signal: new AbortController().signal, toolCallId: 'c' })).resolves.toBe('OSLO');
+    });
+
     it('validates arguments before execute', async () => {
         const t = defineTool({ name: 'w', description: 'w', input: citySchema, execute: ({ city }) => `ok:${city}` });
         const ctx = { signal: new AbortController().signal, toolCallId: 'c1' };

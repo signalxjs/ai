@@ -87,8 +87,10 @@ export async function validateWith<S extends StandardSchemaV1>(
     value: unknown,
     what = 'Invalid input'
 ): Promise<StandardSchemaV1.InferOutput<S>> {
-    let result = schema['~standard'].validate(value);
-    if (result instanceof Promise) result = await result;
+    // Unconditional await: a sync result passes straight through, and a
+    // cross-realm promise or a thenable is awaited too (an `instanceof
+    // Promise` check would miss both).
+    const result = await schema['~standard'].validate(value);
     if (result.issues) throw new SchemaValidationError(result.issues, what);
     return result.value as StandardSchemaV1.InferOutput<S>;
 }
