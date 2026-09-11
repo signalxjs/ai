@@ -1,0 +1,30 @@
+[
+  {
+    "name": "@sigx/ai",
+    "path": "packages/ai/dist/index.prod.js",
+    "limit": "6 KB"
+  },
+  {
+    "name": "@sigx/ai/app",
+    "path": "packages/ai/dist/app.prod.js",
+    "limit": "6 KB",
+    "ignore": ["@sigx/reactivity", "@sigx/runtime-core"]
+  },
+  {
+    "name": "@sigx/ai/server",
+    "path": "packages/ai/dist/server.prod.js",
+    "limit": "6 KB"
+  },
+  {
+    "name": "@sigx/ai-anthropic",
+    "path": "packages/ai-anthropic/dist/index.prod.js",
+    "limit": "4 KB",
+    "ignore": ["@anthropic-ai/sdk", "@sigx/ai"]
+  },
+  {
+    "name": "@sigx/ai-openai",
+    "path": "packages/ai-openai/dist/index.prod.js",
+    "limit": "4 KB",
+    "ignore": ["openai", "@sigx/ai"]
+  }
+]

@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "types": ["node"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "sigx",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "verbatimModuleSyntax": true,
+    "paths": {
+      "@sigx/ai": ["./packages/ai/src/index.ts"],
+      "@sigx/ai/server": ["./packages/ai/src/server.ts"],
+      "@sigx/ai/app": ["./packages/ai/src/app/index.ts"],
+      "@sigx/ai/testing": ["./packages/ai/src/testing.ts"],
+      "@sigx/ai-anthropic": ["./packages/ai-anthropic/src/index.ts"],
+      "@sigx/ai-openai": ["./packages/ai-openai/src/index.ts"]
+    }
+  },
+  "include": [
+    "packages/*/src/**/*.ts",
+    "packages/*/src/**/*.tsx",
+    "packages/*/__tests__/**/*.ts",
+    "packages/*/__tests__/**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "packages/*/dist",
+    "examples"
+  ]
+}

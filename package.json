@@ -1,0 +1,70 @@
+{
+  "name": "sigx-ai-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI for SignalX — provider-neutral streaming core, Anthropic and OpenAI providers, and the useChat/useCompletion/useObject composables",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
+  "scripts": {
+    "wt": "node scripts/worktree.mjs",
+    "branch-protection": "node scripts/apply-branch-protection.mjs",
+    "sync:core": "node scripts/sync-core.mjs",
+    "verify:catalog": "node scripts/check-catalog.mjs",
+    "build": "pnpm --filter @sigx/ai build && pnpm --filter @sigx/ai-anthropic build && pnpm --filter @sigx/ai-openai build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsgo --noEmit && pnpm --filter chat-example typecheck",
+    "lint": "oxlint packages/ai/src packages/ai-anthropic/src packages/ai-openai/src examples/chat/src",
+    "lint:fix": "oxlint --fix packages/ai/src packages/ai-anthropic/src packages/ai-openai/src examples/chat/src",
+    "clean": "rm -rf packages/*/dist packages/*/node_modules examples/*/dist examples/*/node_modules node_modules",
+    "publish:dry": "node scripts/publish.js --dry-run",
+    "publish:all": "node scripts/publish.js",
+    "publish:beta": "node scripts/publish.js --tag beta",
+    "version:set": "node scripts/bump-version.js",
+    "version:patch": "node scripts/bump-version.js patch",
+    "version:minor": "node scripts/bump-version.js minor",
+    "version:major": "node scripts/bump-version.js major",
+    "verify:pack": "node scripts/verify-pack.js",
+    "size": "size-limit"
+  },
+  "devDependencies": {
+    "@size-limit/preset-small-lib": "^11",
+    "@types/node": "^25.9.1",
+    "@typescript/native-preview": "7.0.0-dev.20260510.1",
+    "@vitest/coverage-v8": "^4.1.5",
+    "happy-dom": "^20.9.0",
+    "oxlint": "^1.47.0",
+    "size-limit": "^11",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.3",
+    "vitest": "^4.1.5"
+  },
+  "keywords": [
+    "SignalX",
+    "sigx",
+    "ai",
+    "llm",
+    "streaming",
+    "anthropic",
+    "claude",
+    "openai"
+  ],
+  "author": "Andreas Ekdahl",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/signalxjs/ai.git"
+  },
+  "homepage": "https://sigx.dev/ai/",
+  "bugs": {
+    "url": "https://github.com/signalxjs/ai/issues"
+  },
+  "packageManager": "pnpm@10.33.4",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  }
+}
