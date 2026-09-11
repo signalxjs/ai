@@ -176,6 +176,14 @@ describe('useChat', () => {
         expect(chat.status).toBe('idle');
     });
 
+    it('refuses to send a non-user message', async () => {
+        const { model, stream } = mockStream({});
+        const { chat } = mountChat(stream);
+        await expect(chat.send({ id: 'x', role: 'assistant', parts: [{ type: 'text', text: 'nope' }] })).rejects.toThrow(/takes a user message/);
+        expect(model.rounds).toBe(0);
+        expect(chat.messages).toHaveLength(0);
+    });
+
     it('ignores an empty send', async () => {
         const { model, stream } = mockStream({});
         const { chat } = mountChat(stream);

@@ -50,11 +50,16 @@ const MAX_MESSAGES = 500;
 const MAX_TEXT = 200_000;
 const MAX_TOOL_JSON = 100_000;
 
-/** `true` when `value` serializes to JSON within the cap; `false` when it is too large or not serializable at all. */
+/**
+ * `true` when `value` serializes to JSON within the cap; `false` when it is
+ * too large, throws on serialization (BigInt, a cycle), or has no JSON form
+ * at all (a function, a symbol, `undefined` — `JSON.stringify` returns
+ * `undefined` for those rather than throwing).
+ */
 function withinJsonCap(value: unknown): boolean {
     try {
         const s = JSON.stringify(value);
-        return s === undefined ? true : s.length <= MAX_TOOL_JSON;
+        return s !== undefined && s.length <= MAX_TOOL_JSON;
     } catch {
         return false;
     }

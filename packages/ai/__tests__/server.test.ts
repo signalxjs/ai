@@ -69,6 +69,10 @@ describe('ChatInput', () => {
         expect(validate({ messages: [{ id: 'a', role: 'assistant', parts: [{ type: 'tool', id: 'c', name: 't', input: { n: 1n }, state: 'pending' }] }] }).issues).toEqual([
             { message: 'larger than 100000 characters as JSON', path: ['messages', 0, 'parts', 0, 'input'] }
         ]);
+        // No JSON form at all (only reachable in-process, never from the wire) is rejected too.
+        expect(validate({ messages: [{ id: 'a', role: 'assistant', parts: [{ type: 'tool', id: 'c', name: 't', input: {}, state: 'done', output: () => 1 }] }] }).issues).toEqual([
+            { message: 'larger than 100000 characters as JSON', path: ['messages', 0, 'parts', 0, 'output'] }
+        ]);
     });
 
     it('caps the message count', () => {

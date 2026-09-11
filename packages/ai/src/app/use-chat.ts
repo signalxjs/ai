@@ -144,7 +144,12 @@ export function useChat(options: UseChatOptions): Chat {
 
     async function send(input: string | UIMessage): Promise<void> {
         const message = typeof input === 'string' ? userMessage(input) : cloneMessage(input);
-        if (message.role === 'user' && !message.parts.some((p) => p.type === 'text' && p.text.trim())) return;
+        // `send` appends a USER turn — an assistant message here would put the
+        // transcript in a shape no provider accepts, so it is a caller error.
+        if (message.role !== 'user') {
+            throw new Error(`[sigx ai] useChat.send() takes a user message; got role "${message.role}". Use initialMessages for a seeded transcript.`);
+        }
+        if (!message.parts.some((p) => p.type === 'text' && p.text.trim())) return;
         stopCurrent();
         untrack(() => {
             // A stopped turn leaves its partial assistant message; a new send
