@@ -1,0 +1,63 @@
+{
+    "name": "@sigx/ai-openai",
+    "version": "0.1.0",
+    "description": "OpenAI for @sigx/ai — a LanguageModel on the official openai SDK: Responses API streaming and function calling",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "development": "./dist/index.js",
+            "production": "./dist/index.prod.js",
+            "import": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist",
+        "CHANGELOG.md"
+    ],
+    "sideEffects": false,
+    "scripts": {
+        "build": "vite build && vite build --mode prod-dist && tsc --emitDeclarationOnly",
+        "dev": "vite build --watch"
+    },
+    "keywords": [
+        "sigx",
+        "signalx",
+        "ai",
+        "openai",
+        "gpt",
+        "llm",
+        "streaming"
+    ],
+    "author": "Andreas Ekdahl",
+    "license": "MIT",
+    "engines": {
+        "node": "^20.19.0 || >=22.12.0"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/signalxjs/ai.git",
+        "directory": "packages/ai-openai"
+    },
+    "homepage": "https://sigx.dev/ai/",
+    "bugs": {
+        "url": "https://github.com/signalxjs/ai/issues"
+    },
+    "devDependencies": {
+        "@sigx/ai": "workspace:*",
+        "@sigx/vite": "catalog:",
+        "@types/node": "^25.9.1",
+        "openai": "^7.15.0",
+        "typescript": "^6.0.3",
+        "vite": "^8.0.3"
+    },
+    "publishConfig": {
+        "access": "public"
+    },
+    "peerDependencies": {
+        "@sigx/ai": "^0.1.0",
+        "openai": ">=6.0.0"
+    }
+}

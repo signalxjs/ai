@@ -1,0 +1,34 @@
+{
+    "name": "chat-example",
+    "private": true,
+    "type": "module",
+    "description": "AI chat in a real SignalX app — a serverStream endpoint streaming UIChunks to useChat, tools, a provider picked by env, the scripted mock when no key is set",
+    "scripts": {
+        "dev": "node dev-server.mjs",
+        "build": "vite build --app",
+        "start": "cross-env NODE_ENV=production node --conditions=production server.mjs",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@anthropic-ai/sdk": "^0.125.0",
+        "@sigx/ai": "workspace:*",
+        "@sigx/ai-anthropic": "workspace:*",
+        "@sigx/ai-openai": "workspace:*",
+        "@sigx/reactivity": "catalog:",
+        "@sigx/runtime-core": "catalog:",
+        "@sigx/runtime-dom": "catalog:",
+        "@sigx/serialize": "catalog:",
+        "@sigx/server": "catalog:",
+        "@sigx/server-renderer": "catalog:",
+        "openai": "^7.15.0",
+        "sigx": "catalog:",
+        "zod": "^4.6.2"
+    },
+    "devDependencies": {
+        "@sigx/vite": "catalog:",
+        "@types/node": "^25.9.1",
+        "cross-env": "^10.1.0",
+        "typescript": "^6.0.3",
+        "vite": "^8.0.3"
+    }
+}

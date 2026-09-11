@@ -1,0 +1,85 @@
+{
+    "name": "@sigx/ai",
+    "version": "0.1.0",
+    "description": "AI for SignalX — provider-neutral streaming core, tools, and the useChat / useCompletion / useObject composables",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "development": "./dist/index.js",
+            "production": "./dist/index.prod.js",
+            "import": "./dist/index.js"
+        },
+        "./server": {
+            "types": "./dist/server.d.ts",
+            "development": "./dist/server.js",
+            "production": "./dist/server.prod.js",
+            "import": "./dist/server.js"
+        },
+        "./app": {
+            "types": "./dist/app/index.d.ts",
+            "development": "./dist/app.js",
+            "production": "./dist/app.prod.js",
+            "import": "./dist/app.js"
+        },
+        "./testing": {
+            "types": "./dist/testing.d.ts",
+            "development": "./dist/testing.js",
+            "production": "./dist/testing.prod.js",
+            "import": "./dist/testing.js"
+        }
+    },
+    "files": [
+        "dist",
+        "CHANGELOG.md"
+    ],
+    "sideEffects": false,
+    "scripts": {
+        "build": "vite build && vite build --mode prod-dist && tsc --emitDeclarationOnly",
+        "dev": "vite build --watch"
+    },
+    "keywords": [
+        "sigx",
+        "signalx",
+        "ai",
+        "llm",
+        "streaming",
+        "chat",
+        "tools",
+        "agents"
+    ],
+    "author": "Andreas Ekdahl",
+    "license": "MIT",
+    "engines": {
+        "node": "^20.19.0 || >=22.12.0"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/signalxjs/ai.git",
+        "directory": "packages/ai"
+    },
+    "homepage": "https://sigx.dev/ai/",
+    "bugs": {
+        "url": "https://github.com/signalxjs/ai/issues"
+    },
+    "devDependencies": {
+        "@sigx/reactivity": "catalog:",
+        "@sigx/runtime-core": "catalog:",
+        "@sigx/runtime-dom": "catalog:",
+        "@sigx/server-renderer": "catalog:",
+        "@sigx/vite": "catalog:",
+        "@types/node": "^25.9.1",
+        "sigx": "catalog:",
+        "typescript": "^6.0.3",
+        "vite": "^8.0.3"
+    },
+    "publishConfig": {
+        "access": "public"
+    },
+    "peerDependencies": {
+        "@sigx/reactivity": "^0.15.0",
+        "@sigx/runtime-core": "^0.15.0"
+    }
+}
