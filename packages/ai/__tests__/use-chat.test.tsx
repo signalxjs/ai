@@ -64,6 +64,20 @@ describe('useChat', () => {
         expect(model.requests[0]!.messages).toEqual([{ role: 'user', content: 'hi' }]);
     });
 
+    it('adopts the message id the stream announces', async () => {
+        let announced = '';
+        const { stream } = mockStream({ script: [{ text: 'ok' }] });
+        const { chat } = mountChat(async function* (input) {
+            for await (const c of stream(input)) {
+                if (c.type === 'start') announced = c.messageId;
+                yield c;
+            }
+        });
+        await chat.send('hi');
+        expect(announced).toMatch(/^msg_/);
+        expect(chat.messages[1]!.id).toBe(announced);
+    });
+
     it('a text delta writes one part — the transcript itself does not re-run', async () => {
         const { stream } = mockStream({ script: [{ text: 'one two three four', delayMs: 2 }] });
         const { chat } = mountChat(stream);

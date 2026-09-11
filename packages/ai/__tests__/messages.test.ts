@@ -73,6 +73,12 @@ describe('applyChunk / assembleMessage', () => {
         expect(last).toEqual({ type: 'finish', reason: 'stop' });
     });
 
+    it('adopts the id a start chunk announces', () => {
+        const m = createMessage('assistant', [], 'placeholder');
+        applyChunk(m, { type: 'start', messageId: 'srv_1' });
+        expect(m.id).toBe('srv_1');
+    });
+
     it('marks an errored tool result', () => {
         const m = createMessage('assistant');
         applyChunk(m, { type: 'tool-call', id: 'c', name: 't', input: null });

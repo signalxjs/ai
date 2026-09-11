@@ -8,9 +8,9 @@
  * composer and the other messages never re-render.
  *
  * Single-threaded like `useAction`: `send()` while a turn streams stops the
- * running turn first. `stop()` returns the iterator, which for a
- * `serverStream` stub aborts the request and runs the handler's `finally`.
- * Unmount stops the pull too.
+ * running turn first. `stop()` calls the chunk iterator's `return()`, which
+ * for a `serverStream` stub aborts the request and runs the handler's
+ * `finally`. Unmount stops the pull too.
  */
 
 import { signal, batch, untrack } from '@sigx/reactivity';

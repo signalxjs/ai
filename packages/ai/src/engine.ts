@@ -146,6 +146,8 @@ export async function* streamText(options: StreamTextOptions): AsyncGenerator<UI
         ? toModelMessages(options.messages)
         : [...(options.messages as readonly ModelMessage[])];
     const specs = tools?.length ? tools.map((t) => t.spec) : undefined;
+    // Tools always receive a signal; without a caller's, one inert signal serves the whole turn.
+    const toolSignal = signal ?? new AbortController().signal;
     let usage: Usage | undefined;
     let finish: FinishReason = 'other';
 
@@ -189,7 +191,7 @@ export async function* streamText(options: StreamTextOptions): AsyncGenerator<UI
                         return { call, output: `Unknown tool "${call.name}".`, isError: true };
                     }
                     try {
-                        const output = await tool.run(call.input, { signal: signal ?? new AbortController().signal, toolCallId: call.id });
+                        const output = await tool.run(call.input, { signal: toolSignal, toolCallId: call.id });
                         return { call, output, isError: false };
                     } catch (e) {
                         return { call, output: e instanceof Error ? e.message : String(e), isError: true };

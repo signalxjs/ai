@@ -62,6 +62,9 @@ export function applyChunk(message: UIMessage, chunk: UIChunk): boolean {
     const last = parts.length ? parts[parts.length - 1] : undefined;
     switch (chunk.type) {
         case 'start':
+            // Adopt the id the server announced, so a message created client-side
+            // as a placeholder (useChat) carries the same id as the server's copy.
+            if (message.id !== chunk.messageId) (message as { id: string }).id = chunk.messageId;
             return false;
         case 'text':
             if (last && last.type === 'text') last.text += chunk.delta;

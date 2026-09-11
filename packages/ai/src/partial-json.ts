@@ -61,8 +61,10 @@ function repair(src: string): string | undefined {
     for (;;) {
         const before = out;
         out = out.replace(/\s+$/, '');
-        // partial literals / numbers at the end of the current value
-        out = out.replace(/(?<=[:[,]\s*)(?:-|-?\d+\.|-?\d*\.\d*[eE][+-]?|t|tr|tru|f|fa|fal|fals|n|nu|nul)$/, '');
+        // partial literals / numbers at the end of the current value. No
+        // lookbehind: the separator prefix is captured and kept, so this runs
+        // on every engine rather than only those with variable-length lookbehind.
+        out = out.replace(/([:[,]\s*)(?:-|-?\d+\.|-?\d*\.\d*[eE][+-]?|t|tr|tru|f|fa|fal|fals|n|nu|nul)$/, '$1');
         out = out.replace(/\s+$/, '');
         // dangling colon or comma
         out = out.replace(/[:,]$/, '');
