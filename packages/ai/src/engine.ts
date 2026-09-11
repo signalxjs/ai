@@ -199,6 +199,12 @@ export async function* streamText(options: StreamTextOptions): AsyncGenerator<UI
                     }
                     try {
                         const output = await tool.run(call.input, { signal: toolSignal, toolCallId: call.id });
+                        // The protocol is plain JSON: `undefined` has no wire form
+                        // (it becomes null), and a value that cannot serialize is a
+                        // tool error now rather than a broken stream later.
+                        if (output === undefined) return { call, output: null, isError: false };
+                        const reason = unserializable(output);
+                        if (reason) return { call, output: `Tool "${call.name}" returned a value that is not JSON-serializable: ${reason}`, isError: true };
                         return { call, output, isError: false };
                     } catch (e) {
                         return { call, output: e instanceof Error ? e.message : String(e), isError: true };
@@ -231,6 +237,15 @@ export async function* streamText(options: StreamTextOptions): AsyncGenerator<UI
         return;
     }
     yield { type: 'finish', reason: finish, ...(usage ? { usage } : {}) };
+}
+
+/** Why `value` has no JSON form (a BigInt, a cycle, a function at the top level), or `''` when it serializes. */
+function unserializable(value: unknown): string {
+    try {
+        return JSON.stringify(value) === undefined ? `a ${typeof value} has no JSON representation` : '';
+    } catch (e) {
+        return e instanceof Error ? e.message : String(e);
+    }
 }
 
 /** Settle with `promise`, or reject the moment `signal` aborts — whichever comes first. */
