@@ -122,8 +122,11 @@ async function* runRound(
             if (errored !== undefined || sawFinish) break;
         }
     } finally {
-        // A consumer that stopped early closes the provider stream too.
-        if (!sawFinish && errored === undefined) await iterator.return?.();
+        // Always close the provider iterator: a consumer that stopped early
+        // releases the stream, and a generator paused on its `finish` yield
+        // runs its cleanup now rather than never. Closing a finished
+        // iterator is a no-op.
+        await iterator.return?.();
     }
     if (errored !== undefined) throw errored instanceof Error ? errored : new Error(String(errored));
     if (toolCalls.length && finish !== 'tool') finish = 'tool';

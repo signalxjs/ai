@@ -38,7 +38,15 @@ async function serveAsset(req, res, next) {
     // Join the RELATIVE remainder onto the assets dir (a leading slash is
     // dropped so the intent is unambiguous), then normalize; anything that
     // escapes the directory is a 404, never a read.
-    const file = normalize(join(assetsDir, decodeURIComponent(pathname.slice('/assets/'.length))));
+    let rel;
+    try {
+        rel = decodeURIComponent(pathname.slice('/assets/'.length));
+    } catch {
+        // Malformed percent-encoding is a bad path, not a crash.
+        res.writeHead(404, { 'content-type': 'text/plain' });
+        return void res.end('not found');
+    }
+    const file = normalize(join(assetsDir, rel));
     if (file !== assetsDir && !file.startsWith(assetsDir + sep)) {
         res.writeHead(404, { 'content-type': 'text/plain' });
         return void res.end('not found');

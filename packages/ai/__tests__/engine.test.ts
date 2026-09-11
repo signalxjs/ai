@@ -118,6 +118,24 @@ describe('streamText', () => {
         expect(chunks[chunks.length - 1]).toMatchObject({ type: 'finish' });
     });
 
+    it("runs a provider generator's cleanup right after finish", async () => {
+        let cleaned = false;
+        const model: LanguageModel = {
+            provider: 'x',
+            modelId: 'y',
+            stream: async function* () {
+                try {
+                    yield { type: 'text-delta', delta: 'hi' };
+                    yield { type: 'finish', reason: 'stop' };
+                } finally {
+                    cleaned = true;
+                }
+            }
+        };
+        await collect(streamText({ model, messages: [userMessage('x')] }));
+        expect(cleaned).toBe(true);
+    });
+
     it('accepts an empty UI transcript (system-only first turn)', async () => {
         const model = mockModel({ script: [{ text: 'hi' }] });
         const chunks = await collect(streamText({ model, system: 'greet', messages: [] as UIMessage[] }));
