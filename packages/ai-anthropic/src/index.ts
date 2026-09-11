@@ -97,6 +97,15 @@ function toTool(spec: ToolSpec): AnthropicTool {
     };
 }
 
+/** `JSON.stringify` with a clear error — a BigInt or a cycle in a tool result must not surface as a bare throw mid-stream. */
+function toJson(value: unknown, what: string): string {
+    try {
+        return JSON.stringify(value) ?? 'null';
+    } catch (e) {
+        throw new Error(`[sigx ai-anthropic] ${what} is not JSON-serializable: ${e instanceof Error ? e.message : String(e)}`);
+    }
+}
+
 function toMessages(messages: readonly ModelMessage[]): MessageParam[] {
     const out: MessageParam[] = [];
     for (const m of messages) {
@@ -126,7 +135,7 @@ function toMessages(messages: readonly ModelMessage[]): MessageParam[] {
             content: m.content.map((r) => ({
                 type: 'tool_result' as const,
                 tool_use_id: r.toolCallId,
-                content: typeof r.output === 'string' ? r.output : JSON.stringify(r.output ?? null),
+                content: typeof r.output === 'string' ? r.output : toJson(r.output ?? null, `tool result for "${r.toolCallId}"`),
                 ...(r.isError ? { is_error: true } : {})
             }))
         });

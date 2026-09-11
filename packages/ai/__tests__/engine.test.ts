@@ -118,6 +118,34 @@ describe('streamText', () => {
         expect(chunks[chunks.length - 1]).toMatchObject({ type: 'finish' });
     });
 
+    it('ends the turn promptly when aborted while a tool is still running', async () => {
+        const ctrl = new AbortController();
+        let toolSawAbort = false;
+        const slow = defineTool({
+            name: 'slow',
+            description: 's',
+            input: citySchema,
+            execute: (_i, ctx) =>
+                new Promise<string>((resolve) => {
+                    ctx.signal.addEventListener('abort', () => {
+                        toolSawAbort = true;
+                        resolve('late');
+                    });
+                    setTimeout(() => resolve('done'), 5_000);
+                })
+        });
+        const model = mockModel({ script: [{ toolCalls: [{ name: 'slow', input: { city: 'x' } }] }] });
+        const started = Date.now();
+        const chunks: UIChunk[] = [];
+        for await (const c of streamText({ model, messages: [userMessage('x')], tools: [slow], signal: ctrl.signal })) {
+            chunks.push(c);
+            if (c.type === 'tool-call') setTimeout(() => ctrl.abort(), 5);
+        }
+        expect(Date.now() - started).toBeLessThan(2_000);
+        expect(toolSawAbort).toBe(true);
+        expect(chunks.map((c) => c.type)).toEqual(['start', 'tool-call', 'finish']);
+    });
+
     it("runs a provider generator's cleanup right after finish", async () => {
         let cleaned = false;
         const model: LanguageModel = {

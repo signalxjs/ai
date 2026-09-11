@@ -122,6 +122,14 @@ describe('@sigx/ai-openai', () => {
         expect((await collect(openai({ client: c2 }).model().stream({ messages: [] }))).at(-1)).toMatchObject({ type: 'finish', reason: 'refusal' });
     });
 
+    it('names an unserializable tool payload instead of throwing bare', async () => {
+        const { client } = fakeClient([]);
+        const model = openai({ client }).model();
+        await expect(
+            collect(model.stream({ messages: [{ role: 'assistant', content: [{ type: 'tool-call', id: 'call_9', name: 't', input: { n: 1n } }] }] }))
+        ).rejects.toThrow(/\[sigx ai-openai\] arguments of tool call "call_9" is not JSON-serializable/);
+    });
+
     it('surfaces failures and error events; stays silent on abort', async () => {
         const { client } = fakeClient([ev({ type: 'response.failed', response: { id: 'r', status: 'failed', error: { code: 'server_error', message: 'down' } } })]);
         expect(await collect(openai({ client }).model().stream({ messages: [] }))).toEqual([{ type: 'error', error: expect.objectContaining({ message: 'down' }) }]);

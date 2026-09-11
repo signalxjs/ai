@@ -17,7 +17,13 @@ export interface LanguageModel {
     readonly provider: string;
     /** Vendor model id, e.g. `'claude-opus-5'`. */
     readonly modelId: string;
-    /** One model round. The iterable ends after a `finish` or `error` event. */
+    /**
+     * One model round. The iterable ends after a `finish` or `error` event —
+     * with one exception: when `request.signal` aborts, a provider may end
+     * the iterable with no terminal event at all (the abort is the caller's
+     * own act). The engine treats a silent end as `finish: 'other'`; a direct
+     * consumer should do the same.
+     */
     stream(request: ModelRequest): AsyncIterable<ModelEvent>;
 }
 

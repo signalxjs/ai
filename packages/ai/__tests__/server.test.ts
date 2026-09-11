@@ -58,6 +58,19 @@ describe('ChatInput', () => {
         expect('output' in (r.value as ChatInputType).messages[0]!.parts[0]!).toBe(false);
     });
 
+    it('caps tool payload size and rejects unserializable values', () => {
+        const big = 'x'.repeat(100_001);
+        expect(validate({ messages: [{ id: 'a', role: 'assistant', parts: [{ type: 'tool', id: 'c', name: 't', input: { big }, state: 'pending' }] }] }).issues).toEqual([
+            { message: 'larger than 100000 characters as JSON', path: ['messages', 0, 'parts', 0, 'input'] }
+        ]);
+        expect(validate({ messages: [{ id: 'a', role: 'assistant', parts: [{ type: 'tool', id: 'c', name: 't', input: {}, state: 'done', output: big }] }] }).issues).toEqual([
+            { message: 'larger than 100000 characters as JSON', path: ['messages', 0, 'parts', 0, 'output'] }
+        ]);
+        expect(validate({ messages: [{ id: 'a', role: 'assistant', parts: [{ type: 'tool', id: 'c', name: 't', input: { n: 1n }, state: 'pending' }] }] }).issues).toEqual([
+            { message: 'larger than 100000 characters as JSON', path: ['messages', 0, 'parts', 0, 'input'] }
+        ]);
+    });
+
     it('caps the message count', () => {
         const messages = Array.from({ length: 501 }, (_, i) => userMessage('x', `u${i}`));
         expect(validate({ messages }).issues).toEqual([{ message: 'more than 500 messages', path: ['messages'] }]);

@@ -145,6 +145,14 @@ describe('@sigx/ai-anthropic', () => {
         }
     });
 
+    it('names an unserializable tool result instead of throwing bare', async () => {
+        const { client } = fakeClient([]);
+        const model = anthropic({ client }).model();
+        await expect(
+            collect(model.stream({ messages: [{ role: 'tool', content: [{ type: 'tool-result', toolCallId: 'toolu_9', toolName: 't', output: { n: 1n } }] }] }))
+        ).rejects.toThrow(/\[sigx ai-anthropic\] tool result for "toolu_9" is not JSON-serializable/);
+    });
+
     it('surfaces an SDK throw as an error event (and stays silent on abort)', async () => {
         const client = { messages: { stream: () => (async function* () { throw new Error('429 rate limited'); })() } } as unknown as Anthropic;
         const events = await collect(anthropic({ client }).model().stream({ messages: [{ role: 'user', content: 'x' }] }));

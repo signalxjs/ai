@@ -188,8 +188,10 @@ export async function* streamText(options: StreamTextOptions): AsyncGenerator<UI
                 break;
             }
 
-            // Every call of the round runs concurrently; results go back in ONE message.
-            const results = await Promise.all(
+            // Every call of the round runs concurrently; results go back in ONE
+            // message. An abort while they run ends the turn at once — the tools
+            // hold `ctx.signal` and are expected to stop on their own.
+            const results = await abortable(signal, Promise.all(
                 round.toolCalls.map(async (call) => {
                     const tool = findTool(tools, call.name);
                     if (!tool) {
@@ -202,7 +204,7 @@ export async function* streamText(options: StreamTextOptions): AsyncGenerator<UI
                         return { call, output: e instanceof Error ? e.message : String(e), isError: true };
                     }
                 })
-            );
+            ));
             if (signal?.aborted) throw abortError(signal);
             for (const r of results) {
                 yield r.isError
@@ -229,6 +231,26 @@ export async function* streamText(options: StreamTextOptions): AsyncGenerator<UI
         return;
     }
     yield { type: 'finish', reason: finish, ...(usage ? { usage } : {}) };
+}
+
+/** Settle with `promise`, or reject the moment `signal` aborts — whichever comes first. */
+function abortable<T>(signal: AbortSignal | undefined, promise: Promise<T>): Promise<T> {
+    if (!signal) return promise;
+    if (signal.aborted) return Promise.reject(abortError(signal));
+    return new Promise<T>((resolve, reject) => {
+        const onAbort = () => reject(abortError(signal));
+        signal.addEventListener('abort', onAbort, { once: true });
+        promise.then(
+            (v) => {
+                signal.removeEventListener('abort', onAbort);
+                resolve(v);
+            },
+            (e) => {
+                signal.removeEventListener('abort', onAbort);
+                reject(e);
+            }
+        );
+    });
 }
 
 function abortError(signal: AbortSignal): Error {

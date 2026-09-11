@@ -91,6 +91,15 @@ function toTool(spec: ToolSpec): FunctionTool {
     };
 }
 
+/** `JSON.stringify` with a clear error — a BigInt or a cycle in a tool payload must not surface as a bare throw mid-stream. */
+function toJson(value: unknown, what: string): string {
+    try {
+        return JSON.stringify(value) ?? 'null';
+    } catch (e) {
+        throw new Error(`[sigx ai-openai] ${what} is not JSON-serializable: ${e instanceof Error ? e.message : String(e)}`);
+    }
+}
+
 function toInput(messages: readonly ModelMessage[]): ResponseInputItem[] {
     const out: ResponseInputItem[] = [];
     for (const m of messages) {
@@ -117,7 +126,7 @@ function toInput(messages: readonly ModelMessage[]): ResponseInputItem[] {
                         out.push({ role: 'assistant', content: text });
                         text = '';
                     }
-                    out.push({ type: 'function_call', call_id: p.id, name: p.name, arguments: JSON.stringify(p.input ?? {}) });
+                    out.push({ type: 'function_call', call_id: p.id, name: p.name, arguments: toJson(p.input ?? {}, `arguments of tool call "${p.id}"`) });
                 }
             }
             if (text) out.push({ role: 'assistant', content: text });
@@ -127,7 +136,7 @@ function toInput(messages: readonly ModelMessage[]): ResponseInputItem[] {
             out.push({
                 type: 'function_call_output',
                 call_id: r.toolCallId,
-                output: typeof r.output === 'string' ? r.output : JSON.stringify(r.output ?? null)
+                output: typeof r.output === 'string' ? r.output : toJson(r.output ?? null, `tool result for "${r.toolCallId}"`)
             });
         }
     }

@@ -48,6 +48,17 @@ export async function* toTextStream(chunks: AsyncIterable<UIChunk>): AsyncGenera
 
 const MAX_MESSAGES = 500;
 const MAX_TEXT = 200_000;
+const MAX_TOOL_JSON = 100_000;
+
+/** `true` when `value` serializes to JSON within the cap; `false` when it is too large or not serializable at all. */
+function withinJsonCap(value: unknown): boolean {
+    try {
+        const s = JSON.stringify(value);
+        return s === undefined ? true : s.length <= MAX_TOOL_JSON;
+    } catch {
+        return false;
+    }
+}
 
 function issue(path: (string | number)[], message: string): StandardSchemaV1.Issue {
     return { message, path };
@@ -86,15 +97,20 @@ function checkPart(p: unknown, path: (string | number)[], issues: StandardSchema
             }
             // `input` is always present (JSON has no undefined), and a result
             // exists only once the call has run — a `pending` part's `output`
-            // would be a caller-injected "result", so it is dropped.
-            return {
-                type: 'tool',
-                id: part.id,
-                name: part.name,
-                input: part.input === undefined ? null : part.input,
-                state,
-                ...(state !== 'pending' && part.output !== undefined ? { output: part.output } : {})
-            };
+            // would be a caller-injected "result", so it is dropped. Both are
+            // arbitrary JSON from the wire, so they are size-capped (and, as a
+            // consequence of measuring them, proven serializable).
+            const input = part.input === undefined ? null : part.input;
+            if (!withinJsonCap(input)) {
+                issues.push(issue([...path, 'input'], `larger than ${MAX_TOOL_JSON} characters as JSON`));
+                return undefined;
+            }
+            const hasOutput = state !== 'pending' && part.output !== undefined;
+            if (hasOutput && !withinJsonCap(part.output)) {
+                issues.push(issue([...path, 'output'], `larger than ${MAX_TOOL_JSON} characters as JSON`));
+                return undefined;
+            }
+            return { type: 'tool', id: part.id, name: part.name, input, state, ...(hasOutput ? { output: part.output } : {}) };
         }
         default:
             issues.push(issue([...path, 'type'], 'unknown part type'));
