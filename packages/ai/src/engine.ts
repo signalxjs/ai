@@ -201,13 +201,13 @@ export async function* streamText(options: StreamTextOptions): AsyncGenerator<UI
                     }
                     try {
                         const output = await tool.run(call.input, { signal: toolSignal, toolCallId: call.id });
-                        // The protocol is plain JSON: `undefined` has no wire form
-                        // (it becomes null), and a value that cannot serialize is a
+                        // The protocol is plain JSON: the result is normalized to
+                        // its JSON form HERE, so an in-process consumer sees exactly
+                        // what crosses the wire; a value that cannot serialize is a
                         // tool error now rather than a broken stream later.
-                        if (output === undefined) return { call, output: null, isError: false };
-                        const reason = unserializable(output);
-                        if (reason) return { call, output: `Tool "${call.name}" returned a value that is not JSON-serializable: ${reason}`, isError: true };
-                        return { call, output, isError: false };
+                        const wire = toWireValue(output);
+                        if (wire.error !== undefined) return { call, output: `Tool "${call.name}" returned a value that is not JSON-serializable: ${wire.error}`, isError: true };
+                        return { call, output: wire.value, isError: false };
                     } catch (e) {
                         return { call, output: e instanceof Error ? e.message : String(e), isError: true };
                     }
@@ -242,22 +242,26 @@ export async function* streamText(options: StreamTextOptions): AsyncGenerator<UI
 }
 
 /**
- * Why `value` cannot go on the wire as-is, or `''` when it can: a BigInt or a
- * cycle (stringify throws), a function/symbol at the top level (no JSON
- * form), or a non-finite number anywhere in the graph — `JSON.stringify`
- * would silently turn `NaN`/`Infinity` into `null`, which changes the value.
- * Nested `undefined`, function and symbol MEMBERS are omitted, as in every
- * JSON encoding of a JS object; that is the documented shape, not a loss.
+ * A tool result in its wire form — the value as it will be after one JSON
+ * round trip, so in-process and over-the-wire consumers see one shape:
+ * nested `undefined`/function/symbol members are omitted (JSON's encoding of
+ * any JS object), a top-level `undefined` is `null`. Or the reason it cannot
+ * go on the wire: a BigInt or a cycle (stringify throws), a top-level
+ * function/symbol (no JSON form), or a non-finite number anywhere in the
+ * graph — `JSON.stringify` would silently turn `NaN`/`Infinity` into `null`,
+ * which changes the value.
  */
-function unserializable(value: unknown): string {
+function toWireValue(value: unknown): { value: unknown; error?: undefined } | { value?: undefined; error: string } {
+    if (value === undefined) return { value: null };
     try {
         const s = JSON.stringify(value, (key, v) => {
             if (typeof v === 'number' && !Number.isFinite(v)) throw new NonFiniteError(key);
             return v;
         });
-        return s === undefined ? `a ${typeof value} has no JSON representation` : '';
+        if (s === undefined) return { error: `a ${typeof value} has no JSON representation` };
+        return { value: JSON.parse(s) };
     } catch (e) {
-        return e instanceof Error ? e.message : String(e);
+        return { error: e instanceof Error ? e.message : String(e) };
     }
 }
 

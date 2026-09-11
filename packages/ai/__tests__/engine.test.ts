@@ -86,8 +86,11 @@ describe('streamText', () => {
         expect(chunks.find((c) => c.type === 'tool-result' && c.id === 'c2')).toMatchObject({ isError: true, output: expect.stringMatching(/not JSON-serializable/) });
         // A non-finite number would silently encode as null — an error instead.
         expect(chunks.find((c) => c.type === 'tool-result' && c.id === 'c3')).toMatchObject({ isError: true, output: expect.stringMatching(/non-finite number at "ratio"/) });
-        // A nested undefined member is plain JSON semantics: omitted, not an error.
-        expect(chunks.find((c) => c.type === 'tool-result' && c.id === 'c4')).toEqual({ type: 'tool-result', id: 'c4', output: { kept: 1, dropped: undefined } });
+        // A nested undefined member is plain JSON semantics: omitted, not an error —
+        // and omitted in-process too, so the shape matches the wire exactly.
+        const sparseResult = chunks.find((c) => c.type === 'tool-result' && c.id === 'c4') as { output: Record<string, unknown> };
+        expect(sparseResult).toEqual({ type: 'tool-result', id: 'c4', output: { kept: 1 } });
+        expect('dropped' in sparseResult.output).toBe(false);
         // Every chunk survives the wire codec.
         for (const c of chunks) expect(() => JSON.stringify(c)).not.toThrow();
         expect(textOf(chunks)).toBe('ok');
