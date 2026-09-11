@@ -53,11 +53,11 @@ function tick(ms: number | undefined): Promise<void> {
     return ms && ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve();
 }
 
-let callSeq = 0;
-
 export function mockModel(options: MockModelOptions = {}): MockModel {
     const requests: ModelRequest[] = [];
     let rounds = 0;
+    /** Per-instance, so two mocks in one test never interleave their generated ids. */
+    let callSeq = 0;
     const script = options.script ?? [{ text: 'Hello from the mock model.' }];
 
     return {

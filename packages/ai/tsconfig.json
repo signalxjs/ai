@@ -10,7 +10,11 @@
         "rootDir": "./src",
         "skipLibCheck": true,
         "verbatimModuleSyntax": true,
-        "types": ["node"]
+        // No Node globals: this package is node:-free by contract, and the
+        // declaration build is where a stray `process` or `Buffer` would
+        // otherwise slip through unnoticed.
+        "types": [],
+        "lib": ["ESNext", "DOM"]
     },
     "include": ["src/**/*.ts"],
     "exclude": ["node_modules", "dist", "__tests__"]

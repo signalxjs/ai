@@ -35,8 +35,10 @@ async function serveAsset(req, res, next) {
         return next();
     }
     if (!pathname.startsWith('/assets/')) return next();
-    // Resolve inside the assets dir only — a `..` that escapes it falls through to a 404.
-    const file = normalize(join(clientDir, decodeURIComponent(pathname)));
+    // Join the RELATIVE remainder onto the assets dir (a leading slash is
+    // dropped so the intent is unambiguous), then normalize; anything that
+    // escapes the directory is a 404, never a read.
+    const file = normalize(join(assetsDir, decodeURIComponent(pathname.slice('/assets/'.length))));
     if (file !== assetsDir && !file.startsWith(assetsDir + sep)) {
         res.writeHead(404, { 'content-type': 'text/plain' });
         return void res.end('not found');
