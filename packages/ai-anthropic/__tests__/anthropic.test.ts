@@ -120,6 +120,9 @@ describe('@sigx/ai-anthropic', () => {
         expect(calls[0]).toMatchObject({ params: { model: 'claude-opus-5', max_tokens: 64000, thinking: { type: 'adaptive' } } });
         await collect(p.model('claude-haiku-4-5').stream({ messages: [{ role: 'user', content: 'x' }], providerOptions: { thinking: null } }));
         expect((calls[1] as { params: Record<string, unknown> }).params).not.toHaveProperty('thinking');
+        // An explicitly undefined key is not a decision — the default stands.
+        await collect(p.model().stream({ messages: [{ role: 'user', content: 'x' }], providerOptions: { thinking: undefined } }));
+        expect(calls[2]).toMatchObject({ params: { thinking: { type: 'adaptive' } } });
     });
 
     it('translates recorded events: thinking with signature, text, a tool call, usage, stop reason', async () => {

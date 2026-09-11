@@ -74,7 +74,10 @@ function toParams(modelId: string, request: ModelRequest, options: AnthropicProv
     };
     // Adaptive thinking unless the caller decided otherwise. `null` opts out
     // entirely (a model that rejects the parameter).
-    if (!layers.some((l) => 'thinking' in l)) params.thinking = { type: 'adaptive' };
+    // Only a DECIDED value overrides the default: `null` opts out (the merge
+    // loop below skips it, so no `thinking` param is sent), an object wins;
+    // an explicitly `undefined` key is the same as no key.
+    if (!layers.some((l) => l.thinking !== undefined)) params.thinking = { type: 'adaptive' };
     for (const layer of layers) {
         for (const [k, v] of Object.entries(layer)) {
             if (v === null || v === undefined) continue;
