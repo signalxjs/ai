@@ -23,8 +23,8 @@
                stylesheet targets those and nothing else. The bubble's pre-wrap is
                for tool/reasoning parts; blocks manage their own whitespace. */
             .md { white-space: normal; }
-            .md.live [data-part=root] > :last-child::after { content: '▍'; animation: blink 1s steps(2) infinite; }
-            .md.live [data-part=root]:empty::after { content: '▍'; animation: blink 1s steps(2) infinite; }
+            .md.live [data-scope=markdown][data-part=root] > :last-child::after { content: '▍'; animation: blink 1s steps(2) infinite; }
+            .md.live [data-scope=markdown][data-part=root]:empty::after { content: '▍'; animation: blink 1s steps(2) infinite; }
             @keyframes blink { 50% { opacity: 0; } }
             [data-scope=markdown][data-part=root] { line-height: 1.5; overflow-wrap: break-word; }
             [data-scope=markdown][data-part=root] > :first-child { margin-top: 0; }

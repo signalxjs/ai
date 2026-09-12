@@ -10,10 +10,12 @@ import { useChat, type UIMessage, type UIPart } from '@sigx/ai/app';
 import { MarkdownView } from '@sigx/markdown/dom';
 import { chat } from './ai.server';
 
-const Part = component<{ part: UIPart; live: boolean }>((ctx) => {
+const Part = component<{ part: UIPart; role: UIMessage['role']; live: boolean }>((ctx) => {
     return () => {
         const p = ctx.props.part;
         if (p.type === 'text') {
+            // Only the assistant writes markdown; a user's text shows as typed.
+            if (ctx.props.role !== 'assistant') return <span>{p.text}</span>;
             return (
                 <div class={ctx.props.live ? 'md live' : 'md'}>
                     <MarkdownView value={p.text} />
@@ -35,7 +37,7 @@ const Message = component<{ message: UIMessage; live: boolean }>((ctx) => {
         return (
             <div class={`msg ${m.role}`}>
                 {m.parts.map((part, i) => (
-                    <Part part={part} live={ctx.props.live && i === m.parts.length - 1} />
+                    <Part part={part} role={m.role} live={ctx.props.live && i === m.parts.length - 1} />
                 ))}
             </div>
         );
