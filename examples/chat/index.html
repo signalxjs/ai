@@ -18,8 +18,32 @@
             .tool { display: block; font-family: ui-monospace, monospace; font-size: 0.8em; margin: 0.3rem 0; padding: 0.4rem 0.6rem; border-left: 3px solid Highlight; background: color-mix(in srgb, CanvasText 5%, Canvas); }
             .tool.pending { border-color: GrayText; }
             .tool.error { border-color: crimson; }
-            .cursor::after { content: '▍'; animation: blink 1s steps(2) infinite; }
+            /* Assistant text is markdown (`@sigx/markdown/dom`). The view ships no CSS:
+               every element carries data-scope="markdown" data-part="<name>", so a
+               stylesheet targets those and nothing else. The bubble's pre-wrap is
+               for tool/reasoning parts; blocks manage their own whitespace. */
+            .md { white-space: normal; }
+            .md.live [data-part=root] > :last-child::after { content: '▍'; animation: blink 1s steps(2) infinite; }
+            .md.live [data-part=root]:empty::after { content: '▍'; animation: blink 1s steps(2) infinite; }
             @keyframes blink { 50% { opacity: 0; } }
+            [data-scope=markdown][data-part=root] { line-height: 1.5; overflow-wrap: break-word; }
+            [data-scope=markdown][data-part=root] > :first-child { margin-top: 0; }
+            [data-scope=markdown][data-part=root] > :last-child { margin-bottom: 0; }
+            [data-scope=markdown][data-part=paragraph] { margin: 0 0 0.75em; }
+            [data-scope=markdown][data-part=heading] { margin: 1em 0 0.4em; line-height: 1.25; }
+            [data-scope=markdown][data-part=list] { margin: 0 0 0.75em; padding-left: 1.5em; }
+            [data-scope=markdown][data-part=list-item] { margin: 0.2em 0; }
+            [data-scope=markdown][data-part=blockquote] { margin: 0 0 0.75em; padding: 0 0.8em; border-left: 3px solid GrayText; opacity: 0.85; }
+            [data-scope=markdown][data-part=link] { color: LinkText; }
+            [data-scope=markdown][data-part=inline-code] { font-family: ui-monospace, monospace; font-size: 0.9em; padding: 0.1em 0.3em; border-radius: 0.3em; background: color-mix(in srgb, CanvasText 10%, Canvas); }
+            [data-scope=markdown][data-part=code] { margin: 0 0 0.75em; border-radius: 0.5rem; background: color-mix(in srgb, CanvasText 6%, Canvas); border: 1px solid color-mix(in srgb, CanvasText 15%, Canvas); overflow: hidden; }
+            [data-scope=markdown][data-part=code-header] { display: flex; justify-content: space-between; padding: 0.25rem 0.6rem; font-size: 0.75em; opacity: 0.75; border-bottom: 1px solid color-mix(in srgb, CanvasText 10%, Canvas); }
+            [data-scope=markdown][data-part=copy] { font: inherit; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
+            [data-scope=markdown][data-part=pre] { margin: 0; padding: 0.6rem; overflow-x: auto; font-family: ui-monospace, monospace; font-size: 0.85em; line-height: 1.4; }
+            [data-scope=markdown][data-part=table] { border-collapse: collapse; margin: 0 0 0.75em; font-size: 0.95em; }
+            [data-scope=markdown][data-part=table-cell] { padding: 0.3em 0.6em; border: 1px solid color-mix(in srgb, CanvasText 20%, Canvas); }
+            [data-scope=markdown][data-part=table-head] [data-part=table-cell] { background: color-mix(in srgb, CanvasText 6%, Canvas); font-weight: 600; }
+            [data-scope=markdown][data-part=thematic-break] { border: 0; border-top: 1px solid color-mix(in srgb, CanvasText 20%, Canvas); margin: 0.75em 0; }
             form { display: flex; gap: 0.5rem; padding-bottom: 1rem; }
             textarea { flex: 1; resize: none; font: inherit; padding: 0.6rem; border-radius: 0.5rem; border: 1px solid GrayText; background: Field; color: FieldText; }
             button { font: inherit; padding: 0.6rem 1rem; border-radius: 0.5rem; border: 1px solid GrayText; background: ButtonFace; color: ButtonText; cursor: pointer; }
