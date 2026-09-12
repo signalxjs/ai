@@ -1,7 +1,8 @@
 # chat — AI chat in a real SignalX app
 
 One `serverStream` endpoint streams `UIChunk`s to `useChat`; the model runs
-tools on the server; the provider is whatever the environment says. No key
+tools on the server; the provider is whatever the environment says; the
+assistant's text renders as markdown through `@sigx/markdown/dom`. No key
 needed to run it.
 
 ## Quickstart
@@ -40,8 +41,10 @@ pnpm --filter chat-example start
   when the tab closes.
 - **`src/App.tsx`** — `useChat({ stream: (input) => chat(input) })`, and a
   view that just reads `thread.messages`. Each part is its own reactive
-  object: open devtools, send a message, and watch a single text node update
-  per token while the rest of the DOM stays put.
+  object, and a text part is `<MarkdownView value={part.text} />` from
+  `@sigx/markdown/dom`: open devtools, send a message, and watch only the
+  markdown block still being written update per token — finalized blocks
+  (and the rest of the DOM) stay put.
 - **`vite.config.ts`** — `sigx()` + `sigxServer()`. The client build swaps
   `ai.server.ts` for a stub, so neither SDK nor key reaches the browser.
 
@@ -74,10 +77,10 @@ add fields; keep the check.
 | File | What |
 |---|---|
 | `src/ai.server.ts` | tools, model selection, the `serverStream` endpoint |
-| `src/App.tsx` | the chat view on `useChat` |
+| `src/App.tsx` | the chat view on `useChat`; assistant text through `MarkdownView` |
 | `src/entry-server.tsx` / `src/entry-client.tsx` | the per-request app factory / the hydrating browser entry |
 | `src/env.d.ts` | Vite client types |
 | `dev-server.mjs` / `server.mjs` | dev (Vite middleware) / production (Node) servers |
 | `vite.config.ts` | `sigx()` + `sigxServer()` |
-| `index.html` | the shell and its few lines of CSS |
+| `index.html` | the shell and its CSS, including the `[data-scope=markdown][data-part=…]` rules the markdown view is styled by (it ships no CSS) |
 | `tsconfig.json` | typechecks against the packages' SOURCE, so it works on a clean checkout |

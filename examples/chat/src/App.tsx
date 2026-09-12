@@ -1,16 +1,27 @@
 /**
  * The whole UI. `useChat` owns the transcript; the view reads it. A
  * streaming token is one write to one part's `text`, so the only thing that
- * re-renders per token is that text node — watch the DOM in devtools.
+ * re-renders per token is that part's `MarkdownView` — and it reads `value`
+ * inside its own render, so only the markdown block still being written
+ * re-renders; finalized blocks keep their DOM. Watch it in devtools.
  */
 import { component, useHead } from 'sigx';
 import { useChat, type UIMessage, type UIPart } from '@sigx/ai/app';
+import { MarkdownView } from '@sigx/markdown/dom';
 import { chat } from './ai.server';
 
-const Part = component<{ part: UIPart; live: boolean }>((ctx) => {
+const Part = component<{ part: UIPart; role: UIMessage['role']; live: boolean }>((ctx) => {
     return () => {
         const p = ctx.props.part;
-        if (p.type === 'text') return <span class={ctx.props.live ? 'cursor' : ''}>{p.text}</span>;
+        if (p.type === 'text') {
+            // Only the assistant writes markdown; a user's text shows as typed.
+            if (ctx.props.role !== 'assistant') return <span>{p.text}</span>;
+            return (
+                <div class={ctx.props.live ? 'md live' : 'md'}>
+                    <MarkdownView value={p.text} />
+                </div>
+            );
+        }
         if (p.type === 'reasoning') return p.text ? <div class="reasoning">{p.text}</div> : null;
         return (
             <code class={`tool ${p.state}`}>
@@ -26,7 +37,7 @@ const Message = component<{ message: UIMessage; live: boolean }>((ctx) => {
         return (
             <div class={`msg ${m.role}`}>
                 {m.parts.map((part, i) => (
-                    <Part part={part} live={ctx.props.live && i === m.parts.length - 1} />
+                    <Part part={part} role={m.role} live={ctx.props.live && i === m.parts.length - 1} />
                 ))}
             </div>
         );

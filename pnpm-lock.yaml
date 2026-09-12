@@ -80,6 +80,9 @@ importers:
       '@sigx/ai-openai':
         specifier: workspace:*
         version: link:../../packages/ai-openai
+      '@sigx/markdown':
+        specifier: ^0.1.0
+        version: 0.1.0(@sigx/reactivity@0.15.6)(@sigx/runtime-core@0.15.6)(@sigx/runtime-dom@0.15.6)
       '@sigx/reactivity':
         specifier: 'catalog:'
         version: 0.15.6
@@ -624,6 +627,20 @@ packages:
 
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
+
+  '@sigx/markdown@0.1.0':
+    resolution: {integrity: sha512-fevHXVXuu03/VGYp9FThrrzzN5S7qYsF03OqD7unSNZ+orC+pVTnj43fjK+KEBRJ+oUpyCOEmPW/8aPSv7TmeQ==}
+    engines: {node: ^20.19.0 || >=22.12.0}
+    peerDependencies:
+      '@sigx/reactivity': ^0.15.0
+      '@sigx/runtime-core': ^0.15.0
+      '@sigx/runtime-dom': ^0.15.0
+      shiki: '>=3.7.0'
+    peerDependenciesMeta:
+      '@sigx/runtime-dom':
+        optional: true
+      shiki:
+        optional: true
 
   '@sigx/reactivity@0.15.6':
     resolution: {integrity: sha512-giPOQXP+5ZHUTjhzIA0638EiO2UlsjmXexSVP3h8O4RZXGIssswm5W6njh76nZwBNYa0CcgwPRdFBnfxYEr/aw==}
@@ -1475,6 +1492,13 @@ snapshots:
     optional: true
 
   '@rolldown/pluginutils@1.0.1': {}
+
+  '@sigx/markdown@0.1.0(@sigx/reactivity@0.15.6)(@sigx/runtime-core@0.15.6)(@sigx/runtime-dom@0.15.6)':
+    dependencies:
+      '@sigx/reactivity': 0.15.6
+      '@sigx/runtime-core': 0.15.6
+    optionalDependencies:
+      '@sigx/runtime-dom': 0.15.6
 
   '@sigx/reactivity@0.15.6': {}
 
