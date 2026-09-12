@@ -15,7 +15,7 @@
 
 import { signal } from '@sigx/reactivity';
 import { useStream } from '@sigx/runtime-core';
-import type { UIChunk } from '../protocol.js';
+import type { UIChunk } from '../protocol/index.js';
 
 export type CompletionStatus = 'streaming' | 'done' | 'error';
 

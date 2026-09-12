@@ -193,8 +193,29 @@ To run the example: `pnpm build` first (it resolves the packages from
 Path aliases: `tsconfig.json` and `vitest.config.ts` map `@sigx/ai` (and
 its subpaths) and the provider packages to `packages/*/src`, so tests and
 typecheck run against source, not dist. A new entry or package is added to
-BOTH maps, to `.size-limit.json`, to the root `build`/`lint` scripts, and to
-`PACKAGES` in `scripts/publish.js` and `scripts/verify-pack.js`.
+BOTH maps (plus `examples/chat/tsconfig.json`), to `.size-limit.json`, to the
+root `build`/`lint` scripts, and to `PACKAGES` in `scripts/publish.js` and
+`scripts/verify-pack.js`.
+
+Source layout (`packages/ai/src`, and the provider packages as they grow):
+
+- **One folder per concern; its `index.ts` is the folder's public surface.**
+  `protocol/` (the UI wire protocol), `model/` (the provider seam),
+  `schema/`, `tool/`, `engine/` (the tool loop), `server/`, `app/`,
+  `testing/`, `utils/`. Cross-folder imports go through
+  `../<folder>/index.js`; inside a folder, siblings import each other
+  directly. A file a folder's `index.ts` does not re-export (say
+  `engine/abort.ts`) is private to that folder.
+- **Imports point one way**:
+  `utils ← schema ← protocol ← model ← tool ← engine ← server`; `app/` and
+  `testing/` sit on top and nothing imports from them. No cycles.
+- **Every entry point is a folder** — `src/index.ts` for `.`,
+  `src/<entry>/index.ts` for a subpath — and those files are re-exports
+  only, never implementation. `tsc` mirrors the tree, so a subpath's
+  `types` in `package.json` is `./dist/<entry>/index.d.ts` while its JS
+  stays flat (`./dist/<entry>.js`, vite names bundles by entry).
+- **Tests mirror `src/`**: `__tests__/<folder>/<file>.test.ts` covers
+  `src/<folder>/<file>.ts`; shared fixtures stay in `__tests__/helpers.ts`.
 
 ## Parallel work with git worktrees
 

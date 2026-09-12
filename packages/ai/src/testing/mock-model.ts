@@ -9,8 +9,8 @@
  * Every request is recorded on `requests` for assertions.
  */
 
-import type { LanguageModel, ModelEvent, ModelRequest } from './model.js';
-import type { FinishReason, Usage } from './protocol.js';
+import type { LanguageModel, ModelEvent, ModelRequest } from '../model/index.js';
+import type { FinishReason, Usage } from '../protocol/index.js';
 
 export interface MockReply {
     readonly text?: string;

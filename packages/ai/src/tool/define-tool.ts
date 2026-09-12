@@ -9,8 +9,8 @@
  * DEFINITION time, not on the first call in production.
  */
 
-import { type JsonSchema, type StandardSchemaV1, jsonSchemaOf, validateWith } from './schema.js';
-import type { ToolSpec } from './model.js';
+import { type JsonSchema, type StandardSchemaV1, jsonSchemaOf, validateWith } from '../schema/index.js';
+import type { ToolSpec } from '../model/index.js';
 
 export interface ToolContext {
     /** Fires when the turn is aborted (client disconnect, `stop()`). */

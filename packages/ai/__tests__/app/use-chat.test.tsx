@@ -10,7 +10,7 @@ import { render } from '@sigx/runtime-dom';
 import { useChat, type Chat, type UIChunk } from '@sigx/ai/app';
 import { chatStream } from '@sigx/ai/server';
 import { mockModel, type MockModelOptions } from '@sigx/ai/testing';
-import { tick } from './helpers';
+import { tick } from '../helpers';
 
 const containers: HTMLDivElement[] = [];
 afterEach(() => {

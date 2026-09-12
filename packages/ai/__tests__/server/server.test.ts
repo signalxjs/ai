@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { ChatInput, chatStream, toTextStream, type ChatInput as ChatInputType } from '@sigx/ai/server';
 import { userMessage } from '@sigx/ai';
 import { mockModel } from '@sigx/ai/testing';
-import { collect } from './helpers';
+import { collect } from '../helpers';
 
 const validate = (v: unknown) => ChatInput['~standard'].validate(v) as ReturnType<typeof ChatInput['~standard']['validate']> & { issues?: unknown[]; value?: unknown };
 

@@ -13,10 +13,10 @@
 
 import { signal, batch, untrack } from '@sigx/reactivity';
 import { getCurrentInstance } from '@sigx/runtime-core';
-import { parsePartialJson } from '../partial-json.js';
-import type { UIChunk } from '../protocol.js';
-import type { ObjectChunk } from '../engine.js';
-import { validateWith, type StandardSchemaV1 } from '../schema.js';
+import { parsePartialJson } from '../utils/partial-json.js';
+import type { UIChunk } from '../protocol/index.js';
+import type { ObjectChunk } from '../engine/index.js';
+import { validateWith, type StandardSchemaV1 } from '../schema/index.js';
 
 /** What the source may yield: UI chunks, `streamObject`'s object chunks, or raw text. */
 export type ObjectSourceChunk = UIChunk | ObjectChunk<unknown> | string;

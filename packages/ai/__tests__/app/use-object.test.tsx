@@ -5,7 +5,7 @@ import { render } from '@sigx/runtime-dom';
 import { useObject, type StreamedObject } from '@sigx/ai/app';
 import { streamObject, userMessage } from '@sigx/ai';
 import { mockModel } from '@sigx/ai/testing';
-import { schema } from './helpers';
+import { schema } from '../helpers';
 
 type Recipe = { title: string; steps: string[] };
 const isRecipe = (v: unknown): v is Recipe => typeof v === 'object' && v !== null && typeof (v as Recipe).title === 'string' && Array.isArray((v as Recipe).steps);
