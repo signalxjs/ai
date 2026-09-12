@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { streamText, generateText, generateObject, streamObject, defineTool, userMessage, type LanguageModel, type ModelEvent, type UIChunk, type UIMessage } from '@sigx/ai';
 import { mockModel } from '@sigx/ai/testing';
-import { citySchema, collect, textOf, schema } from './helpers';
+import { citySchema, collect, textOf, schema } from '../helpers';
 
 const weather = defineTool({
     name: 'weather',

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { defineTool, SchemaValidationError } from '@sigx/ai';
-import { bareSchema, citySchema, isCity } from './helpers';
+import { bareSchema, citySchema, isCity } from '../helpers';
 
 describe('defineTool', () => {
     it('resolves the wire schema from Standard JSON Schema', () => {

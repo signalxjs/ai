@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { mockModel } from '@sigx/ai/testing';
-import { collect } from './helpers';
+import { collect } from '../helpers';
 
 describe('mockModel', () => {
     it('splits text on word boundaries by default and by chunkSize when asked', async () => {

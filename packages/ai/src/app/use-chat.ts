@@ -15,8 +15,8 @@
 
 import { signal, batch, untrack } from '@sigx/reactivity';
 import { getCurrentInstance } from '@sigx/runtime-core';
-import { applyChunk } from '../messages.js';
-import { createMessage, userMessage, type UIChunk, type UIMessage, type Usage } from '../protocol.js';
+import { applyChunk } from '../protocol/index.js';
+import { createMessage, userMessage, type UIChunk, type UIMessage, type Usage } from '../protocol/index.js';
 
 export type ChatStatus = 'idle' | 'streaming' | 'error';
 

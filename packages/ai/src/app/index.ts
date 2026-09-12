@@ -12,5 +12,5 @@ export { useCompletion } from './use-completion.js';
 export type { Completion, CompletionStatus } from './use-completion.js';
 export { useObject } from './use-object.js';
 export type { StreamedObject, ObjectStatus, UseObjectOptions, ObjectSourceChunk } from './use-object.js';
-export type { UIMessage, UIPart, UIChunk } from '../protocol.js';
-export { userMessage, messageText, createMessage } from '../protocol.js';
+export type { UIMessage, UIPart, UIChunk } from '../protocol/index.js';
+export { userMessage, messageText, createMessage } from '../protocol/index.js';
