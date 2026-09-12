@@ -197,7 +197,7 @@ BOTH maps (plus `examples/chat/tsconfig.json`), to `.size-limit.json`, to the
 root `build`/`lint` scripts, and to `PACKAGES` in `scripts/publish.js` and
 `scripts/verify-pack.js`.
 
-Source layout (`packages/ai/src`, and the provider packages as they grow):
+Source layout (`packages/ai/src`):
 
 - **One folder per concern; its `index.ts` is the folder's public surface.**
   `protocol/` (the UI wire protocol), `model/` (the provider seam),
@@ -216,6 +216,15 @@ Source layout (`packages/ai/src`, and the provider packages as they grow):
   stays flat (`./dist/<entry>.js`, vite names bundles by entry).
 - **Tests mirror `src/`**: `__tests__/<folder>/<file>.test.ts` covers
   `src/<folder>/<file>.ts`; shared fixtures stay in `__tests__/helpers.ts`.
+
+A provider package (`packages/ai-<vendor>/src`) is small enough for one file
+per concern, no folders: `options.ts` (the `<Vendor>ProviderOptions`
+interface), `request.ts` (our `ModelRequest` → SDK params), `stream.ts` (SDK
+events → `ModelEvent`), `provider.ts` (the `<vendor>()` factory and default
+model id), and a re-export-only `index.ts`. Layering:
+`options ← request ← stream ← provider ← index`. Its recorded-fixture test
+exercises the provider end to end and stays one file,
+`__tests__/<vendor>.test.ts`.
 
 ## Parallel work with git worktrees
 
