@@ -1,7 +1,7 @@
 {
-    "name": "@sigx/ai-agent",
+    "name": "@sigx/ai-agent-claude-code",
     "version": "0.1.0",
-    "description": "Agent layer for @sigx/ai — one provider-neutral contract for agent harnesses and our own engine: events, capabilities, policy, sessions, mockAgent",
+    "description": "Claude Code as an @sigx/ai-agent Agent, on the official Claude Agent SDK — sessions, tool calls, permissions through the policy, client tools over MCP, resume and fork",
     "type": "module",
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",
@@ -11,30 +11,6 @@
             "development": "./dist/index.js",
             "production": "./dist/index.prod.js",
             "import": "./dist/index.js"
-        },
-        "./harness": {
-            "types": "./dist/harness/index.d.ts",
-            "development": "./dist/harness.js",
-            "production": "./dist/harness.prod.js",
-            "import": "./dist/harness.js"
-        },
-        "./testing": {
-            "types": "./dist/testing/index.d.ts",
-            "development": "./dist/testing.js",
-            "production": "./dist/testing.prod.js",
-            "import": "./dist/testing.js"
-        },
-        "./coding": {
-            "types": "./dist/coding/index.d.ts",
-            "development": "./dist/coding.js",
-            "production": "./dist/coding.prod.js",
-            "import": "./dist/coding.js"
-        },
-        "./wire": {
-            "types": "./dist/wire/index.d.ts",
-            "development": "./dist/wire.js",
-            "production": "./dist/wire.prod.js",
-            "import": "./dist/wire.js"
         }
     },
     "files": [
@@ -51,11 +27,10 @@
         "signalx",
         "ai",
         "agent",
-        "agents",
-        "harness",
-        "acp",
         "claude-code",
-        "codex"
+        "claude",
+        "anthropic",
+        "harness"
     ],
     "author": "Andreas Ekdahl",
     "license": "MIT",
@@ -65,15 +40,19 @@
     "repository": {
         "type": "git",
         "url": "git+https://github.com/signalxjs/ai.git",
-        "directory": "packages/ai-agent"
+        "directory": "packages/ai-agent-claude-code"
     },
     "homepage": "https://sigx.dev/ai/",
     "bugs": {
         "url": "https://github.com/signalxjs/ai/issues"
     },
+    "dependencies": {
+        "@sigx/ai-agent-node": "workspace:^"
+    },
     "devDependencies": {
-        "@modelcontextprotocol/sdk": "^1.30.0",
+        "@anthropic-ai/claude-agent-sdk": "0.3.270",
         "@sigx/ai": "workspace:*",
+        "@sigx/ai-agent": "workspace:*",
         "@sigx/vite": "catalog:",
         "@types/node": "^25.9.1",
         "typescript": "^6.0.3",
@@ -83,6 +62,8 @@
         "access": "public"
     },
     "peerDependencies": {
-        "@sigx/ai": "^0.1.0"
+        "@anthropic-ai/claude-agent-sdk": ">=0.3.0 <1",
+        "@sigx/ai": "^0.1.0",
+        "@sigx/ai-agent": "^0.1.0"
     }
 }
