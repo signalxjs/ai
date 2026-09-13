@@ -18,7 +18,13 @@
   {
     "name": "@sigx/ai-agent",
     "path": "packages/ai-agent/dist/index.prod.js",
-    "limit": "7.5 KB",
+    "limit": "10 KB",
+    "ignore": ["@sigx/ai"]
+  },
+  {
+    "name": "@sigx/ai-agent/harness",
+    "path": "packages/ai-agent/dist/harness.prod.js",
+    "limit": "8 KB",
     "ignore": ["@sigx/ai"]
   },
   {

@@ -49,6 +49,11 @@ export interface ConformanceCase {
 export interface ConformanceOptions {
     /** The agent's capabilities, to compute skips up front; otherwise checked at run time. */
     readonly capabilities?: AgentCapabilities;
+    /**
+     * Skip a scenario for a reason capabilities cannot express (an engine that
+     * never asks the client a question, say). Return the reason, or `undefined`.
+     */
+    readonly skip?: (scenario: ConformanceScenario) => string | undefined;
     /** Extra session options for every scenario (an adapter's `cwd`, an executable path, …). */
     readonly sessionOptions?: Partial<SessionOptions> & Record<string, unknown>;
     /** Milliseconds a scenario may take. Default 10 000. */
@@ -149,7 +154,7 @@ function missingCapability(needs: Partial<AgentCapabilities>, caps: AgentCapabil
 
 export function agentConformance(make: (scenario: ConformanceScenario) => Agent | Promise<Agent>, options: ConformanceOptions = {}): ConformanceCase[] {
     return CONFORMANCE_SCENARIOS.map((scenario) => {
-        const skip = options.capabilities ? missingCapability(scenario.needs, options.capabilities) : undefined;
+        const skip = (options.capabilities ? missingCapability(scenario.needs, options.capabilities) : undefined) ?? options.skip?.(scenario);
         return {
             name: `conformance: ${scenario.name}`,
             ...(skip ? { skip } : {}),

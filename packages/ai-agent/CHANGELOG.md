@@ -26,6 +26,19 @@ follow [SemVer](https://semver.org/).
 - `@sigx/ai-agent/testing`: `agentConformance`, `CONFORMANCE_SCENARIOS`,
   `CONFORMANCE_TOOLS` and the invariant checks `checkEventInvariants`,
   `checkReplayEquality`, `checkResultMatchesTurnEnd`.
+- `@sigx/ai-agent/harness`: `createJsonRpcPeer` (JSON-RPC 2.0 over Web Streams,
+  requests in both directions, cooperative cancel, backpressure), `ndjsonDecoder` /
+  `ndjsonEncoder` and the `'message'` framing, `createMcpToolHandler` (client tools
+  as an MCP Streamable HTTP server, JSON-only, tools only), `webSocketStreams`.
+- `modelAgent({ model, tools?, system?, maxSteps?, store?, extensions? })` — our
+  own engine as an `Agent`: every tool call through the policy, structured
+  output on `turn.result.output`, resume through a `TranscriptStore` or a ref
+  that carries the transcript, `importTranscript` from `UIMessage[]`.
+- `agentTool(agent, { name, description, input, output?, prompt })` — an agent
+  as a `defineTool` tool, with nested events (`parentCallId`) when hosted by
+  `modelAgent`.
+- `agentConformance` accepts `skip(scenario)` for reasons capabilities cannot
+  express.
 - `@sigx/ai-agent/wire`: the versioned envelope (`WireCommand`, `WireReply`,
   `WireFrame`, `WIRE_PROTOCOL_VERSION`), `serveSession` (idempotent commands,
   per-principal `authorize`, replay from the buffer, an `EventLogStore`, or a
