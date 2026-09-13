@@ -15,11 +15,12 @@ export interface Usage {
 /**
  * One chunk of a streaming assistant turn. A turn is:
  *
- *   start → (text | reasoning | tool-call | tool-approval-request | tool-result)* → finish
+ *   start → (text | reasoning | reasoning-end | tool-call | tool-approval-request | tool-result)* → finish
  *
  * `error` may appear anywhere and ends the turn. `finish` carries the
  * reason and, when the provider reports it, the usage for the whole turn
- * (every model round in a tool loop summed).
+ * (every model round in a tool loop summed) — and `output`, the validated
+ * structured result, when the turn asked for one (`streamText`'s `output`).
  *
  * `tool-approval-request` says a call needs a human before it runs; the
  * answer arrives as its `tool-result` — `denied: true` (with the reason as
@@ -35,7 +36,7 @@ export type UIChunk =
     | { readonly type: 'tool-call'; readonly id: string; readonly name: string; readonly input: unknown }
     | { readonly type: 'tool-approval-request'; readonly id: string }
     | { readonly type: 'tool-result'; readonly id: string; readonly output: unknown; readonly isError?: boolean; readonly denied?: true }
-    | { readonly type: 'finish'; readonly reason: FinishReason; readonly usage?: Usage }
+    | { readonly type: 'finish'; readonly reason: FinishReason; readonly usage?: Usage; readonly output?: unknown }
     | { readonly type: 'error'; readonly message: string };
 
 /** Minimal shape check — enough to route a chunk, never a validator. */
