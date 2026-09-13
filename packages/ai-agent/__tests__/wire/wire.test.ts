@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { allowAll, memoryEventLog, createTranscript, reduceAgentEvent, SessionBusyError, AgentError, type AgentEvent, type AgentSession, type EventLogStore } from '@sigx/ai-agent';
-import { serveSession, connectSession, type ServedSession, type SessionTransport, type WireCommand, type WireCommandPayload, type WireFrame, type Cursor } from '@sigx/ai-agent/wire';
+import { serveSession, connectSession, RemoteCommandError, type ServedSession, type SessionTransport, type WireCommand, type WireCommandPayload, type WireFrame, type Cursor } from '@sigx/ai-agent/wire';
 import { mockAgent, MOCK_CAPABILITIES, type MockStep } from '@sigx/ai-agent/testing';
 import { collect, drain, textOf, tick } from '../helpers';
 
@@ -279,21 +279,152 @@ describe('serveSession / connectSession', () => {
         await served.close();
     });
 
-    it('a broken stream with reconnect: false ends the client', async () => {
-        const { served } = await serve([[{ text: 'x' }]]);
+    it('a broken stream with reconnect: false leaves the client lost, not ended: reconnect() resumes the turn from the cursor', async () => {
+        const { served } = await serve([[{ text: 'x y z' }]]);
+        let broke = false;
         const transport: SessionTransport = {
             send: (c) => served.handleCommand(c),
             events: (from, o) =>
                 (async function* () {
                     for await (const f of served.events(from, o)) {
                         yield f;
-                        if (f.kind === 'event' && f.event.type === 'user-message') throw new Error('gone');
+                        if (!broke && f.kind === 'event' && f.event.type === 'user-message') {
+                            broke = true;
+                            throw new Error('gone');
+                        }
                     }
                 })()
         };
         const remote = await connectSession(transport, { reconnect: false });
-        await expect(remote.prompt('go').result).rejects.toThrow(/connection ended/);
+        const statuses: string[] = [];
+        remote.onStatusChange((s) => statuses.push(s));
+        const turn = remote.prompt('go');
+        while (remote.status !== 'lost') await tick(1);
         expect(remote.connected).toBe(false);
+        // The session finished the turn while the client was away; the turn still waits.
+        await tick(10);
+        const pending = await Promise.race([turn.result.then(() => 'settled', () => 'settled'), tick(5).then(() => 'pending')]);
+        expect(pending).toBe('pending');
+
+        remote.reconnect();
+        const { events, result } = await drain(turn);
+        expect(result.stopReason).toBe('end_turn');
+        expect(textOf(events)).toBe('x y z');
+        expect(remote.status).toBe('connected');
+        expect(statuses).toEqual(['lost', 'reconnecting', 'connected']);
+        const all = await collect(until(remote.subscribe({ epoch: 0, seq: 0 }), 20));
+        expect(all.map((e) => e.seq)).toEqual(all.map((_, i) => i + 1));
+        remote.disconnect();
+        expect(remote.status).toBe('closed');
+    });
+
+    it('exhausted reconnect attempts end in lost; disconnect() closes and rejects the pending turn', async () => {
+        const { served } = await serve([[{ text: 'never arrives here', delayMs: 5 }]]);
+        let down = false;
+        const transport: SessionTransport = {
+            send: (c) => served.handleCommand(c),
+            events: (from, o) =>
+                (async function* () {
+                    if (down) throw new Error('still down');
+                    for await (const f of served.events(from, o)) {
+                        yield f;
+                        if (f.kind === 'event' && f.event.type === 'user-message') {
+                            down = true;
+                            throw new Error('gone');
+                        }
+                    }
+                })()
+        };
+        const remote = await connectSession(transport, { reconnect: { maxAttempts: 1, backoffMs: () => 1 } });
+        const statuses: string[] = [];
+        const off = remote.onStatusChange((s) => statuses.push(s));
+        const turn = remote.prompt('go');
+        while (remote.status !== 'lost') await tick(1);
+        expect(statuses).toEqual(['reconnecting', 'lost']);
+        // reconnect() while lost re-arms with a fresh budget; while it is still down, it is lost again.
+        remote.reconnect();
+        while (remote.status !== 'lost') await tick(1);
+        expect(statuses).toEqual(['reconnecting', 'lost', 'reconnecting', 'lost']);
+        off();
+        remote.disconnect();
+        expect(remote.status).toBe('closed');
+        expect(remote.connected).toBe(false);
+        await expect(turn.result).rejects.toThrow(/connection ended/);
+        expect(statuses).toEqual(['reconnecting', 'lost', 'reconnecting', 'lost']);
+        // Closed is final: reconnect() is ignored.
+        remote.reconnect();
+        expect(remote.status).toBe('closed');
+    });
+
+    it('a remote session that closes cleanly ends the client as closed, not lost', async () => {
+        const { session, served } = await serve([[{ text: 'bye' }]]);
+        const remote = await connectSession(inMemory(served), { reconnect: { backoffMs: () => 1 } });
+        const statuses: string[] = [];
+        remote.onStatusChange((s) => statuses.push(s));
+        const following = collect(remote.subscribe({ epoch: 0, seq: 0 }));
+        await remote.prompt('hi').result;
+        await session.close();
+        // The subscriber ends on its own: the session's `state: closed` was its last event.
+        const events = await following;
+        expect(events.at(-1)).toMatchObject({ type: 'state', value: 'closed' });
+        expect(remote.status).toBe('closed');
+        expect(statuses).toEqual(['closed']);
+        // A late subscription ends at once, and nothing is retried.
+        expect(await collect(remote.subscribe())).toEqual([]);
+        remote.reconnect();
+        expect(remote.status).toBe('closed');
+        await served.close();
+    });
+
+    it('a wire error keeps its code: RemoteCommandError names the command and the remote code', async () => {
+        const agent = mockAgent({ script: [[{ text: 'ok' }]] });
+        const session = await agent.session();
+        const served = serveSession(session, { agentId: agent.id, capabilities: agent.capabilities, authorize: (command) => command.type !== 'respond' });
+        const remote = await connectSession(inMemory(served));
+        const err = await remote.respond('r1', { type: 'cancel' }).catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(RemoteCommandError);
+        expect(err).toBeInstanceOf(AgentError);
+        expect(err).toMatchObject({ code: 'protocol_error', command: 'respond', remote: 'unauthorized' });
+        expect((err as Error).message).toMatch(/unauthorized/);
+        // A prompt refused by the server for any reason but busy carries the code too.
+        await served.close();
+        const turnErr = await remote.prompt('go').result.catch((e: unknown) => e);
+        expect(turnErr).toBeInstanceOf(RemoteCommandError);
+        expect(turnErr).toMatchObject({ command: 'prompt', remote: 'closed' });
+        remote.disconnect();
+        await session.close();
+    });
+
+    it('a malformed command payload is refused as invalid before it reaches the session', async () => {
+        let prompts = 0;
+        const agent = mockAgent({ respond: () => (prompts++, [{ text: 'ok' }]) });
+        const session = await agent.session();
+        const served = serveSession(session, { agentId: agent.id, capabilities: agent.capabilities });
+        const raw = (c: Record<string, unknown>) => served.handleCommand({ v: 1, ...c } as unknown as WireCommand);
+        expect(await raw({ commandId: 'i1', type: 'respond', requestId: 'r' })).toMatchObject({ kind: 'error', code: 'invalid', message: expect.stringContaining('decision') });
+        expect(await raw({ commandId: 'i2', type: 'respond', requestId: 'r', decision: { type: 'permission', outcome: 'maybe', scope: 'once' } })).toMatchObject({ kind: 'error', code: 'invalid' });
+        expect(await raw({ commandId: 'i3', type: 'prompt', turnId: 't', input: 'hi' })).toMatchObject({ kind: 'error', code: 'invalid', message: expect.stringContaining('input') });
+        expect(await raw({ commandId: 'i4', type: 'prompt', turnId: '', input: [{ type: 'text', text: 'hi' }] })).toMatchObject({ kind: 'error', code: 'invalid', message: expect.stringContaining('turnId') });
+        expect(await raw({ commandId: 'i5', type: 'prompt', turnId: 't', input: [{ type: 'text', text: 'hi' }], output: { schema: 'nope' } })).toMatchObject({ kind: 'error', code: 'invalid', message: expect.stringContaining('output') });
+        expect(await raw({ commandId: 'i6', type: 'configure', patch: 3 })).toMatchObject({ kind: 'error', code: 'invalid', message: expect.stringContaining('patch') });
+        expect(await raw({ commandId: 'i7', type: 'configure', patch: { mode: 1 } })).toMatchObject({ kind: 'error', code: 'invalid' });
+        // Each part variant needs its own fields, not just a known `type`.
+        expect(await raw({ commandId: 'i8', type: 'prompt', turnId: 't', input: [{ type: 'text' }] })).toMatchObject({ kind: 'error', code: 'invalid', message: expect.stringContaining('input') });
+        expect(await raw({ commandId: 'i9', type: 'prompt', turnId: 't', input: [{ type: 'image', mediaType: 'image/png', data: 'AA==', url: 'https://x/y.png' }] })).toMatchObject({ kind: 'error', code: 'invalid' });
+        expect(await raw({ commandId: 'i10', type: 'prompt', turnId: 't', input: [{ type: 'file', data: 'AA==' }] })).toMatchObject({ kind: 'error', code: 'invalid' });
+        expect(await raw({ commandId: 'i11', type: 'prompt', turnId: 't', input: [{ type: 'resource' }] })).toMatchObject({ kind: 'error', code: 'invalid' });
+        // An input decision without its answers.
+        expect(await raw({ commandId: 'i12', type: 'respond', requestId: 'r', decision: { type: 'input' } })).toMatchObject({ kind: 'error', code: 'invalid', message: expect.stringContaining('answers') });
+        await tick(5);
+        expect(prompts).toBe(0);
+        // Well-formed ones pass the gate (a late respond is an ack, as ever).
+        expect(await raw({ commandId: 'ok1', type: 'respond', requestId: 'r', decision: { type: 'input', answers: null } })).toMatchObject({ kind: 'ack' });
+        expect(await raw({ commandId: 'ok2', type: 'respond', requestId: 'r', decision: { type: 'cancel' } })).toMatchObject({ kind: 'ack' });
+        // An invalid reply is not cached: the corrected command runs.
+        expect(await raw({ commandId: 'i3', type: 'prompt', turnId: 't', input: [{ type: 'text', text: 'hi' }] })).toMatchObject({ kind: 'ack', turnId: 't' });
+        await tick(5);
+        expect(prompts).toBe(1);
+        await session.close();
     });
 
     it('authorize refuses commands and their replays; duplicate commandIds run once', async () => {
