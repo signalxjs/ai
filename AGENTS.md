@@ -184,14 +184,57 @@ To run the example: `pnpm build` first (it resolves the packages from
   policy engine `resolveRequest` + built-in rules, and the session helpers
   every adapter builds on — `createEventLog`, `createTurn`,
   `createSessionCore`) and `./testing` (`mockAgent`, a scripted agent).
-  `./harness` is the edge-safe protocol kit protocol adapters build on: a
-  JSON-RPC 2.0 peer over Web Streams (`createJsonRpcPeer`), NDJSON framing, an
-  MCP tool handler (`createMcpToolHandler`, Streamable HTTP, tools only) and
-  `webSocketStreams`. Later milestones add `./coding`, `./wire`, `./app`. Zero
+  `./coding` adds the coding vocabulary (categories, typed `coding.*` events
+  and their reducer plugin, path-aware policies); `./harness` is the edge-safe
+  protocol kit protocol adapters build on: a JSON-RPC 2.0 peer over Web
+  Streams (`createJsonRpcPeer`), NDJSON framing, an MCP tool handler
+  (`createMcpToolHandler`, Streamable HTTP, tools only) and `webSocketStreams`;
+  `./testing` also ships `recordAgent` / `replayAgent`. `./wire` serves a
+  session in one place and uses it from another over any transport
+  (`serveSession` / `connectSession`, a versioned envelope, replay for late
+  joiners and reconnects). Later milestones add `./app`. Zero
   runtime dependencies; edge-safe (`node:`-free, no `process` / `Buffer`,
   enforced by `__tests__/package/edge-safety.test.ts`). Peers on `@sigx/ai`.
   Node-only building blocks live in `@sigx/ai-agent-node`; adapters are
   `@sigx/ai-agent-<harness>` (named by harness, not vendor).
+- `packages/ai-agent-node` → `@sigx/ai-agent-node` — **experimental**, the
+  family's only Node-specific package (`tsconfig` `types: ["node"]`): it owns
+  cross-platform process correctness — `resolveExecutable` (`PATH`/`Path`,
+  `PATHEXT`, npm `.cmd` shims run under `process.execPath`),
+  `spawnAgentProcess` (never `shell: true`; Web Streams stdio; process-group /
+  `taskkill /T` kill; children die with the parent), `buildChildEnv` (an
+  allowlist, `NODE_OPTIONS` excluded) and `listenMcp` (loopback `node:http`
+  host for the harness MCP tool handler). Adapters that spawn a harness take
+  it as a regular `dependencies` entry. Tested on Ubuntu, Windows and macOS.
+- `packages/ai-agent-acp` → `@sigx/ai-agent-acp` — **experimental**, the Agent
+  Client Protocol adapter (Node-only; depends on `@sigx/ai-agent-node` for the
+  stdio path): `acp({ command, transport?, fs?, terminal? })` → an `Agent` with
+  `connect()`; vendors are data-only presets (`gemini()`, `cursor()`,
+  `claudeCodeAcp()`, `codexAcp()`). Layout `schema ← options ← client-methods
+  ← stream ← session ← provider ← presets ← index`; `schema.ts` is our own
+  protocol subset (the reference SDK is a devDependency for an assignability
+  test only). Tests run against an in-memory fake agent over
+  `createJsonRpcPeer`; live smokes are env-gated per preset.
+- `packages/ai-agent-claude-code` → `@sigx/ai-agent-claude-code` — **experimental**,
+  Claude Code as an `Agent` on the official `@anthropic-ai/claude-agent-sdk`
+  (peer, literal range). Layout `options ← request ← permissions ← tools ←
+  stream ← provider ← index`: one `query()` per session with a streaming
+  prompt, `canUseTool` → `resolveRequest`, client tools over HTTP MCP
+  (`createMcpToolHandler` + `listenMcp`), spawning through
+  `@sigx/ai-agent-node` (a regular dependency), `system/init` → `config`,
+  `result` → `usage` + `turn-end`. Tests replay recorded SDK messages through
+  a fake `query` injected via `claudeCode({ query })`; a live smoke is gated on
+  `SIGX_LIVE_CLAUDE_CODE=1`.
+- `packages/ai-agent-codex` → `@sigx/ai-agent-codex` — **experimental**, Codex as
+  an `Agent` over the `codex app-server` JSON-RPC protocol (one process and
+  one `createJsonRpcPeer` per agent through `@sigx/ai-agent-node`, a regular
+  dependency; `transport: { readable, writable }` drives a running server). One
+  file per concern: `schema.ts` (the hand-written v2 subset, checked against the
+  generated types in `__tests__/schema.test-d.ts`), `options.ts`, `approvals.ts`,
+  `tools.ts` (dynamic tools), `stream.ts` (items → events), `session.ts`
+  (a thread), `provider.ts` (`codex()`), `index.ts`. `pnpm --filter
+  @sigx/ai-agent-codex codex:generate` regenerates the full types with an
+  installed Codex CLI.
 - `packages/ai-anthropic` → `@sigx/ai-anthropic` — Claude on the official
   `@anthropic-ai/sdk` (a peer dependency, literal range): `anthropic()` →
   `.model(id)`. Streams `client.messages.stream`, maps text / thinking /

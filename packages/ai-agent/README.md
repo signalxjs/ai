@@ -26,13 +26,72 @@ for await (const event of turn) {
 const { stopReason } = await turn.result; // 'end_turn'
 ```
 
-Three entries today (more land with the following milestones):
+Five entries today (more land with the following milestones):
 
 | Entry | What |
 |---|---|
 | `@sigx/ai-agent` | the contract (`Agent`, `AgentSession`, `AgentTurn`), the event union, capabilities, the policy engine (`resolveRequest`, `allowAll`, `allowReadOnly`, `firstMatch`, …), the session helpers adapters build on (`createEventLog`, `createTurn`, `createSessionCore`), the transcript reducer (`reduceAgentEvent`, `createReducer`) with its bridges to `@sigx/ai` (`toUIMessages`, `fromUIMessages`, `toChatStream`), the store seams (`TranscriptStore`, `EventLogStore`), `modelAgent` (our engine as an agent) and `agentTool` (an agent as a tool) |
+| `@sigx/ai-agent/coding` | the coding vocabulary on top of the neutral core: categories (`read`, `edit`, `execute`, …), typed `coding.diff` / `terminal` / `plan` / `files-changed` events with the `codingExtension` reducer plugin, `CodingSessionOptions`, and the path-aware policies `allowCategories` / `denyOutside(cwd)` |
 | `@sigx/ai-agent/harness` | the protocol kit: `createJsonRpcPeer` (JSON-RPC 2.0 over Web Streams, both directions), NDJSON framing, `createMcpToolHandler` (client tools as an MCP server, Streamable HTTP), `webSocketStreams` |
-| `@sigx/ai-agent/testing` | `mockAgent` — a scripted, deterministic agent — and `agentConformance`, the suite every adapter must pass |
+| `@sigx/ai-agent/wire` | `serveSession` / `connectSession` — a session served in one place and used from another over any transport, with a versioned envelope and replay for late joiners and reconnects |
+| `@sigx/ai-agent/testing` | `mockAgent` — a scripted, deterministic agent — `agentConformance`, the suite every adapter must pass, and `recordAgent` / `replayAgent` for deterministic fixtures |
+
+## Remote sessions: `serveSession` / `connectSession`
+
+The library defines the envelope (commands with a `commandId`, one reply each,
+`hello` / `event` / `gap` frames) and the semantics (idempotent commands, gapless
+replay from any `(epoch, seq)`, reconnects); the app chooses the topology. A
+transport is two functions — the same shape `useChat`'s `stream` option has.
+
+```ts
+// Server — wherever the session lives.
+import { serveSession } from '@sigx/ai-agent/wire';
+const served = serveSession(session, { agentId: agent.id, capabilities: agent.capabilities, eventLog });
+
+// Client — anywhere: a browser, a phone, another process.
+import { connectSession } from '@sigx/ai-agent/wire';
+const remote = await connectSession({ send: (command) => post(command), events: (from) => stream(from) });
+const turn = remote.prompt('Summarise the incidents.'); // an AgentSession, indistinguishable from a local one
+```
+
+**`serverStream` + `serverFn` recipe** (`@sigx/server`): a `serverFn` whose
+handler calls `served.handleCommand(command, rq.principal)` and a
+`serverStream` whose handler yields `served.events(from, { signal: rq.abortSignal })`;
+their client stubs are `(input) => Promise<R>` and `(input) => AsyncIterable<T>`,
+so `connectSession({ send: (c) => agentCommand({ sessionId, command: c }), events: (from) => agentEvents({ sessionId, from }) })`
+is the whole client.
+
+**WebSocket recipe**: the socket carries two kinds of JSON messages the app
+defines (they are not part of the wire envelope, which only knows commands,
+replies and frames): a wire command — the server passes it to `handleCommand`
+and sends the reply back, matched by `commandId` — and an app-level
+"start streaming from `from`" message, on which the server runs
+`for await (const frame of served.events(from)) ws.send(JSON.stringify(frame))`.
+The client's `send` posts a command and awaits the reply with its `commandId`;
+its `events(from)` sends the start message and yields the frames that follow.
+
+Coalescing (`coalesce: { maxDelayMs, maxBytes }`) merges runs of text deltas
+into one frame each to limit traffic; off by default. Without an `eventLog`, a
+client whose cursor has left the in-memory buffer receives a `gap` frame and
+continues from the head — a `TranscriptStore` snapshot is the app's way to fill it.
+
+## Coding agents
+
+The core knows nothing about files or shells. `@sigx/ai-agent/coding` adds the
+shared vocabulary coding harnesses need — as typed extension events, never as
+new core event types — plus policies that speak it:
+
+```ts
+import { createReducer, firstMatch } from '@sigx/ai-agent';
+import { allowCategories, denyOutside, codingExtension, codingState } from '@sigx/ai-agent/coding';
+
+// A CI bot: read and search anywhere in the checkout, nothing else, nothing outside it.
+const policy = firstMatch(denyOutside(cwd), allowCategories(['read', 'search']));
+
+const reduce = createReducer({ extensions: [codingExtension()] });
+// … reduce events …
+codingState(transcript)?.diffs; // every diff the agent made, tagged with its turn and tool call
+```
 
 ## Our engine as an agent: `modelAgent`
 
@@ -106,6 +165,24 @@ import { agentConformance } from '@sigx/ai-agent/testing';
 for (const c of agentConformance((scenario) => makeMyAgent(scenario), { capabilities: myAgent.capabilities })) {
     it.skipIf(!!c.skip)(c.name, c.run);
 }
+```
+
+## Record and replay
+
+`recordAgent(agent)` wraps any agent and records, per session, the client's
+commands interleaved with the events the session emitted; `replayAgent(fixture)`
+plays it back through the real session helpers and throws with a diff the moment
+the client deviates. A live run against a harness becomes a fixture test:
+
+```ts
+import { recordAgent, replayAgent, serializeFixture } from '@sigx/ai-agent/testing';
+
+const recorder = recordAgent(claudeCode());          // any Agent
+// … drive a session through `recorder` …
+await writeFile('fixtures/edit.json', serializeFixture(recorder.fixture));
+
+// later, in a test:
+const agent = replayAgent(JSON.parse(await readFile('fixtures/edit.json', 'utf8')));
 ```
 
 ## Protocol kit

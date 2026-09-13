@@ -34,7 +34,7 @@ import { assertInRepoRanges, isPackTimeSpecifier } from './lib/ranges.mjs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, '..');
 
-const PACKAGES = ['packages/ai', 'packages/ai-agent', 'packages/ai-anthropic', 'packages/ai-openai'];
+const PACKAGES = ['packages/ai', 'packages/ai-agent', 'packages/ai-agent-node', 'packages/ai-agent-acp', 'packages/ai-agent-claude-code', 'packages/ai-agent-codex', 'packages/ai-anthropic', 'packages/ai-openai'];
 
 /** Every runtime entry the tarballs expose, imported one by one. */
 const ENTRIES = [
@@ -44,7 +44,13 @@ const ENTRIES = [
     '@sigx/ai/testing',
     '@sigx/ai-agent',
     '@sigx/ai-agent/testing',
+    '@sigx/ai-agent/coding',
     '@sigx/ai-agent/harness',
+    '@sigx/ai-agent/wire',
+    '@sigx/ai-agent-node',
+    '@sigx/ai-agent-acp',
+    '@sigx/ai-agent-claude-code',
+    '@sigx/ai-agent-codex',
     '@sigx/ai-anthropic',
     '@sigx/ai-openai',
 ];
@@ -125,7 +131,7 @@ function main() {
         scripts: { smoke: 'node smoke.mjs' },
         // The provider packages peer on their SDKs; the scratch app owns the copy,
         // exactly as a consuming app does.
-        dependencies: { ...deps, '@anthropic-ai/sdk': '*', openai: '*' },
+        dependencies: { ...deps, '@anthropic-ai/sdk': '*', '@anthropic-ai/claude-agent-sdk': '>=0.3.0 <1', openai: '*' },
     };
     writeFileSync(join(appDir, 'package.json'), JSON.stringify(appPkg, null, 2));
 
