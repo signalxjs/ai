@@ -10,6 +10,8 @@ test('caretRange keeps the minor for 0.x and only the major from 1.0', () => {
     assert.equal(caretRange('0.2.0'), '^0.2.0');
     assert.equal(caretRange('0.2.7'), '^0.2.0');
     assert.equal(caretRange('1.4.2'), '^1.0.0');
+    // 0.0.x carets are patch-pinned in semver: the only range that matches is the exact one.
+    assert.equal(caretRange('0.0.3'), '^0.0.3');
 });
 
 test('satisfiesCaret follows caret semantics on both sides of 1.0', () => {
@@ -18,6 +20,10 @@ test('satisfiesCaret follows caret semantics on both sides of 1.0', () => {
     assert.equal(satisfiesCaret('^1.0.0', '1.9.3'), true);
     assert.equal(satisfiesCaret('^1.0.0', '2.0.0'), false);
     assert.equal(satisfiesCaret('^1.2.0', '1.1.9'), false);
+    assert.equal(satisfiesCaret('^0.0.3', '0.0.3'), true);
+    assert.equal(satisfiesCaret('^0.0.3', '0.0.4'), false);
+    assert.equal(satisfiesCaret('^0.0.0', '0.0.9'), false);
+    assert.equal(satisfiesCaret('^0.1.0', '0.1.0-rc.1'), false);
     // Anything that is not a plain caret is never "satisfied" — in-repo ranges are carets by convention.
     assert.equal(satisfiesCaret('>=0.1.0', '0.1.0'), false);
     assert.equal(satisfiesCaret('workspace:*', '0.1.0'), false);

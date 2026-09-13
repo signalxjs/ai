@@ -14,6 +14,10 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { caretRange, isPackTimeSpecifier } from './lib/ranges.mjs';
 
+const BUMP_KINDS = new Set(['patch', 'minor', 'major']);
+/** An exact release version, whole-string — `0.2.0.1` or `0.2.0rc` is a typo, not a version. */
+const EXACT_VERSION = /^\d+\.\d+\.\d+$/;
+
 export function bumpVersion(version, type) {
     const parts = version.split('.').map(Number);
     switch (type) {
@@ -22,8 +26,10 @@ export function bumpVersion(version, type) {
         case 'minor':
             return `${parts[0]}.${parts[1] + 1}.0`;
         case 'patch':
-        default:
             return `${parts[0]}.${parts[1]}.${parts[2] + 1}`;
+        default:
+            // Release tooling must not guess: a typo would silently ship a patch bump.
+            throw new Error(`unknown bump kind "${type}" — use patch, minor, major or an exact X.Y.Z`);
     }
 }
 
@@ -54,8 +60,11 @@ function readManifests(packagesDir) {
  * line per change.
  */
 export function applyBump(packagesDir, arg = 'patch', { log = console.log } = {}) {
-    const exactVersion = /^\d+\.\d+\.\d+/.test(arg) ? arg : null;
+    const exactVersion = EXACT_VERSION.test(arg) ? arg : null;
     const bumpType = exactVersion ? null : arg;
+    if (!exactVersion && !BUMP_KINDS.has(bumpType)) {
+        throw new Error(`unknown bump kind "${arg}" — use patch, minor, major or an exact X.Y.Z`);
+    }
 
     const manifests = readManifests(packagesDir);
     const changes = [];
@@ -100,7 +109,7 @@ export function applyBump(packagesDir, arg = 'patch', { log = console.log } = {}
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     const arg = process.argv[2] || 'patch';
     const packagesDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'packages');
-    console.log(/^\d+\.\d+\.\d+/.test(arg) ? `Setting all packages to version ${arg}...\n` : `Bumping ${arg} version for packages...\n`);
+    console.log(EXACT_VERSION.test(arg) ? `Setting all packages to version ${arg}...\n` : `Bumping ${arg} version for packages...\n`);
     applyBump(packagesDir, arg);
     console.log('\nDone!');
 }

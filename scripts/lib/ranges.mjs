@@ -13,16 +13,21 @@ export function isPackTimeSpecifier(spec) {
     return typeof spec === 'string' && (spec.startsWith('workspace:') || spec.startsWith('catalog:'));
 }
 
+/** `[major, minor, patch]` of a release version; prereleases and builds are not versions this file reasons about. */
 function parse(version) {
-    const m = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(String(version).trim());
+    const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(version).trim());
     return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
 }
 
-/** The caret range a dependent should declare on `version`: `^0.Y.0` below 1.0, `^X.0.0` from 1.0. */
+/**
+ * The caret range a dependent should declare on `version`: `^X.0.0` from 1.0,
+ * `^0.Y.0` below it — and `^0.0.Z` for 0.0.x, where a caret pins the patch.
+ */
 export function caretRange(version) {
     const v = parse(version);
     if (!v) throw new Error(`not a version: ${version}`);
-    return v[0] === 0 ? `^0.${v[1]}.0` : `^${v[0]}.0.0`;
+    if (v[0] > 0) return `^${v[0]}.0.0`;
+    return v[1] > 0 ? `^0.${v[1]}.0` : `^0.0.${v[2]}`;
 }
 
 /** `true` when `version` lies inside the plain caret `range` (`^X.Y.Z`). Non-carets are never satisfied. */
@@ -32,8 +37,9 @@ export function satisfiesCaret(range, version) {
     const v = parse(version);
     if (!r || !v) return false;
     if (r[0] === 0) {
-        // ^0.Y.Z → >=0.Y.Z <0.(Y+1).0
-        return v[0] === 0 && v[1] === r[1] && v[2] >= r[2];
+        if (v[0] !== 0 || v[1] !== r[1]) return false;
+        // ^0.0.Z → exactly 0.0.Z; ^0.Y.Z (Y > 0) → >=0.Y.Z <0.(Y+1).0
+        return r[1] === 0 ? v[2] === r[2] : v[2] >= r[2];
     }
     // ^X.Y.Z → >=X.Y.Z <(X+1).0.0
     if (v[0] !== r[0]) return false;

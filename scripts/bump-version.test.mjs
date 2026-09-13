@@ -77,6 +77,20 @@ test('a minor bump rewrites dependent peer AND runtime in-repo ranges', () => {
     }
 });
 
+test('an unknown bump kind or a malformed version is refused, not treated as a patch', () => {
+    assert.throws(() => bumpVersion('0.1.3', 'minro'), /unknown bump kind "minro"/);
+    const root = scratchRepo();
+    try {
+        assert.throws(() => applyBump(root, 'minro', { log: () => {} }), /unknown bump kind "minro"/);
+        assert.throws(() => applyBump(root, '0.2.0.1', { log: () => {} }), /unknown bump kind "0.2.0.1"/);
+        assert.throws(() => applyBump(root, '0.2.0-rc1junk', { log: () => {} }), /unknown bump kind/);
+        // Nothing was written.
+        assert.equal(read(root, 'ai').version, '0.1.3');
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test('an exact version sets every package and rewrites ranges to its caret', () => {
     const root = scratchRepo();
     try {
