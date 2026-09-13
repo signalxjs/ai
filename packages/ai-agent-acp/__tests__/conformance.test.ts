@@ -78,7 +78,10 @@ describe('agentConformance: acp over a fake ACP agent', () => {
             'conformance: headless-deny',
             'conformance: input-request',
             'conformance: structured-output',
-            'conformance: support-agent'
+            'conformance: support-agent',
+            'conformance: session-grant',
+            'conformance: request-timeout',
+            'conformance: portable-resume'
         ]);
     });
     for (const c of cases) it.skipIf(!!c.skip)(c.name, c.run, 15_000);
