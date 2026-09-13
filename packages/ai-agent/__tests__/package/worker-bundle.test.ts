@@ -72,8 +72,13 @@ describe('@sigx/ai-agent worker bundle', () => {
         expect(codeOnly).not.toMatch(/\brequire\(/);
         const peers = HOST_PEERS[entry];
         if (peers) {
-            // Text-checked only (see the header); the peers must be the only imports left.
-            const imports = [...codeOnly.matchAll(/from\s+["']([^"']+)["']/g)].map((m) => m[1]);
+            // Text-checked only (see the header); the peers must be the only imports left —
+            // `import x from`, `export * from`, side-effect `import "x"` and `import("x")` alike.
+            const imports = [
+                ...codeOnly.matchAll(/\bfrom\s+["']([^"']+)["']/g),
+                ...codeOnly.matchAll(/^\s*import\s+["']([^"']+)["']/gm),
+                ...codeOnly.matchAll(/\bimport\(\s*["']([^"']+)["']\s*\)/g)
+            ].map((m) => m[1]);
             expect(new Set(imports)).toEqual(new Set(peers));
             return;
         }

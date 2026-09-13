@@ -27,6 +27,7 @@ test('productionBundles reads only export conditions that name a production file
 
 test('every published package is in PACKAGES, and PACKAGES names only published packages', () => {
     assert.ok(published.length > 0, 'found published packages under packages/');
+    assert.equal(new Set(PACKAGES).size, PACKAGES.length, 'PACKAGES has no duplicates');
     assert.deepEqual(new Set(PACKAGES), new Set(published.map((p) => p.dir)));
 });
 
@@ -52,6 +53,7 @@ test('every runtime export of every published package is in ENTRIES, and ENTRIES
             if (runtime) expected.add(entryName(manifest.name, subpath));
         }
     }
+    assert.equal(new Set(ENTRIES).size, ENTRIES.length, 'ENTRIES has no duplicates');
     assert.deepEqual(new Set(ENTRIES), expected);
 });
 
