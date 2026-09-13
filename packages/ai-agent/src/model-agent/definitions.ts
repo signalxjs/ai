@@ -21,7 +21,7 @@ const TOOL_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 
 const TASK_JSON: JsonSchema = {
     type: 'object',
-    properties: { task: { type: 'string', description: 'What the sub-agent should do, in full — it starts with no other context.' } },
+    properties: { task: { type: 'string', description: 'What the sub-agent should do, in full — it sees this task and its own instructions, not this conversation.' } },
     required: ['task'],
     additionalProperties: false
 };
