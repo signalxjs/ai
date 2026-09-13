@@ -25,6 +25,18 @@ OPENAI_API_KEY=sk-…         pnpm --filter chat-example dev      # OpenAI (gpt-
 AI_PROVIDER=openai AI_MODEL=gpt-5-mini pnpm --filter chat-example dev
 ```
 
+Or put them in a file — `dev` and `start` both load `.env` (node's
+`--env-file-if-exists`, so a missing file is fine):
+
+```sh
+cp .env.example .env             # then uncomment a key in it
+```
+
+`.env` is gitignored; `.env.example` documents every var the example reads
+(`AI_PROVIDER`, `AI_MODEL`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `PORT`).
+Note that this is the example wiring it up, not the framework: nothing in sigx
+loads `.env` for you today (signalxjs/cli#113).
+
 Production:
 
 ```sh
@@ -82,5 +94,6 @@ add fields; keep the check.
 | `src/env.d.ts` | Vite client types |
 | `dev-server.mjs` / `server.mjs` | dev (Vite middleware) / production (Node) servers |
 | `vite.config.ts` | `sigx()` + `sigxServer()` |
+| `.env.example` | every env var the example reads; copy to `.env` |
 | `index.html` | the shell and its CSS, including the `[data-scope=markdown][data-part=…]` rules the markdown view is styled by (it ships no CSS) |
 | `tsconfig.json` | typechecks against the packages' SOURCE, so it works on a clean checkout |
