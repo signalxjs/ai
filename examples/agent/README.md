@@ -31,17 +31,46 @@ Now open a second tab. It shows the whole conversation — replayed from
 `(epoch 0, seq 0)` — and the next turn reaches both tabs live. Approve a
 tool in one and the other updates.
 
-With a real model, or the real Claude Code harness:
+With a real model, or a real harness:
 
 ```sh
-ANTHROPIC_API_KEY=sk-ant-…  pnpm --filter agent-example dev   # our engine on Claude
-OPENAI_API_KEY=sk-…         pnpm --filter agent-example dev   # our engine on OpenAI
-SIGX_AI_AGENT=claude-code   pnpm --filter agent-example dev   # the Claude Code harness itself
+ANTHROPIC_API_KEY=sk-ant-…     pnpm --filter agent-example dev   # our engine on Claude
+OPENAI_API_KEY=sk-…            pnpm --filter agent-example dev   # our engine on OpenAI
+SIGX_AI_AGENT=claude-code      pnpm --filter agent-example dev   # Claude Code itself
+SIGX_AI_AGENT=codex            pnpm --filter agent-example dev   # Codex (`codex app-server`)
+SIGX_AI_AGENT=acp:gemini       pnpm --filter agent-example dev   # Gemini CLI over ACP
+SIGX_AI_AGENT=acp:cursor       pnpm --filter agent-example dev   # the Cursor CLI agent over ACP
+SIGX_AI_AGENT=acp:claude-code  pnpm --filter agent-example dev   # Claude Code via Zed's ACP bridge
+SIGX_AI_AGENT=acp:codex        pnpm --filter agent-example dev   # Codex via Zed's ACP bridge
 ```
 
-`SIGX_AI_AGENT=claude-code` needs Claude Code available and signed in; when it is
-not, the example says so and falls back to our own engine. **Nothing in
-`App.tsx` changes either way** — that is the point of the contract.
+Every harness runs on your own login. Each one needs its CLI installed and
+signed in; when it cannot start, the example prints why and falls back to our
+own engine — a missing CLI gets an install hint, any other failure (not
+signed in, an SDK error) its error message:
+
+```
+[agent] SIGX_AI_AGENT=codex needs the "codex" CLI on PATH — install it (npm i -g @openai/codex) or point SIGX_AI_AGENT_COMMAND at it; falling back to the sigx engine.
+```
+
+**Nothing in `App.tsx` changes either way** — that is the point of the
+contract. A harness works in a directory: `SIGX_AI_CWD` (default: where you
+started the server) is its session's `cwd`, and `SIGX_AI_AGENT_COMMAND`
+points at a specific executable instead of the PATH lookup — when that path
+does not exist, the warning names it instead of asking you to install the CLI.
+
+| `SIGX_AI_AGENT` | Adapter | CLI | Passed through to the child |
+|---|---|---|---|
+| `sigx` (default) | `modelAgent` on `@sigx/ai` | — | — (`SIGX_AI_PROVIDER`, `SIGX_AI_MODEL`, the API keys) |
+| `claude-code` | `@sigx/ai-agent-claude-code` | the SDK's bundled Claude Code | `ANTHROPIC_*`, `CLAUDE_CONFIG_DIR` |
+| `codex` | `@sigx/ai-agent-codex` | `codex` (`npm i -g @openai/codex`) | `OPENAI_API_KEY`, `CODEX_HOME` |
+| `acp:gemini` | `@sigx/ai-agent-acp` | `gemini` (`npm i -g @google/gemini-cli`) | `GEMINI_API_KEY`, `GOOGLE_API_KEY` |
+| `acp:cursor` | `@sigx/ai-agent-acp` | `agent` (the Cursor CLI) | `CURSOR_API_KEY`, `CURSOR_AUTH_TOKEN` |
+| `acp:claude-code` | `@sigx/ai-agent-acp` | `claude-code-acp` (`npm i -g @zed-industries/claude-code-acp`) | `ANTHROPIC_API_KEY`, `CLAUDE_CONFIG_DIR` |
+| `acp:codex` | `@sigx/ai-agent-acp` | `codex-acp` (`npm i -g @zed-industries/codex-acp`) | `OPENAI_API_KEY`, `CODEX_HOME` |
+
+A harness child gets an allowlisted environment (`PATH`, `HOME`, proxy
+variables, …) plus the vendor variables in the last column — nothing else.
 
 The `SIGX_` prefix is deliberate: a bare `AI_AGENT` is generic enough that the
 tooling you run this from may already define it (Claude Code does). Each
@@ -56,8 +85,9 @@ cp .env.example .env             # then uncomment what you need
 ```
 
 `.env` is gitignored; `.env.example` documents every var the example reads
-(`SIGX_AI_AGENT`, `SIGX_AI_PROVIDER`, `SIGX_AI_MODEL`, `ANTHROPIC_API_KEY`,
-`OPENAI_API_KEY`, `PORT`).
+(`SIGX_AI_AGENT`, `SIGX_AI_CWD`, `SIGX_AI_AGENT_COMMAND`, `SIGX_AI_PROVIDER`,
+`SIGX_AI_MODEL`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `PORT`) and the
+vendor variables each harness passes through.
 
 Production:
 
@@ -76,8 +106,9 @@ pnpm --filter agent-example smoke   # boots the server, runs one mock turn, join
 
 - **`src/agent.server.ts`** — the whole server side. Two tools (`defineTool`
   with a Zod schema; `list_incidents` carries `annotations: { readOnly: true }`,
-  which is what `allowReadOnly` reads), the agent picked by env, one session
-  opened with a policy, and `serveSession` — then two endpoints: a
+  which is what `allowReadOnly` reads), the agent picked by env (our engine
+  or any harness adapter — one `switch`, the same `SESSION_OPTIONS` for all),
+  one session opened with a policy, and `serveSession` — then two endpoints: a
   `serverFn` that takes wire commands and a `serverStream` that yields wire
   frames from the client's cursor. Deliberately **one process-wide session**,
   so the second tab is a late joiner rather than a new conversation.
