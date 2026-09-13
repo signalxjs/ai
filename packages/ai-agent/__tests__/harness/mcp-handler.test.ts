@@ -64,6 +64,17 @@ describe('createMcpToolHandler', () => {
         expect(await (await handler()(post(rpc(3, 'ping')))).json()).toEqual({ jsonrpc: '2.0', id: 3, result: {} });
     });
 
+    it('a malformed id or a missing jsonrpc version is -32600, never a silent 202', async () => {
+        const badId = await handler()(post({ jsonrpc: '2.0', id: null, method: 'ping' }));
+        expect(badId.status).toBe(400);
+        expect(await badId.json()).toEqual({ jsonrpc: '2.0', id: null, error: { code: JSON_RPC.INVALID_REQUEST, message: 'Invalid request id' } });
+        const objectId = await handler()(post({ jsonrpc: '2.0', id: { nested: true }, method: 'ping' }));
+        expect(objectId.status).toBe(400);
+        const noVersion = await handler()(post({ id: 1, method: 'ping' }));
+        expect(noVersion.status).toBe(400);
+        expect((await noVersion.json()).error.code).toBe(JSON_RPC.INVALID_REQUEST);
+    });
+
     it('tools/list exposes name, description and JSON Schema', async () => {
         const body = await (await handler()(post(rpc(4, 'tools/list')))).json();
         expect(body.result.tools.map((t: { name: string }) => t.name)).toEqual(['weather', 'shout', 'failing']);

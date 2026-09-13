@@ -256,6 +256,8 @@ export function createJsonRpcPeer(options: JsonRpcPeerOptions): JsonRpcPeer {
     const peer: JsonRpcPeer = {
         request<R>(method: string, params?: unknown, reqOptions: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {}): Promise<R> {
             if (closedState) return Promise.reject(new JsonRpcClosedError(method));
+            // Already aborted: nothing goes on the wire — no request, no cancel for it.
+            if (reqOptions.signal?.aborted) return Promise.reject(new JsonRpcAbortError(method));
             const id = ++nextId;
             return new Promise<R>((resolve, reject) => {
                 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -271,13 +273,7 @@ export function createJsonRpcPeer(options: JsonRpcPeerOptions): JsonRpcPeer {
                     reqOptions.signal?.removeEventListener('abort', onAbort);
                 };
                 pending.set(id, { method, resolve: (v) => resolve(v as R), reject, cleanup });
-                if (reqOptions.signal) {
-                    if (reqOptions.signal.aborted) {
-                        onAbort();
-                        return;
-                    }
-                    reqOptions.signal.addEventListener('abort', onAbort, { once: true });
-                }
+                reqOptions.signal?.addEventListener('abort', onAbort, { once: true });
                 if (reqOptions.timeoutMs !== undefined) {
                     timer = setTimeout(() => {
                         if (!pending.has(id)) return;

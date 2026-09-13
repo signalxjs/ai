@@ -33,8 +33,12 @@ function fakeSocket(readyState = 1) {
 }
 
 describe('webSocketStreams', () => {
-    it('turns text and binary messages into chunks and writes chunks as frames', async () => {
+    it('turns text and binary messages into chunks, writes chunks as frames, and removes its listeners on close', async () => {
         const ws = fakeSocket();
+        const removed: string[] = [];
+        (ws as { removeEventListener?: (type: string) => void }).removeEventListener = (type) => {
+            removed.push(type);
+        };
         const { readable, writable, closed } = webSocketStreams(ws);
         expect(ws.binaryType).toBe('arraybuffer');
         const reader = readable.getReader();
@@ -48,6 +52,7 @@ describe('webSocketStreams', () => {
         ws.end();
         expect((await reader.read()).done).toBe(true);
         await closed;
+        expect(removed.sort()).toEqual(['close', 'error', 'message']);
     });
 
     it('waits for open before writing; a closed socket rejects writes', async () => {

@@ -62,6 +62,14 @@ export function ndjsonDecoder(options: NdjsonOptions = {}): TransformStream<Uint
             let start = 0;
             for (let i = 0; i < chunk.length; i++) {
                 if (chunk[i] !== NEWLINE) continue;
+                // The limit covers complete lines too, not only the buffered tail.
+                if (pendingBytes + (i - start) > limit) {
+                    const error = new LineTooLongError(pendingBytes + (i - start), limit);
+                    pending = [];
+                    pendingBytes = 0;
+                    controller.error(error);
+                    return;
+                }
                 flushLine(chunk.subarray(start, i), controller);
                 start = i + 1;
             }

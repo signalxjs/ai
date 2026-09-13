@@ -62,13 +62,16 @@ export function createMcpToolHandler(tools: readonly AnyTool[], options: McpTool
             return rpcError(null, JSON_RPC.PARSE_ERROR, 'Parse error', 400);
         }
         if (Array.isArray(message)) return rpcError(null, JSON_RPC.INVALID_REQUEST, 'Batch requests are not supported', 400);
-        if (!isPlainObject(message) || typeof message.method !== 'string') return rpcError(null, JSON_RPC.INVALID_REQUEST, 'Not a JSON-RPC request', 400);
+        if (!isPlainObject(message) || message.jsonrpc !== '2.0' || typeof message.method !== 'string') {
+            return rpcError(null, JSON_RPC.INVALID_REQUEST, 'Not a JSON-RPC 2.0 request', 400);
+        }
         const { id, method } = message;
         const params = isPlainObject(message.params) ? message.params : {};
-        const hasId = typeof id === 'string' || typeof id === 'number';
 
-        // Notifications are acknowledged and otherwise ignored.
-        if (!hasId) return new Response(null, { status: 202 });
+        // A notification has no `id` at all; an `id` of the wrong type is a malformed
+        // request, answered so a client never waits on it.
+        if (!('id' in message)) return new Response(null, { status: 202 });
+        if (typeof id !== 'string' && typeof id !== 'number') return rpcError(null, JSON_RPC.INVALID_REQUEST, 'Invalid request id', 400);
 
         switch (method) {
             case 'initialize': {

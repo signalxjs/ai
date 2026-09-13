@@ -47,6 +47,12 @@ describe('ndjsonDecoder', () => {
         await expect(decode([enc('x'.repeat(50)), enc('y'.repeat(50))], 64)).rejects.toThrow(/exceeds 64 bytes/);
     });
 
+    it('a complete oversized line inside one chunk trips the limit too', async () => {
+        await expect(decode([enc('x'.repeat(100) + '\n{"a":1}\n')], 64)).rejects.toBeInstanceOf(LineTooLongError);
+        // Buffered tail plus the completing chunk counts as one line.
+        await expect(decode([enc('x'.repeat(40)), enc('y'.repeat(40) + '\n')], 64)).rejects.toBeInstanceOf(LineTooLongError);
+    });
+
     it('a short line followed by newline never trips the limit', async () => {
         expect(await decode([enc('{"a":1}\n{"b":2}\n')], 8)).toEqual(['{"a":1}', '{"b":2}']);
     });

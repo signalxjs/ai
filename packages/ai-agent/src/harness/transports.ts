@@ -14,7 +14,8 @@ export interface WebSocketLike {
     addEventListener(type: 'close', listener: (event: unknown) => void): void;
     addEventListener(type: 'error', listener: (event: unknown) => void): void;
     addEventListener(type: 'open', listener: (event: unknown) => void): void;
-    removeEventListener?(type: string, listener: (event: never) => void): void;
+    /** Optional; when present the bridge removes its listeners once the socket closes. */
+    removeEventListener?(type: string, listener: (event: unknown) => void): void;
 }
 
 export interface WebSocketStreams {
@@ -37,17 +38,7 @@ export function webSocketStreams(ws: WebSocketLike): WebSocketStreams {
     const readable = new ReadableStream<Uint8Array>({
         start(controller) {
             let done = false;
-            const finish = () => {
-                if (done) return;
-                done = true;
-                try {
-                    controller.close();
-                } catch {
-                    // already closed by cancel()
-                }
-                resolveClosed();
-            };
-            ws.addEventListener('message', (event) => {
+            const onMessage = (event: { data: unknown }) => {
                 if (done) return;
                 const data = event.data;
                 if (typeof data === 'string') controller.enqueue(encoder.encode(data));
@@ -58,7 +49,21 @@ export function webSocketStreams(ws: WebSocketLike): WebSocketStreams {
                         if (!done) controller.enqueue(new Uint8Array(buf));
                     });
                 }
-            });
+            };
+            const finish = () => {
+                if (done) return;
+                done = true;
+                ws.removeEventListener?.('message', onMessage as (event: unknown) => void);
+                ws.removeEventListener?.('close', finish);
+                ws.removeEventListener?.('error', finish);
+                try {
+                    controller.close();
+                } catch {
+                    // already closed by cancel()
+                }
+                resolveClosed();
+            };
+            ws.addEventListener('message', onMessage);
             ws.addEventListener('close', finish);
             ws.addEventListener('error', finish);
         },

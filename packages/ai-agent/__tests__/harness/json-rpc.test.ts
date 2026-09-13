@@ -122,6 +122,16 @@ describe('createJsonRpcPeer', () => {
         await a.close();
     });
 
+    it('a request with an already-aborted signal rejects and writes nothing', async () => {
+        const raw = rawPeer();
+        const ctrl = new AbortController();
+        ctrl.abort();
+        await expect(raw.peer.request('never', { x: 1 }, { signal: ctrl.signal })).rejects.toBeInstanceOf(JsonRpcAbortError);
+        await tick(5);
+        expect(raw.outLines).toEqual([]);
+        await raw.close();
+    });
+
     it('cancelMethod: null sends nothing; a custom method and params are honoured', async () => {
         const quiet = pair({ cancelMethod: null });
         const seen: unknown[] = [];
