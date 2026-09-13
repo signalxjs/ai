@@ -30,7 +30,7 @@ Full guides, API reference and live examples → **<https://sigx.dev/ai/>**
 | [`@sigx/ai-anthropic`](./packages/ai-anthropic) | Claude on the official `@anthropic-ai/sdk` — streaming, tool use, adaptive thinking, refusal handling |
 | [`@sigx/ai-openai`](./packages/ai-openai) | OpenAI on the official `openai` SDK — Responses API streaming and function calling |
 
-Examples: [`examples/chat`](./examples/chat) — an SSR sigx app streaming a chat over `serverStream`, assistant text rendered as markdown via `@sigx/markdown/dom`, provider switched by env, a scripted mock when no key is set.
+Examples: [`examples/chat`](./examples/chat) — an SSR sigx app streaming a chat over `serverStream`, assistant text rendered as markdown by `RichTextView` from `@sigx/richtext/dom`, provider switched by env, a scripted mock when no key is set.
 
 ## Install
 

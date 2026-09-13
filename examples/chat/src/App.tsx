@@ -1,13 +1,14 @@
 /**
  * The whole UI. `useChat` owns the transcript; the view reads it. A
  * streaming token is one write to one part's `text`, so the only thing that
- * re-renders per token is that part's `MarkdownView` — and it reads `value`
+ * re-renders per token is that part's `RichTextView` — and it reads `value`
  * inside its own render, so only the markdown block still being written
  * re-renders; finalized blocks keep their DOM. Watch it in devtools.
  */
 import { component, useHead } from 'sigx';
 import { useChat, type UIMessage, type UIPart } from '@sigx/ai/app';
-import { MarkdownView } from '@sigx/markdown/dom';
+import { RichTextView } from '@sigx/richtext/dom';
+import { markdownFormat } from '@sigx/richtext-markdown';
 import { chat } from './ai.server';
 
 const Part = component<{ part: UIPart; role: UIMessage['role']; live: boolean }>((ctx) => {
@@ -18,7 +19,7 @@ const Part = component<{ part: UIPart; role: UIMessage['role']; live: boolean }>
             if (ctx.props.role !== 'assistant') return <span>{p.text}</span>;
             return (
                 <div class={ctx.props.live ? 'md live' : 'md'}>
-                    <MarkdownView value={p.text} />
+                    <RichTextView value={p.text} format={markdownFormat} />
                 </div>
             );
         }

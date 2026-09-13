@@ -2,7 +2,7 @@
 
 One `serverStream` endpoint streams `UIChunk`s to `useChat`; the model runs
 tools on the server; the provider is whatever the environment says; the
-assistant's text renders as markdown through `@sigx/markdown/dom`. No key
+assistant's text renders as markdown through `RichTextView` from `@sigx/richtext/dom` (with `markdownFormat` from `@sigx/richtext-markdown`). No key
 needed to run it.
 
 ## Quickstart
@@ -56,8 +56,8 @@ pnpm --filter chat-example start
   the transcript back so the same assistant message resumes.
 - **`src/App.tsx`** — `useChat({ stream: (input) => chat(input) })`, and a
   view that just reads `thread.messages`. Each part is its own reactive
-  object, and a text part is `<MarkdownView value={part.text} />` from
-  `@sigx/markdown/dom`: open devtools, send a message, and watch only the
+  object, and a text part is `<RichTextView value={part.text} format={markdownFormat} />` from
+  `@sigx/richtext/dom`: open devtools, send a message, and watch only the
   markdown block still being written update per token — finalized blocks
   (and the rest of the DOM) stay put.
 - **`vite.config.ts`** — `sigx()` + `sigxServer()`. The client build swaps
@@ -92,11 +92,11 @@ add fields; keep the check.
 | File | What |
 |---|---|
 | `src/ai.server.ts` | tools, model selection, the `serverStream` endpoint |
-| `src/App.tsx` | the chat view on `useChat`; assistant text through `MarkdownView` |
+| `src/App.tsx` | the chat view on `useChat`; assistant text through `RichTextView` |
 | `src/entry-server.tsx` / `src/entry-client.tsx` | the per-request app factory / the hydrating browser entry |
 | `src/env.d.ts` | Vite client types |
 | `dev-server.mjs` / `server.mjs` | dev (Vite middleware) / production (Node) servers |
 | `vite.config.ts` | `sigx()` + `sigxServer()` |
 | `.env.example` | every env var the example reads; copy to `.env` |
-| `index.html` | the shell and its CSS, including the `[data-scope=markdown][data-part=…]` rules the markdown view is styled by (it ships no CSS) |
+| `index.html` | the shell and its CSS, including the `[data-scope=richtext][data-part=…]` rules the richtext view is styled by (it ships no CSS) |
 | `tsconfig.json` | typechecks against the packages' SOURCE, so it works on a clean checkout |
