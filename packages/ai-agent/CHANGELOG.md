@@ -8,6 +8,18 @@ follow [SemVer](https://semver.org/).
 
 ### Added
 
+- `mockAgent`: an `agent` step (`MockAgentStep`) spawns a sub-agent — the
+  spawning `tool-call` through the policy, `agent-start` bound to it, the
+  nested `steps` played under the call with `parentCallId` (nested requests
+  answered through the session, nested `usage` on the agent's terminal
+  `agent-update`), and `cancel({ agentId })` cancelling that one agent while
+  the turn continues. A `steer` option scripts the reply to steering input,
+  which plays in a new assistant message before the next step (default: one
+  line of text). With `subagents: 'none'` an `agent` step runs as a plain
+  tool call.
+- `recordAgent` / `replayAgent` record a targeted cancel (`FixtureCommand`
+  `cancel.agentId`) and a steer (a prompt into the running turn), and replay
+  both.
 - `modelAgent` steers (`steer: true`): a prompt during a turn is a
   `user-message` in that turn and reaches the model at the engine's next round
   boundary (`streamText`'s `steer`), answered in a second assistant message;
@@ -20,7 +32,6 @@ follow [SemVer](https://semver.org/).
   forwards a nested delegate's agent events so a grandchild sits one level
   deeper in `agentTree`. The tool context `modelAgent` hands its tools gains
   `attach(downstream)`.
-
 - The sub-agent tree in the transcript: `transcript.agents` (`AgentState` by
   id, folded from `agent-start` / `agent-update` — status, cumulative usage,
   output, the spawning `callId`, and `depth` / `parentAgentId` derived from the
@@ -138,6 +149,9 @@ follow [SemVer](https://semver.org/).
 
 ### Changed
 
+- `MOCK_CAPABILITIES` now declares `steer: true` and `subagents: 'control'`;
+  a test that relied on the mock rejecting a prompt during a turn passes
+  `capabilities: { steer: false }`.
 - `agentTool` no longer forwards a delegate's `usage` events into the host
   turn: they were summed into the host session's totals. The delegate's usage
   now rides on its `agent-update` and lands on `transcript.agents[id].usage`.
