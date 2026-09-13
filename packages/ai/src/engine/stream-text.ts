@@ -502,7 +502,9 @@ export async function* streamText(options: StreamTextOptions): AsyncGenerator<UI
                     };
                 })
             });
-            messages.push(...(options.steer?.() ?? []));
+            // The tool phase only runs when a further round is allowed (the
+            // step-limit break above) — the guard states the invariant locally.
+            if (step < maxSteps) messages.push(...(options.steer?.() ?? []));
         }
     } catch (e) {
         if (isAbort(e)) {
