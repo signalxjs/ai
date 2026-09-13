@@ -34,6 +34,7 @@ export const CODEX_CAPABILITIES: AgentCapabilities = capabilities({
     resume: 'local',
     fork: true,
     cancel: true,
+    steer: true,
     config: true,
     structuredOutput: true,
     promptParts: 'text+image',

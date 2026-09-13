@@ -31,6 +31,7 @@ await agent.dispose(); // kills the app-server tree, on Windows too
 | `thread/start` / `thread/resume` / `thread/fork` / `thread/list` | `session()` / `resume: 'local'` / `fork` / `listSessions()` |
 | `turn/start` … `turn/completed` (`completed`, `interrupted`, `failed`) | one turn (`end_turn`, `cancelled`, `error` with `codexErrorInfo` → `context_exceeded`, `rate_limited`, `auth_required`, `provider_error`) |
 | `turn/interrupt` | `cancel()` |
+| `turn/steer` | `prompt()` while a turn runs (`steer: true`): the input joins the running turn as a second `user-message`; a refusal is a recoverable `error` in that turn |
 | `agentMessage`, `plan`, `reasoning` items and their deltas | text and reasoning parts |
 | `commandExecution` + `outputDelta` | `tool-call { name: 'shell', category: 'execute' }`, `coding.terminal`, `coding.terminal-exit` |
 | `fileChange` + `patchUpdated` | `tool-call { name: 'apply_patch', category: 'edit' }`, `coding.diff`, `coding.files-changed` |
@@ -45,7 +46,13 @@ await agent.dispose(); // kills the app-server tree, on Windows too
 
 The contract's turn id is ours (a caller-supplied `turnId` is honoured);
 Codex's own turn id is announced as `ext { ns: 'codex', name: 'turn' }`.
-`turn/steer` is not wired yet (`steer: false`).
+A `prompt()` during a turn does not start a second one: it is sent as
+`turn/steer` with that Codex turn as `expectedTurnId` (waiting for
+`turn/start` to answer first), and the handle you get back is the running
+turn's — same `id`, same `result`. Codex may refuse a steer (the turn just
+ended, or it is a review or compaction turn); that comes back as
+`error { code: 'protocol_error', recoverable: true }` inside the turn and the
+turn carries on without the input.
 
 ## Sandbox and approvals
 
