@@ -86,16 +86,19 @@ export async function resolveExecutable(name: string, options: ResolveExecutable
         : [];
 
     const candidates: string[] = [];
+    const searched: string[] = [];
     if (hasSeparator) {
         const base = p.isAbsolute(name) ? name : p.resolve(options.cwd ?? process.cwd(), name);
         candidates.push(base);
         if (win && !p.extname(base)) for (const e of exts) candidates.push(base + e);
+        searched.push(p.dirname(base));
     } else {
         const pathKey = envKey(env, 'PATH', platform);
         // The delimiter follows the `platform` option, not the host (tests and adapters resolve for another OS).
         const dirs = ((pathKey ? env[pathKey] : undefined) ?? '').split(win ? ';' : ':').filter(Boolean);
         for (const dir of dirs) {
-            const base = p.join(dir, name);
+            if (!searched.includes(dir)) searched.push(dir);
+            const base = joinLike(dir, name);
             if (win) {
                 // Like cmd.exe: a name with an extension is looked up as-is; a bare
                 // name tries every PATHEXT extension, then the bare file.
@@ -112,7 +115,14 @@ export async function resolveExecutable(name: string, options: ResolveExecutable
         if (!(await exists(file, !win))) continue;
         return classify(file, { win, nodePath, env });
     }
-    throw new ExecutableNotFoundError(name, candidates.map((c) => p.dirname(c)).filter((d, i, a) => a.indexOf(d) === i));
+    throw new ExecutableNotFoundError(name, searched);
+}
+
+/** `dir` + `name` with the separator `dir` itself uses — a PATH entry keeps its own flavour whatever the host is. */
+function joinLike(dir: string, name: string): string {
+    const backslash = dir.includes('\\') || /^[A-Za-z]:$/.test(dir);
+    const s = backslash ? '\\' : '/';
+    return dir.endsWith(s) ? dir + name : dir + s + name;
 }
 
 async function classify(file: string, ctx: { win: boolean; nodePath: string; env: NodeJS.ProcessEnv }): Promise<ResolvedExecutable> {
