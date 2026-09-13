@@ -25,7 +25,13 @@
             .tool.failed, .tool.denied, .tool.cancelled { border-color: crimson; }
             .tool-head { display: block; font-family: ui-monospace, monospace; font-size: 0.82em; overflow-wrap: anywhere; }
             .tool-status { font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.7; }
-            .tool-output { margin: 0.4rem 0 0; padding: 0.4rem 0.6rem; border-radius: 0.3rem; background: color-mix(in srgb, CanvasText 8%, Canvas); font-family: ui-monospace, monospace; font-size: 0.78em; overflow-x: auto; }
+            /* The full call input, folded away — the header carries the signature. */
+            .tool-input { font-size: 0.78em; }
+            .tool-input > summary { cursor: pointer; opacity: 0.7; }
+            /* `pre-wrap`, not a horizontal scrollbar: the whole point of a
+               <pre> here is that a shell listing keeps its newlines. */
+            .tool-output, .tool-input > pre { margin: 0.4rem 0 0; padding: 0.4rem 0.6rem; border-radius: 0.3rem; background: color-mix(in srgb, CanvasText 8%, Canvas); font-family: ui-monospace, monospace; font-size: 0.78em; white-space: pre-wrap; overflow-wrap: anywhere; }
+            .tool-input > pre { font-size: 1em; }
             .tool-error { color: crimson; font-size: 0.82em; }
             .ask { margin: 0.5rem 0 0; font-size: 0.9em; }
             .ask code { font-family: ui-monospace, monospace; }

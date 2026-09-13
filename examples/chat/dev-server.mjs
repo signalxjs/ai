@@ -16,6 +16,19 @@ const vite = await createViteServer({
 
 const document = await createDevRequestHandler(vite, { entry: '/src/entry-server.tsx' });
 
+/**
+ * One env var, VALIDATED against the values `ai.server.ts` actually
+ * understands — the banner must report what the server DID, so an
+ * unrecognised value names its fallback instead of being echoed back.
+ */
+function pick(name, allowed, fallback) {
+    const value = process.env[name];
+    if (!value) return fallback;
+    if (allowed.includes(value)) return value;
+    console.warn(`[chat] ${name}=${value} is not one of ${allowed.join(' | ')} — using ${fallback}.`);
+    return fallback;
+}
+
 const port = Number(process.env.PORT ?? 5310);
 createServer((req, res) => {
     vite.middlewares(req, res, () => {
@@ -27,6 +40,6 @@ createServer((req, res) => {
         });
     });
 }).listen(port, () => {
-    const provider = process.env.AI_PROVIDER ?? (process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.OPENAI_API_KEY ? 'openai' : 'mock');
+    const provider = pick('SIGX_AI_PROVIDER', ['anthropic', 'openai', 'mock'], process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.OPENAI_API_KEY ? 'openai' : 'mock');
     console.log(`chat dev  http://localhost:${port}  (provider: ${provider})`);
 });

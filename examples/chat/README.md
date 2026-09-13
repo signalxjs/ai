@@ -22,7 +22,7 @@ With a real model:
 ```sh
 ANTHROPIC_API_KEY=sk-ant-… pnpm --filter chat-example dev      # Claude (claude-opus-5)
 OPENAI_API_KEY=sk-…         pnpm --filter chat-example dev      # OpenAI (gpt-5)
-AI_PROVIDER=openai AI_MODEL=gpt-5-mini pnpm --filter chat-example dev
+SIGX_AI_PROVIDER=openai SIGX_AI_MODEL=gpt-5-mini pnpm --filter chat-example dev
 ```
 
 Or put them in a file — `dev` and `start` both load `.env` (node's
@@ -33,7 +33,7 @@ cp .env.example .env             # then uncomment a key in it
 ```
 
 `.env` is gitignored; `.env.example` documents every var the example reads
-(`AI_PROVIDER`, `AI_MODEL`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `PORT`).
+(`SIGX_AI_PROVIDER`, `SIGX_AI_MODEL`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `PORT`).
 Note that this is the example wiring it up, not the framework: nothing in sigx
 loads `.env` for you today (signalxjs/cli#113).
 

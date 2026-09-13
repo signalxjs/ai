@@ -13,8 +13,9 @@
  * no business holding a subscription it cannot close.
  */
 import { component, useHead, onMounted, onUnmounted, signal } from 'sigx';
+import { toolOutput } from '@sigx/ai-agent';
 import { connectSession, type AgentSessionClient } from '@sigx/ai-agent/wire';
-import { useAgentSession, type AgentMessage, type AgentPart, type OpenRequest } from '@sigx/ai-agent/app';
+import { useAgentSession, type AgentMessage, type AgentPart, type OpenRequest, type ToolPartState } from '@sigx/ai-agent/app';
 import { agentCommand, agentEvents } from './agent.server';
 
 type Answers = Record<string, string | string[]>;
@@ -122,6 +123,63 @@ function connect(): Promise<AgentSessionClient> {
     );
 }
 
+/** What a card shows before it elides — a card summarises, the `<details>` has the rest. */
+const HEAD_CHARS = 72;
+const OUTPUT_LINES = 24;
+const OUTPUT_CHARS = 4000;
+
+/** One line, whitespace collapsed, capped. */
+function oneLine(text: string, max = HEAD_CHARS): string {
+    const flat = text.replace(/\s+/g, ' ').trim();
+    return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
+
+/**
+ * The call signature for the card header: the FIRST argument, summarised —
+ * `Bash(command: ls -la)`, not the forty lines of nested JSON an
+ * `AskUserQuestion` input is. The full input is one `<details>` away.
+ */
+function signature(input: unknown): string {
+    if (input === undefined || input === null) return '';
+    if (typeof input !== 'object') return oneLine(String(input));
+    const entries = Object.entries(input as Record<string, unknown>);
+    if (entries.length === 0) return '';
+    const [name, value] = entries[0]!;
+    const shown = oneLine(`${name}: ${typeof value === 'string' ? value : JSON.stringify(value)}`);
+    return entries.length > 1 ? `${shown}, +${entries.length - 1}` : shown;
+}
+
+/** Keep the head AND the tail: a listing is worth reading at both ends. */
+function elide(text: string): string {
+    let out = text;
+    const lines = out.split('\n');
+    if (lines.length > OUTPUT_LINES) {
+        const head = lines.slice(0, Math.ceil(OUTPUT_LINES / 2));
+        const tail = lines.slice(lines.length - Math.floor(OUTPUT_LINES / 2));
+        out = [...head, `… ${lines.length - head.length - tail.length} lines omitted …`, ...tail].join('\n');
+    }
+    // One huge line survives the line cap; cap the characters too.
+    if (out.length > OUTPUT_CHARS) {
+        const half = Math.floor(OUTPUT_CHARS / 2);
+        out = `${out.slice(0, half)}\n… ${out.length - OUTPUT_CHARS} characters omitted …\n${out.slice(out.length - half)}`;
+    }
+    return out;
+}
+
+/**
+ * The output block, as TEXT. A string is already text — `JSON.stringify` on
+ * one is what turned a shell listing into a single quoted line of `\n`
+ * escapes, inside a `<pre>`. `toolOutput` collapses `output` and the
+ * `content` blocks a harness may send instead; anything that is not a string
+ * is pretty-printed JSON. The error has its own line, so it stays out.
+ */
+function outputText(p: ToolPartState): string | undefined {
+    if (p.output === undefined && !p.content?.length) return undefined;
+    const out = toolOutput(p);
+    return elide(typeof out === 'string' ? out : JSON.stringify(out, null, 2));
+}
+
+/** What a card needs to prompt the operator: the open requests, and the two ways to settle one. */
 interface AskProps {
     readonly requests: readonly OpenRequest[];
     readonly onDecide: (requestId: string, allow: boolean) => void;
@@ -140,13 +198,21 @@ const Part = component<{ part: AgentPart } & AskProps>((ctx) => {
         // permission, the answer form for a question (Claude Code's
         // `AskUserQuestion` arrives as an input request ON its tool call).
         const open = p.requestId ? ctx.props.requests.find((r) => r.requestId === p.requestId) : undefined;
+        const sig = signature(p.input);
+        const output = outputText(p);
         return (
             <div class={`tool ${p.status}`}>
                 <code class="tool-head">
-                    {p.title ?? p.name}({JSON.stringify(p.input ?? {})})
+                    {p.title ?? p.name}({sig})
                 </code>
                 <span class="tool-status">{p.status}</span>
-                {p.output !== undefined && <pre class="tool-output">{JSON.stringify(p.output, null, 2)}</pre>}
+                {sig !== '' && (
+                    <details class="tool-input">
+                        <summary>input</summary>
+                        <pre>{JSON.stringify(p.input, null, 2)}</pre>
+                    </details>
+                )}
+                {output !== undefined && <pre class="tool-output">{output}</pre>}
                 {p.error && <span class="tool-error">{p.error}</span>}
                 {open?.kind === 'input' && <Ask request={open} onAnswer={ctx.props.onAnswer} />}
                 {open && open.kind !== 'input' && (

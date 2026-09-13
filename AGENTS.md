@@ -255,10 +255,10 @@ on every OS in the matrix).
   Responses API stream, function calling mapped onto tool events.
 - `examples/chat` → `chat-example` — an SSR sigx app: `serverStream` chat
   endpoint in `src/ai.server.ts`, `useChat` transcript, provider picked by
-  env (`AI_PROVIDER`), `mockModel` when no key is set so it runs out of the
-  box. Not published.
+  env (`SIGX_AI_PROVIDER`), `mockModel` when no key is set so it runs out of
+  the box. Not published.
 - `examples/agent` → `agent-example` — an SSR sigx app around ONE agent
-  session: `src/agent.server.ts` opens it (agent picked by env `AI_AGENT` —
+  session: `src/agent.server.ts` opens it (agent picked by env `SIGX_AI_AGENT` —
   `modelAgent` on `mockModel` by default, the Claude Code adapter when
   available), serves it with `serveSession`, and exposes a `serverFn` command
   endpoint plus a `serverStream` frame stream; `src/App.tsx` is

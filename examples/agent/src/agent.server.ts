@@ -7,9 +7,11 @@
  * `serverFn` that carries commands in, and a `serverStream` that carries
  * event frames out.
  *
- * The agent is picked by env — `AI_AGENT=sigx|claude-code`, and within
- * `sigx` the model is `AI_PROVIDER=anthropic|openai|mock` — so `pnpm dev`
- * runs with no key and no installed executable.
+ * The agent is picked by env — `SIGX_AI_AGENT=sigx|claude-code`, and within
+ * `sigx` the model is `SIGX_AI_PROVIDER=anthropic|openai|mock` — so `pnpm dev`
+ * runs with no key and no installed executable. The names are namespaced on
+ * purpose: a bare `AI_AGENT` is common enough that the tooling around the
+ * example (Claude Code itself, for one) already defines it.
  *
  * **Deliberately one process-wide session**: that is what makes the second
  * tab a LATE JOINER instead of a new conversation. A real app opens a
@@ -102,13 +104,27 @@ function demoModel(): LanguageModel {
     });
 }
 
+/**
+ * One env var, VALIDATED against the values we actually understand: an
+ * unrecognised one warns and falls back, so a typo — or a variable the
+ * surrounding tooling happens to set — is visible instead of silently
+ * ignored while the banner echoes it back.
+ */
+function pick<T extends string>(name: string, allowed: readonly T[], fallback: T): T {
+    const value = process.env[name];
+    if (!value) return fallback;
+    if ((allowed as readonly string[]).includes(value)) return value as T;
+    console.warn(`[agent] ${name}=${value} is not one of ${allowed.join(' | ')} — using ${fallback}.`);
+    return fallback;
+}
+
 function modelFor(): LanguageModel {
-    const wanted = process.env.AI_PROVIDER ?? (process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.OPENAI_API_KEY ? 'openai' : 'mock');
+    const wanted = pick('SIGX_AI_PROVIDER', ['anthropic', 'openai', 'mock'] as const, process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.OPENAI_API_KEY ? 'openai' : 'mock');
     switch (wanted) {
         case 'anthropic':
-            return anthropic().model(process.env.AI_MODEL ?? 'claude-opus-5');
+            return anthropic().model(process.env.SIGX_AI_MODEL ?? 'claude-opus-5');
         case 'openai':
-            return openai().model(process.env.AI_MODEL ?? 'gpt-5');
+            return openai().model(process.env.SIGX_AI_MODEL ?? 'gpt-5');
         default:
             return demoModel();
     }
@@ -129,7 +145,7 @@ const SESSION_OPTIONS = {
 } as const;
 
 /**
- * `AI_AGENT=claude-code` drives the real harness through the adapter, on the
+ * `SIGX_AI_AGENT=claude-code` drives the real harness through the adapter, on the
  * operator's own Claude Code login. Optional on purpose: the import is
  * dynamic and any failure (SDK missing, no executable, not signed in) falls
  * back to our own engine with the reason printed, so the example always runs.
@@ -137,7 +153,7 @@ const SESSION_OPTIONS = {
  * function changes.
  */
 async function openSession(): Promise<{ agent: Agent; session: AgentSession }> {
-    if ((process.env.AI_AGENT ?? 'sigx') === 'claude-code') {
+    if (pick('SIGX_AI_AGENT', ['sigx', 'claude-code'] as const, 'sigx') === 'claude-code') {
         try {
             const { claudeCode } = await import('@sigx/ai-agent-claude-code');
             const agent = claudeCode();
@@ -145,7 +161,7 @@ async function openSession(): Promise<{ agent: Agent; session: AgentSession }> {
             const session = await agent.session({ ...SESSION_OPTIONS, cwd: process.cwd() });
             return { agent, session };
         } catch (e) {
-            console.warn(`[agent] AI_AGENT=claude-code is unavailable (${e instanceof Error ? e.message : String(e)}); falling back to the sigx engine.`);
+            console.warn(`[agent] SIGX_AI_AGENT=claude-code is unavailable (${e instanceof Error ? e.message : String(e)}); falling back to the sigx engine.`);
         }
     }
     const agent = modelAgent({ model: modelFor(), system: SYSTEM, tools: TOOLS, maxSteps: 6 });
