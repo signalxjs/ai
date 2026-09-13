@@ -381,6 +381,32 @@ is the whole picture: `serveSession` on the server, `connectSession` +
 `useAgentSession` in the browser, tool cards, permission prompts, cancel,
 usage, and a second tab that joins the same session.
 
+## Scripting an agent: `mockAgent`
+
+`mockAgent({ script })` plays one step list per turn — text, `tool` calls
+through the policy, `request`s, `ext` events, `usage`, `config`, `error`,
+`output` — and declares `MOCK_CAPABILITIES` (everything an in-process agent
+can honour: `steer: true`, `subagents: 'control'`, …; pass `capabilities` to
+reduce it and the mock behaves like a reduced harness).
+
+An `agent` step spawns a sub-agent: the spawning `tool-call` (through the
+policy like any tool), `agent-start` bound to it, then the nested `steps`
+play under the call with `parentCallId` set — nested tools ask through the
+same session, a nested `usage` step lands on the agent's terminal
+`agent-update`, not on the session's totals — and `cancel({ agentId })`
+cancels that one agent while the turn goes on:
+
+```ts
+const agent = mockAgent({
+    script: [[{ agent: { name: 'reviewer', steps: [{ tool: { name: 'read' } }, { text: 'Looks fine.' }], output: { ok: true } } }, { text: 'Done.' }]]
+});
+```
+
+Steering input (a `prompt()` while the turn runs) lands as a `user-message`
+in the running turn at once; its reply — `steer(input, turn, ctx)`, default
+one line of text — plays in a new assistant message before the turn's next
+step, and the rest of the script continues in that message.
+
 ## Writing an adapter: run `agentConformance`
 
 An adapter is a mapping from a harness onto the contract; the conformance

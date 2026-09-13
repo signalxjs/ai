@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { allowAll, type Agent, type AgentEvent, type AgentTurn } from '@sigx/ai-agent';
-import { mockAgent, recordAgent, replayAgent, serializeFixture, ReplayMismatchError, agentConformance, MOCK_CAPABILITIES, type AgentFixture, type ConformanceScenario, type MockStep } from '@sigx/ai-agent/testing';
+import { allowAll, type Agent, type AgentEvent, type AgentSession, type AgentTurn } from '@sigx/ai-agent';
+import { mockAgent, recordAgent, replayAgent, serializeFixture, ReplayMismatchError, agentConformance, MOCK_CAPABILITIES, type AgentFixture, type ConformanceScenario, type FixtureCommand, type MockStep } from '@sigx/ai-agent/testing';
 import { collect } from '../helpers';
 
 /** Strip the stamps so a recorded run and its replay compare on content. */
@@ -140,6 +140,58 @@ describe('recordAgent / replayAgent', () => {
         const replayed = await collect(r2.prompt('again'));
         expect(payloads(replayed)).toEqual(payloads(second));
         expect(replayed[0]!.epoch).toBe(second[0]!.epoch);
+    });
+
+    it('records and replays a targeted cancel and a steer', async () => {
+        const script: MockStep[][] = [
+            [{ agent: { name: 'slowpoke', steps: [{ tool: { name: 'slow', delayMs: 60_000 } }] } }, { text: 'Carried on.' }],
+            [{ tool: { name: 'guarded', output: 1 } }, { text: 'Done.' }]
+        ];
+        const drive = async (session: AgentSession) => {
+            const turn = session.prompt('go');
+            const events: AgentEvent[] = [];
+            for await (const e of turn) {
+                events.push(e);
+                if (e.type === 'request') await session.respond(e.requestId, { type: 'permission', outcome: 'allow', scope: 'once' });
+                if (e.type === 'agent-update' && e.status === 'running') await session.cancel({ agentId: e.agentId });
+            }
+            const second = session.prompt('again');
+            let steer: AgentTurn | undefined;
+            for await (const e of second) {
+                events.push(e);
+                if (e.type === 'request') {
+                    steer = session.prompt('also thanks');
+                    await session.respond(e.requestId, { type: 'permission', outcome: 'allow', scope: 'once' });
+                }
+            }
+            expect(steer!.id).toBe(second.id);
+            return { events, results: [await turn.result, await second.result, await steer!.result] };
+        };
+        const recorder = recordAgent(mockAgent({ script }));
+        const live = await recorder.session();
+        const liveRun = await drive(live);
+        await live.close();
+        const commands = recorder.fixture.sessions[0]!.log.filter((e): e is { command: FixtureCommand } => 'command' in e).map((e) => e.command);
+        expect(commands.find((c) => c.kind === 'cancel')).toEqual({ kind: 'cancel', agentId: 'agent_1' });
+        expect(commands.filter((c) => c.kind === 'prompt').map((c) => (c as { turnId: string }).turnId)).toEqual([liveRun.results[0]!.turnId, liveRun.results[1]!.turnId, liveRun.results[1]!.turnId]);
+
+        const replay = await replayAgent(JSON.parse(serializeFixture(recorder.fixture)) as AgentFixture).session();
+        const replayRun = await drive(replay);
+        expect(payloads(replayRun.events)).toEqual(payloads(liveRun.events));
+        expect(replayRun.results).toEqual(liveRun.results);
+        await replay.close();
+
+        // A steer the recording does not have is a deviation.
+        const strayed = await replayAgent(recorder.fixture).session();
+        const turn = strayed.prompt('go');
+        for await (const e of turn) {
+            if (e.type === 'request') await strayed.respond(e.requestId, { type: 'permission', outcome: 'allow', scope: 'once' });
+            if (e.type === 'agent-update' && e.status === 'running') {
+                await expect(strayed.prompt('unexpected').result).rejects.toBeInstanceOf(ReplayMismatchError);
+                await strayed.cancel({ agentId: e.agentId });
+            }
+        }
+        expect((await turn.result).stopReason).toBe('end_turn');
     });
 
     it('records listSessions results and replays them in order', async () => {
