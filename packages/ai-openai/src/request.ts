@@ -56,10 +56,12 @@ function toJson(value: unknown, what: string): string {
 /** A user part → a Responses input item; inline data travels as a data URL. */
 function toUserContent(p: ModelUserPart): ResponseInputContent {
     if (p.type === 'text') return { type: 'input_text', text: p.text };
-    const dataUrl = p.data !== undefined ? `data:${p.mediaType};base64,${p.data}` : undefined;
-    if (p.type === 'image') return { type: 'input_image', image_url: p.url ?? dataUrl ?? '', detail: 'auto' };
+    // A part with neither `url` nor `data` is a caller error, not an empty upload.
+    if (p.url === undefined && p.data === undefined) throw new Error(`[sigx ai-openai] ${p.type} part needs data or url`);
+    const location = p.url ?? `data:${p.mediaType};base64,${p.data}`;
+    if (p.type === 'image') return { type: 'input_image', image_url: location, detail: 'auto' };
     if (p.url !== undefined) return { type: 'input_file', file_url: p.url };
-    return { type: 'input_file', filename: p.filename ?? 'file', file_data: dataUrl ?? '' };
+    return { type: 'input_file', filename: p.filename ?? 'file', file_data: location };
 }
 
 function toInput(messages: readonly ModelMessage[]): ResponseInputItem[] {

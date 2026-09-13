@@ -65,6 +65,10 @@ describe('ChatInput', () => {
         expect(part({ type: 'image', mediaType: 'image/png', data: 'AAAA', url: 'https://x.test/a' })).toEqual([{ message: 'exactly one of data or url is required', path }]);
         expect(part({ type: 'image', mediaType: 'not a type', data: 'AAAA' })).toEqual([{ message: 'must be a media type like image/png', path: [...path, 'mediaType'] }]);
         expect(part({ type: 'image', mediaType: 'image/png', data: 'not base64!' })).toEqual([{ message: 'must be base64', path: [...path, 'data'] }]);
+        // The character set alone is not enough: `atob` needs whole quartets and end padding only.
+        expect(part({ type: 'image', mediaType: 'image/png', data: 'AAA' })).toEqual([{ message: 'must be base64', path: [...path, 'data'] }]);
+        expect(part({ type: 'image', mediaType: 'image/png', data: 'AA=A' })).toEqual([{ message: 'must be base64', path: [...path, 'data'] }]);
+        expect(part({ type: 'image', mediaType: 'image/png', data: 'AA==' })?.length ?? 0).toBe(0);
         expect(part({ type: 'image', mediaType: 'image/png', data: 'A'.repeat(10_000_004) })).toEqual([{ message: 'longer than 10000000 characters', path: [...path, 'data'] }]);
         expect(part({ type: 'image', mediaType: 'image/png', url: 'ftp://x.test/a' })).toEqual([{ message: 'must be an http(s) URL', path: [...path, 'url'] }]);
         expect(part({ type: 'image', mediaType: 'image/png', url: 'https://x.test/' + 'a'.repeat(8200) })).toEqual([{ message: 'longer than 8192 characters', path: [...path, 'url'] }]);

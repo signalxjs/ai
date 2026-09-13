@@ -199,6 +199,10 @@ describe('@sigx/ai-anthropic', () => {
         await expect(collect(model.stream({ messages: [{ role: 'user', content: [{ type: 'file', mediaType: 'text/csv', data: 'AAAA' }] }] }))).rejects.toThrow(
             /\[sigx ai-anthropic\] document media type "text\/csv" is not supported \(application\/pdf, text\/plain\)/
         );
+        // The same check applies to URL sources, and a part with neither data nor url is a caller error.
+        await expect(collect(model.stream({ messages: [{ role: 'user', content: [{ type: 'image', mediaType: 'image/bmp', url: 'https://x.test/a.bmp' }] }] }))).rejects.toThrow(/image\/bmp/);
+        await expect(collect(model.stream({ messages: [{ role: 'user', content: [{ type: 'file', mediaType: 'text/csv', url: 'https://x.test/a.csv' }] }] }))).rejects.toThrow(/text\/csv/);
+        await expect(collect(model.stream({ messages: [{ role: 'user', content: [{ type: 'image', mediaType: 'image/png' }] }] }))).rejects.toThrow(/\[sigx ai-anthropic\] image part needs data or url/);
         const chunks = await collectChunks(streamText({ model, messages: [{ id: 'u', role: 'user', parts: [{ type: 'image', mediaType: 'image/bmp', data: 'AAAA' }] }] }));
         expect(chunks.map((c) => c.type)).toEqual(['start', 'error']);
         expect(chunks[1]).toMatchObject({ type: 'error', message: expect.stringContaining('image/bmp') });

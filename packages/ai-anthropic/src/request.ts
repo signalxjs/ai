@@ -76,22 +76,29 @@ function toUserBlock(p: ModelUserPart): ContentBlockParam {
     return toDocumentBlock(p);
 }
 
+/** The media type is checked whatever the source — a URL to a BMP is refused like inline BMP bytes. */
 function toImageBlock(p: ModelImagePart): ImageBlockParam {
-    if (p.url !== undefined) return { type: 'image', source: { type: 'url', url: p.url } };
     if (!IMAGE_TYPES.includes(p.mediaType as Base64ImageSource['media_type'])) {
         throw new Error(`[sigx ai-anthropic] image media type "${p.mediaType}" is not supported (${IMAGE_TYPES.join(', ')})`);
     }
-    return { type: 'image', source: { type: 'base64', media_type: p.mediaType as Base64ImageSource['media_type'], data: p.data ?? '' } };
+    if (p.url !== undefined) return { type: 'image', source: { type: 'url', url: p.url } };
+    return { type: 'image', source: { type: 'base64', media_type: p.mediaType as Base64ImageSource['media_type'], data: inlineData(p, 'image') } };
 }
 
 function toDocumentBlock(p: ModelFilePart): DocumentBlockParam {
+    if (!(DOCUMENT_TYPES as readonly string[]).includes(p.mediaType)) {
+        throw new Error(`[sigx ai-anthropic] document media type "${p.mediaType}" is not supported (${DOCUMENT_TYPES.join(', ')})`);
+    }
     const title = p.filename !== undefined ? { title: p.filename } : {};
     if (p.url !== undefined) return { type: 'document', source: { type: 'url', url: p.url }, ...title };
-    if (p.mediaType === 'application/pdf') return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: p.data ?? '' }, ...title };
-    if (p.mediaType === 'text/plain') {
-        return { type: 'document', source: { type: 'text', media_type: 'text/plain', data: new TextDecoder().decode(decodeBase64(p.data ?? '')) }, ...title };
-    }
-    throw new Error(`[sigx ai-anthropic] document media type "${p.mediaType}" is not supported (${DOCUMENT_TYPES.join(', ')})`);
+    if (p.mediaType === 'application/pdf') return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: inlineData(p, 'file') }, ...title };
+    return { type: 'document', source: { type: 'text', media_type: 'text/plain', data: new TextDecoder().decode(decodeBase64(inlineData(p, 'file'))) }, ...title };
+}
+
+/** `data` of a part that has no `url` — a part with neither is a caller error, not an empty upload. */
+function inlineData(p: ModelImagePart | ModelFilePart, what: 'image' | 'file'): string {
+    if (p.data === undefined) throw new Error(`[sigx ai-anthropic] ${what} part needs data or url`);
+    return p.data;
 }
 
 function toMessages(messages: readonly ModelMessage[]): MessageParam[] {

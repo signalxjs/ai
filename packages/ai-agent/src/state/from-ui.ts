@@ -74,9 +74,8 @@ export function fromUIMessages(messages: readonly UIMessage[], options: FromUIOp
 
 function toPromptPart(p: UIMessage['parts'][number]): PromptPart | undefined {
     if (p.type === 'text') return { type: 'text', text: p.text };
-    // `image` / `file` parts (signalxjs/ai#36) share the prompt part shape.
-    const t = (p as { type: string }).type;
-    if (t === 'image' || t === 'file') return { ...(p as object) } as PromptPart;
+    // `image` / `file` parts share the prompt part shape.
+    if (p.type === 'image' || p.type === 'file') return { ...p };
     return undefined;
 }
 

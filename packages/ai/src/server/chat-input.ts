@@ -26,7 +26,8 @@ const MAX_URL = 8192;
 const MAX_FILENAME = 255;
 const JSON_CAP_MESSAGE = `must be JSON-serializable and at most ${MAX_TOOL_JSON} characters as JSON`;
 const MEDIA_TYPE = /^[\w.+-]+\/[\w.+-]+$/;
-const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
+/** Standard base64 as `atob` decodes it: whole quartets, padding only at the end. */
+const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 /**
  * `true` when `value` serializes to JSON within the cap; `false` when it is

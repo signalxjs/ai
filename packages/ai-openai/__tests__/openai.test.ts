@@ -160,6 +160,13 @@ describe('@sigx/ai-openai', () => {
         ]);
     });
 
+    it('refuses an attachment with neither data nor url', async () => {
+        const { client } = fakeClient([]);
+        await expect(collect(openai({ client }).model().stream({ messages: [{ role: 'user', content: [{ type: 'file', mediaType: 'application/pdf' }] }] }))).rejects.toThrow(
+            /\[sigx ai-openai\] file part needs data or url/
+        );
+    });
+
     it('names an unserializable tool payload instead of throwing bare', async () => {
         const { client } = fakeClient([]);
         const model = openai({ client }).model();
