@@ -22,13 +22,18 @@
  * client is the approver there, by design); a server-side handler can veto;
  * with no handler it is denied like any other gated call.
  *
+ * `steer` lets the caller inject user messages into a running turn: the
+ * engine polls it between rounds and, when it returns anything, asks the
+ * model again with the injected messages appended. That is how an agent
+ * session accepts a prompt while a turn runs.
+ *
  * Abort is cooperative and total: `signal` reaches the provider (it aborts
  * the HTTP stream) and every tool (`ctx.signal`), and a consumer that
  * `break`s out of the iterable closes the provider stream through the
  * generator's `finally`.
  */
 
-import { DENIED_MESSAGE, addUsage, toModelMessages, type LanguageModel, type ModelEvent, type ModelMessage, type ModelRequest } from '../model/index.js';
+import { DENIED_MESSAGE, addUsage, toModelMessages, type LanguageModel, type ModelEvent, type ModelMessage, type ModelRequest, type ModelUserMessage } from '../model/index.js';
 import { generateId, type FinishReason, type UIChunk, type UIMessage, type UIToolPart, type Usage } from '../protocol/index.js';
 import { jsonSchemaOf, validateWith, type JsonSchema, type StandardSchemaV1 } from '../schema/index.js';
 import { findTool, type AnyTool } from '../tool/index.js';
@@ -97,6 +102,15 @@ export interface StreamTextOptions {
     readonly onToolApproval?: (call: ToolApprovalCall, ctx: ToolApprovalContext) => ToolApprovalDecision | Promise<ToolApprovalDecision>;
     /** A structured result for the turn — see {@link OutputOptions}. */
     readonly output?: OutputOptions;
+    /**
+     * Input injected into the running turn (steering). Polled between model
+     * rounds — after a round's tool results are appended, and when a round
+     * answered without tool calls; a non-empty result is appended as user
+     * messages and the model is asked again. Every round counts against
+     * `maxSteps`. Nothing is yielded for the injected messages: the caller
+     * owns that part of the transcript.
+     */
+    readonly steer?: () => readonly ModelUserMessage[];
 }
 
 export interface StepInfo {
@@ -359,6 +373,15 @@ export async function* streamText(options: StreamTextOptions): AsyncGenerator<UI
                 options.onStep?.({ step, finishReason: round.finish, usage: round.usage, toolCalls: round.toolCalls });
 
                 if (!round.toolCalls.length) {
+                    // A steer that arrived while the model answered keeps the
+                    // turn going: the answer stays in the conversation and the
+                    // injected input follows it.
+                    const injected = options.steer?.() ?? [];
+                    if (injected.length && step < maxSteps) {
+                        messages.push(round.assistant, ...injected);
+                        continue;
+                    }
+                    if (injected.length) finish = 'length';
                     finalRound = round;
                     break;
                 }
@@ -476,6 +499,7 @@ export async function* streamText(options: StreamTextOptions): AsyncGenerator<UI
                     };
                 })
             });
+            messages.push(...(options.steer?.() ?? []));
         }
     } catch (e) {
         if (isAbort(e)) {
