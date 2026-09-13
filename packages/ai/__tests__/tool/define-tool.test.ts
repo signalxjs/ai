@@ -52,6 +52,8 @@ describe('defineTool', () => {
         const always = defineTool({ name: 'a', description: 'a', input: citySchema, needsApproval: true, annotations: { destructive: true }, execute: () => 1 });
         expect(always.annotations).toEqual({ destructive: true });
         await expect(always.approval!({ city: 'Oslo' }, ctx)).resolves.toBe(true);
+        // Bad arguments fail as a validation error before any approval UX.
+        await expect(always.approval!({ city: 1 }, ctx)).rejects.toBeInstanceOf(SchemaValidationError);
 
         const seen: string[] = [];
         const some = defineTool({

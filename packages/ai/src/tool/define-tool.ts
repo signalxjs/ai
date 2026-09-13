@@ -108,11 +108,15 @@ export function defineTool<S extends StandardSchemaV1, O>(options: ToolOptions<S
         ...(options.strict !== undefined ? { strict: options.strict } : {})
     };
     const validate = (raw: unknown) => validateWith(input, raw, `Invalid arguments for tool "${name}"`);
-    // `needsApproval: true` is a constant check; a predicate sees the validated
-    // input. `false`/absent leaves `approval` off so the engine skips the phase.
+    // Both forms validate first, so bad arguments fail as a validation error
+    // before any approval UX; a predicate then sees the validated input.
+    // `false`/absent leaves `approval` off so the engine skips the phase.
     const approval =
         needsApproval === true
-            ? async () => true
+            ? async (raw: unknown) => {
+                  await validate(raw);
+                  return true;
+              }
             : typeof needsApproval === 'function'
               ? async (raw: unknown, ctx: ToolContext) => needsApproval(await validate(raw), ctx)
               : undefined;
