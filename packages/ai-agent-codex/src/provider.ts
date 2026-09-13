@@ -40,7 +40,11 @@ export const CODEX_CAPABILITIES: AgentCapabilities = capabilities({
     promptParts: 'text+image',
     tools: 'native',
     permissions: 'harness-filtered',
-    listSessions: true
+    listSessions: true,
+    // Codex reports its sub-agents (collab tool calls, sub-agent activity) on the
+    // parent thread, so they can be observed. Their own threads are not routed to
+    // us yet, so a child cannot be cancelled or answered — `control` waits on that.
+    subagents: 'observe'
 });
 
 export const DEFAULT_CODEX_COMMAND = 'codex';
