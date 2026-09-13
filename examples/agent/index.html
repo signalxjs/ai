@@ -16,7 +16,14 @@
             .msg { padding: 0.6rem 0.9rem; border-radius: 0.75rem; max-width: 90%; white-space: pre-wrap; line-height: 1.45; }
             .msg.user { align-self: flex-end; background: Highlight; color: HighlightText; }
             .msg.assistant { align-self: flex-start; background: color-mix(in srgb, CanvasText 8%, Canvas); width: 100%; box-sizing: border-box; }
+            /* Reasoning: the text when there is any, and — while a harness that
+               redacts it is still thinking — a live indicator instead of a
+               blank thread. */
             .reasoning { opacity: 0.6; font-size: 0.85em; font-style: italic; }
+            .reasoning > summary { cursor: pointer; font-style: normal; }
+            .reasoning.thinking::after { content: ''; display: inline-block; width: 0.5em; height: 0.5em; margin-left: 0.4em; border-radius: 50%; background: currentColor; animation: pulse 1.2s ease-in-out infinite; }
+            @keyframes pulse { 0%, 100% { opacity: 0.2; } 50% { opacity: 1; } }
+            @media (prefers-reduced-motion: reduce) { .reasoning.thinking::after { animation: none; opacity: 0.6; } }
             /* A tool CARD: the call, its status, its output, and — while it is
                waiting — the permission prompt, in place. */
             .tool { display: block; margin: 0.4rem 0; padding: 0.5rem 0.7rem; border-left: 3px solid GrayText; border-radius: 0.4rem; background: color-mix(in srgb, CanvasText 5%, Canvas); white-space: normal; }

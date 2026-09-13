@@ -20,6 +20,12 @@ All notable changes to `@sigx/ai` are documented here. The format follows
   for `useStream`, and `ChatInput`, a dependency-free Standard Schema for the
   wire transcript.
 - `@sigx/ai/testing`: `mockModel`, a scripted deterministic model.
+- `Usage` documents its well-known extra keys — `reasoningTokens` (of
+  `outputTokens`, how many were reasoning: a breakdown, never an addition),
+  `cacheReadInputTokens` / `cacheCreationInputTokens` and `totalTokens` — so
+  every provider and agent adapter reports the same number under the same name
+  and a client can read it without knowing which one produced it. The index
+  signature stays open; no type change.
 - Tool approval. `defineTool({ needsApproval, annotations })` flags a call
   that needs a human (always, or per validated input); `streamText` yields a
   `tool-approval-request` chunk and asks `onToolApproval`, which answers

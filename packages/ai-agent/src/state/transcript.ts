@@ -37,6 +37,14 @@ export interface ReasoningPartState {
     readonly type: 'reasoning';
     readonly id: string;
     text: string;
+    /**
+     * Set by `part-end`. A harness may redact reasoning TEXT and still open a
+     * real reasoning part (Claude Code streams empty deltas and reports
+     * progress as `usage.reasoningTokens`), so empty text alone cannot tell a
+     * block that is still thinking from one that thought and showed nothing —
+     * a view needs both to render "thinking…" only while it is true.
+     */
+    done?: true;
     providerData?: unknown;
 }
 

@@ -150,6 +150,39 @@ for await (const event of session.subscribe()) {
 `toChatStream(turn)` is the read-only shortcut for a plain `useChat`: it turns
 one turn into `UIChunk`s.
 
+A reasoning part is `done` once its `part-end` arrived. That matters because a
+harness may open a real reasoning part and redact its TEXT — Claude Code
+streams empty deltas and reports progress as tokens instead — so empty text
+alone cannot tell "still thinking" from "thought and showed nothing":
+
+```tsx
+if (part.type === 'reasoning') {
+    if (part.text) return <details open={!part.done}>{part.text}</details>;
+    const n = view.usage?.reasoningTokens;
+    return part.done ? null : <span>Thinking…{n ? ` ${n} tokens` : ''}</span>;
+}
+```
+
+## Usage: the well-known keys
+
+`Usage` (from `@sigx/ai`) is an open index signature, but adapters do not get
+to invent names for the same number. An adapter that has one of these reports
+it under **this** key, so a client reads it without knowing which harness
+produced it:
+
+| Key | Means |
+|---|---|
+| `inputTokens` / `outputTokens` | the two every harness reports |
+| `reasoningTokens` | of `outputTokens`, how many were reasoning — a BREAKDOWN, never an addition. ACP's `thoughtTokens`, Codex's `reasoningOutputTokens`, Claude Code's `output_tokens_details.thinking_tokens`. |
+| `cacheReadInputTokens` / `cacheCreationInputTokens` | prompt-cache reads and writes. ACP's `cachedReadTokens` / `cachedWriteTokens`, Codex's `cachedInputTokens` / `cacheWriteInputTokens`. |
+| `totalTokens` | the harness's own total, when it reports one |
+
+`usage { scope: 'turn' }` **adds** and `usage { scope: 'session' }`
+**replaces** — so a harness that reports reasoning progress as it goes streams
+it turn-scope (the count grows while the block runs, which is what a
+"thinking…" affordance reads), and a figure that is already a total belongs on
+the session-scope event or on `turn-end`, never on both.
+
 ## Building a UI: `useAgentSession`
 
 `@sigx/ai-agent/app` is the reducer as reactive state. It sits on

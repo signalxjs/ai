@@ -184,18 +184,43 @@ function outputText(p: ToolPartState): string | undefined {
     return elide(typeof out === 'string' ? out : JSON.stringify(out, null, 2));
 }
 
-/** What a card needs to prompt the operator: the open requests, and the two ways to settle one. */
-interface AskProps {
+/**
+ * What a part needs from the session: the open requests and the two ways to
+ * settle one, plus the live reasoning-token count — the only progress a
+ * harness that redacts its thinking gives us.
+ */
+interface ThreadProps {
     readonly requests: readonly OpenRequest[];
     readonly onDecide: (requestId: string, allow: boolean) => void;
     readonly onAnswer: (requestId: string, answers: Answers) => void;
+    readonly reasoningTokens?: number;
 }
 
-const Part = component<{ part: AgentPart } & AskProps>((ctx) => {
+const Part = component<{ part: AgentPart } & ThreadProps>((ctx) => {
     return () => {
         const p = ctx.props.part;
         if (p.type === 'text') return <span class="text">{p.text}</span>;
-        if (p.type === 'reasoning') return p.text ? <div class="reasoning">{p.text}</div> : null;
+        if (p.type === 'reasoning') {
+            // Four states, and only two of them have text to show. A harness
+            // that redacts thinking (Claude Code) opens a REAL reasoning part
+            // whose text stays empty for the whole thinking window, so
+            // rendering `null` on empty text is ten seconds of blank thread
+            // (#78). While the part is open, say that it is thinking — with
+            // the neutral `usage.reasoningTokens` count once one arrives;
+            // once it has ended with nothing to show, there is nothing to say.
+            if (!p.text) {
+                const n = ctx.props.reasoningTokens;
+                return p.done ? null : <div class="reasoning thinking">Thinking…{n ? ` ${n} tokens` : ''}</div>;
+            }
+            // Exposed reasoning is long: open while it streams, folded away
+            // once it is done — the same `<details>` treatment as tool input.
+            return (
+                <details class="reasoning" open={!p.done}>
+                    <summary>{p.done ? 'Thought' : 'Thinking…'}</summary>
+                    {p.text}
+                </details>
+            );
+        }
         if (p.type === 'image' || p.type === 'file') return <code class="attachment">{p.type === 'file' && p.filename ? p.filename : p.mediaType}</code>;
         if (p.type !== 'tool') return null;
         // A tool card: name, input, status — and, while the call waits on the
@@ -236,11 +261,11 @@ const Part = component<{ part: AgentPart } & AskProps>((ctx) => {
     };
 });
 
-const Message = component<{ message: AgentMessage } & AskProps>((ctx) => {
+const Message = component<{ message: AgentMessage } & ThreadProps>((ctx) => {
     return () => (
         <div class={`msg ${ctx.props.message.role}`}>
             {ctx.props.message.parts.map((part) => (
-                <Part part={part} requests={ctx.props.requests} onDecide={ctx.props.onDecide} onAnswer={ctx.props.onAnswer} />
+                <Part part={part} requests={ctx.props.requests} onDecide={ctx.props.onDecide} onAnswer={ctx.props.onAnswer} reasoningTokens={ctx.props.reasoningTokens} />
             ))}
         </div>
     );
@@ -310,7 +335,7 @@ const Session = component<{ session: AgentSessionClient }>((ctx) => {
                     <p class="hint">Ask about the incidents: the read-only tool runs unasked, the destructive one stops and asks you. Then open this page in a second tab — it replays everything and follows along.</p>
                 )}
                 {view.messages.map((m) => (
-                    <Message message={m} requests={view.requests} onDecide={decide} onAnswer={answer} />
+                    <Message message={m} requests={view.requests} onDecide={decide} onAnswer={answer} reasoningTokens={view.usage?.reasoningTokens} />
                 ))}
                 {questions().map((r) => (
                     <Ask request={r} onAnswer={answer} />

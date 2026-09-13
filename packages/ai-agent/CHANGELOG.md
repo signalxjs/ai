@@ -23,6 +23,13 @@ follow [SemVer](https://semver.org/).
   `EventLogStore` with `memoryTranscriptStore` / `memoryEventLog`.
 - `request-resolved` carries `permissionKey`, so a session grant replays without
   its request.
+- `ReasoningPartState.done` — set by `part-end`. A harness may redact reasoning
+  TEXT while still opening a real reasoning part, so empty text alone cannot
+  tell a block that is still thinking from one that thought and showed nothing;
+  a view needs both to render a "thinking…" affordance only while it is true.
+- The well-known `Usage` keys every adapter reports under the same name,
+  `reasoningTokens` first among them, are documented on `Usage` in `@sigx/ai`
+  and in this package's README.
 - `@sigx/ai-agent/testing`: `agentConformance`, `CONFORMANCE_SCENARIOS`,
   `CONFORMANCE_TOOLS` and the invariant checks `checkEventInvariants`,
   `checkReplayEquality`, `checkResultMatchesTurnEnd`.

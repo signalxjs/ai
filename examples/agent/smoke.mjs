@@ -47,6 +47,8 @@ const text = (transcript) =>
 
 const tools = (transcript) => transcript.messages.flatMap((m) => m.parts).filter((p) => p.type === 'tool');
 
+const reasoning = (transcript) => transcript.messages.flatMap((m) => m.parts).filter((p) => p.type === 'reasoning');
+
 async function until(predicate, what, timeoutMs = 20_000) {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
@@ -106,6 +108,10 @@ try {
         'both tool calls completed'
     );
     assert(/checkout/i.test(text(first.transcript)), 'the agent answered');
+    // The exposed-reasoning shape: text, and `done` once `part-end` arrived —
+    // which is how the view tells "still thinking" from "thought nothing".
+    const thoughts = reasoning(first.transcript);
+    assert(thoughts.length === 1 && thoughts[0].text.length > 0 && thoughts[0].done === true, 'the reasoning part carries its text and is marked done');
     assert(first.transcript.grants.includes('tool:restart_service'), 'the session grant was recorded');
 
     // 4. A LATE JOINER — the second tab — replays to the same transcript.

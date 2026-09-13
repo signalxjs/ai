@@ -14,3 +14,7 @@ follow [SemVer](https://semver.org/).
   questions through the session policy, `defineTool` tools as dynamic tools,
   structured output via `outputSchema`, `coding.*` extension events for
   commands, patches and plans, `config` from `model/list`.
+- `thread/tokenUsage/updated` is reported under the well-known `Usage` keys
+  every adapter shares instead of Codex's own spellings:
+  `reasoningOutputTokens` → `reasoningTokens`, `cachedInputTokens` →
+  `cacheReadInputTokens`, `cacheWriteInputTokens` → `cacheCreationInputTokens`.

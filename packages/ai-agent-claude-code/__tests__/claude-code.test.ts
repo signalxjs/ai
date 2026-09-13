@@ -76,6 +76,13 @@ const thinkingBlocks = (): SDKMessage[] => [
     assistantBlocks([{ type: 'thinking', thinking: 'hmm', signature: 'sig==' }]),
     ev({ type: 'content_block_stop', index: 0 })
 ];
+/**
+ * The progress frame Claude Code sends INSTEAD of thinking text — captured
+ * from `@anthropic-ai/claude-agent-sdk` 0.3.270 (issue #77): `estimated_tokens`
+ * is the running total for the block, `estimated_tokens_delta` this frame's
+ * increment.
+ */
+const thinkingTokens = (total: number, delta: number) => m({ type: 'system', subtype: 'thinking_tokens', ...base, estimated_tokens: total, estimated_tokens_delta: delta });
 /** `assistant: false` is the turn that ended mid-message — no `assistant` frame ever arrives, so the reassembled partial JSON is all we have. */
 const toolUseBlocks = (id: string, name: string, input: object, index = 0, parent: string | null = null, options: { assistant?: boolean } = {}): SDKMessage[] => {
     const json = JSON.stringify(input);
@@ -250,6 +257,91 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
         expect(second.result.costUsd).toBe(0);
         await agent.dispose();
         expect(fake.closes).toBe(1);
+    });
+
+    it('redacted thinking: no empty deltas on the wire, and thinking_tokens streams as neutral reasoning usage', async () => {
+        // The shape a live turn really has (issue #77): the thinking block is
+        // real and its signature survives, but every `thinking_delta` carries
+        // `thinking: ''` and the progress arrives on its own `system` frames.
+        const fake = fakeQuery(() => [
+            messageStart(),
+            ev({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } }),
+            thinkingTokens(50, 50),
+            ev({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: '', estimated_tokens: 50 } }),
+            thinkingTokens(150, 100),
+            ev({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: '', estimated_tokens: 100 } }),
+            ev({ type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'sig==' } }),
+            ev({ type: 'content_block_stop', index: 0 }),
+            // An empty `text_delta` is no more an event than an empty thinking one.
+            ev({ type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } }),
+            ev({ type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: '' } }),
+            ev({ type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'Answer.' } }),
+            ev({ type: 'content_block_stop', index: 1 }),
+            ...messageStop(),
+            RESULT({
+                usage: { input_tokens: 2, output_tokens: 2183, cache_read_input_tokens: 0, cache_creation_input_tokens: 18737, output_tokens_details: { thinking_tokens: 1238 } },
+                modelUsage: { 'claude-haiku-4-5': { inputTokens: 923, outputTokens: 17, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, thinkingTokens: 0 }, 'claude-opus-5': { inputTokens: 2, outputTokens: 2183, cacheReadInputTokens: 0, cacheCreationInputTokens: 18737, thinkingTokens: 1238 } }
+            })
+        ]);
+        const agent = claudeCode({ query: fake.query, listen: fakeListen });
+        const session = await agent.session({ cwd, interactive: false });
+        const { events, result } = await drain(session.prompt('think about it'));
+
+        // 1. Not one zero-length `part-delta` — the reasoning part is still
+        //    opened, signed and closed, it just carries no empty frames.
+        expect(events.filter((e) => e.type === 'part-delta' && e.delta === '')).toEqual([]);
+        expect(types(events)).toEqual([
+            'turn-start',
+            'user-message',
+            'config',
+            'part-start',
+            'usage',
+            'ext',
+            'usage',
+            'ext',
+            'part-end',
+            'part-start',
+            'part-delta',
+            'part-end',
+            'usage',
+            'usage',
+            'turn-end'
+        ]);
+        expect(events[3]).toMatchObject({ type: 'part-start', kind: 'reasoning' });
+        expect(events[8]).toMatchObject({ type: 'part-end', providerData: { type: 'thinking', thinking: '', signature: 'sig==' } });
+        expect(textOf(events)).toBe('Answer.');
+
+        // 2. The progress is neutral usage, not only an opaque `ext`, and it
+        //    lands WHILE the reasoning part is open.
+        const streamed = events.filter((e): e is Extract<AgentEvent, { type: 'usage' }> => e.type === 'usage').slice(0, 2);
+        expect(streamed).toMatchObject([
+            { scope: 'turn', usage: { reasoningTokens: 50 } },
+            { scope: 'turn', usage: { reasoningTokens: 100 } }
+        ]);
+        expect(events.filter((e) => e.type === 'ext' && e.name === 'thinking_tokens')).toHaveLength(2);
+        expect(events.filter((e) => e.type === 'ext' && e.name === 'thinking_tokens')[0]).toMatchObject({ ns: 'claude-code', data: { estimated_tokens: 50, estimated_tokens_delta: 50 } });
+
+        // 3. The estimate is additive turn-scope usage; the BILLED count comes
+        //    with the result and supersedes it on the session-scope event,
+        //    which assigns — so the turn-scope result event must not add it again.
+        const final = events.filter((e): e is Extract<AgentEvent, { type: 'usage' }> => e.type === 'usage').slice(2);
+        expect(final[0]).toMatchObject({ scope: 'turn', usage: { inputTokens: 2, outputTokens: 2183 } });
+        expect(final[0]!.usage.reasoningTokens).toBeUndefined();
+        expect(final[1]).toMatchObject({ scope: 'session', usage: { inputTokens: 925, outputTokens: 2200, reasoningTokens: 1238 } });
+        expect(result.usage).toMatchObject({ reasoningTokens: 1238 });
+
+        // 4. What a client actually sees: the estimate grows while the block
+        //    runs, then the billed figure replaces it.
+        const t = createTranscript(session.id);
+        const reduce = createReducer();
+        for (const e of events.slice(0, 8)) reduce(t, e);
+        expect(t.usage?.reasoningTokens).toBe(150);
+        const part = t.messages.flatMap((msg) => msg.parts).find((p) => p.type === 'reasoning');
+        expect(part).toMatchObject({ type: 'reasoning', text: '' });
+        expect(part && 'done' in part ? part.done : undefined).toBeUndefined(); // still thinking
+        for (const e of events.slice(8)) reduce(t, e);
+        expect(t.messages.flatMap((msg) => msg.parts).find((p) => p.type === 'reasoning')).toMatchObject({ text: '', done: true });
+        expect(t.usage?.reasoningTokens).toBe(1238);
     });
 
     it('replays the real CLI frame order verbatim: the assistant message lands between the last delta and content_block_stop, and every delta survives', async () => {

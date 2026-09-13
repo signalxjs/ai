@@ -125,8 +125,8 @@ describe('@sigx/ai-agent-codex', () => {
         for (const e of events) reduce(t, e);
         const parts = t.messages.find((m) => m.role === 'assistant')!.parts;
         expect(parts).toEqual([
-            { type: 'reasoning', id: 'r1:s0', text: 'Planning' },
-            { type: 'reasoning', id: 'r1:c0', text: 'thinking' },
+            { type: 'reasoning', id: 'r1:s0', text: 'Planning', done: true },
+            { type: 'reasoning', id: 'r1:c0', text: 'thinking', done: true },
             { type: 'text', id: 'm1', text: 'Answer without deltas' }
         ]);
     });
@@ -340,6 +340,13 @@ describe('@sigx/ai-agent-codex', () => {
         expect(usages.map((u) => [u.scope, u.usage.inputTokens, u.usage.totalTokens])).toEqual([
             ['turn', 2, 3],
             ['session', 20, 30]
+        ]);
+        // Codex's own spellings are reported under the well-known `Usage`
+        // keys every adapter shares.
+        expect(usages.map((u) => u.usage.reasoningTokens)).toEqual([0, 2]);
+        expect(usages.map((u) => [u.usage.cacheReadInputTokens, u.usage.cacheCreationInputTokens])).toEqual([
+            [0, 0],
+            [5, 0]
         ]);
         expect(result).toMatchObject({ usage: { inputTokens: 2, outputTokens: 1 } });
         for (const e of events) expect(JSON.parse(JSON.stringify(e))).toEqual(e);

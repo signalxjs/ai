@@ -18,5 +18,9 @@ follow [SemVer](https://semver.org/).
   the session roots and gated by the policy) and `terminal/*` (through
   `spawnAgentProcess`).
 - Presets: `gemini()`, `cursor()`, `claudeCodeAcp()`, `codexAcp()`.
+- Usage is reported under the well-known `Usage` keys every adapter shares
+  instead of ACP's own spellings: `thoughtTokens` → `reasoningTokens`,
+  `cachedReadTokens` → `cacheReadInputTokens`, `cachedWriteTokens` →
+  `cacheCreationInputTokens`.
 - The protocol subset as types (`Acp*`) with an assignability check against
   the reference SDK.

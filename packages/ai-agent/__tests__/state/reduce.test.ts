@@ -42,13 +42,24 @@ describe('reduceAgentEvent', () => {
                 role: 'assistant',
                 turnId: 't1',
                 parts: [
-                    { type: 'reasoning', id: 'p1', text: 'hm', providerData: { sig: 1 } },
+                    { type: 'reasoning', id: 'p1', text: 'hm', done: true, providerData: { sig: 1 } },
                     { type: 'text', id: 'p2', text: 'Hello' },
                     { type: 'tool', callId: 'c1', name: 'read', input: { path: 'x' }, category: 'read', status: 'completed', output: 'text' }
                 ]
             }
         ]);
         expect(t.turn).toEqual({ turnId: 't1', stopReason: 'end_turn', usage: { outputTokens: 2 } });
+    });
+
+    it('marks a reasoning part done at part-end, so an empty OPEN one is distinguishable from one that thought nothing', () => {
+        seq = 0;
+        // A harness that redacts reasoning text (Claude Code) opens a real
+        // reasoning part that never gets a delta — empty text alone cannot say
+        // whether it is still thinking.
+        const open = reduceAll([ev({ type: 'part-start', turnId: 't1', messageId: 'a1', partId: 'p1', kind: 'reasoning' })]);
+        expect(open.messages[0]!.parts[0]).toEqual({ type: 'reasoning', id: 'p1', text: '' });
+        const ended = reduceAll([ev({ type: 'part-start', turnId: 't1', messageId: 'a1', partId: 'p1', kind: 'reasoning' }), ev({ type: 'part-end', turnId: 't1', partId: 'p1' })]);
+        expect(ended.messages[0]!.parts[0]).toEqual({ type: 'reasoning', id: 'p1', text: '', done: true });
     });
 
     it('attaches a tool-call without messageId to the turn’s current assistant message, creating one when needed', () => {
