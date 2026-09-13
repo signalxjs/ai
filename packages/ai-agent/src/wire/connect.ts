@@ -9,9 +9,9 @@
  * result is an `AgentSession` a UI cannot tell from a local one.
  */
 
-import type { AgentCapabilities, AgentEvent, Decision, PromptInput } from '../protocol/index.js';
+import type { AgentCapabilities, AgentEvent, Decision, PromptInput, PromptPart } from '../protocol/index.js';
 import { AgentError, SessionBusyError, isAgentEvent, toPromptParts } from '../protocol/index.js';
-import type { AgentSession, AgentTurn, PromptOptions, SessionRef, TurnResult } from '../session/index.js';
+import type { AgentSession, AgentTurn, CancelTarget, PromptOptions, SessionRef, TurnResult } from '../session/index.js';
 import { generateId } from '../utils/id.js';
 import { cursorBefore, isWireFrame, WIRE_PROTOCOL_VERSION, type Cursor, type WireCommand, type WireCommandPayload, type WireErrorCode, type WireFrame, type WireReply } from './envelope.js';
 import { createReplayBuffer } from './replay-buffer.js';
@@ -219,6 +219,12 @@ export async function connectSession(transport: SessionTransport, options: Conne
             void follow();
         },
         prompt(input: PromptInput, promptOptions?: PromptOptions) {
+            // A fresh id unless the caller supplied one. Whether this prompt starts a
+            // turn or steers the running one is the server's call (it has the truth
+            // about `busy`), and the ack names the turn it went into — the handle
+            // retargets to it, caller-supplied id or not. The client never reuses an
+            // id it believes is running: that would collide with a turn that ended
+            // in the meantime.
             const turnId = promptOptions?.turnId ?? newId();
             const from = last;
             const output = promptOptions?.output ? { schema: promptOptions.output.schema as Record<string, unknown>, ...(promptOptions.output.name !== undefined ? { name: promptOptions.output.name } : {}) } : undefined;
@@ -227,11 +233,12 @@ export async function connectSession(transport: SessionTransport, options: Conne
             }
             // Subscribe before the command goes out, so nothing the turn emits can slip past.
             const events = buffer.subscribe(from);
-            const reply = send({ type: 'prompt', turnId, input: toPromptParts(input), ...(output ? { output } : {}) });
-            return createClientTurn(first.sessionId, turnId, events, reply);
+            const parts = toPromptParts(input);
+            const reply = send({ type: 'prompt', turnId, input: parts, ...(output ? { output } : {}) });
+            return createClientTurn(first.sessionId, turnId, parts, events, reply);
         },
         respond: (requestId: string, decision: Decision) => sendOrThrow({ type: 'respond', requestId, decision }),
-        cancel: () => sendOrThrow({ type: 'cancel' }),
+        cancel: (target?: CancelTarget) => sendOrThrow({ type: 'cancel', ...(target?.agentId !== undefined ? { agentId: target.agentId } : {}) }),
         ...(first.capabilities.config ? { configure: (patch: Readonly<Record<string, string>>) => sendOrThrow({ type: 'configure', patch }) } : {}),
         subscribe: (from) => buffer.subscribe(from),
         disconnect() {
@@ -275,12 +282,29 @@ function safeJson(value: unknown): string {
 }
 
 /**
- * A turn assembled from the local buffer, filtered by `turnId`. One collector
- * drains the subscription into `own` (so `result` settles whether or not
- * anyone iterates); each iterator walks `own` by its own index and waits for
- * growth, so several consumers can iterate, and late ones see everything once.
+ * A turn assembled from the local buffer, filtered by its turn id. One
+ * collector drains the subscription into `own` (so `result` settles whether or
+ * not anyone iterates); each iterator walks `own` by its own index and waits
+ * for growth, so several consumers can iterate, and late ones see everything
+ * once.
+ *
+ * Which turn is not known until the ack: a prompt sent while a turn runs on a
+ * steering session lands IN that turn, and the ack names it. Events arriving
+ * before the ack are staged and filtered once the target is known — a late
+ * joiner that never saw the running turn's `turn-start` still gets a handle
+ * with the right `id`, the right `result` and the events from its steer on.
+ * "From the steer on" is the contract's own boundary: the `user-message` the
+ * steer puts in the running turn, carrying the parts this client sent. The
+ * local subscription started at the client's cursor, which can trail the
+ * server, so what precedes that message is the running turn's past and is
+ * dropped; a `turn-end` is never dropped, so `result` settles regardless.
  */
-function createClientTurn(sessionId: string, turnId: string, events: AsyncIterable<AgentEvent>, reply: Promise<WireReply>): AgentTurn {
+function createClientTurn(sessionId: string, turnId: string, sent: readonly PromptPart[], events: AsyncIterable<AgentEvent>, reply: Promise<WireReply>): AgentTurn {
+    let target = turnId;
+    let acked = false;
+    /** `waiting`: a steer whose own `user-message` has not been seen yet. */
+    let boundary: 'none' | 'waiting' | 'seen' = 'none';
+    const staged: AgentEvent[] = [];
     let resolveResult!: (r: TurnResult) => void;
     let rejectResult!: (e: unknown) => void;
     const result = new Promise<TurnResult>((resolve, reject) => {
@@ -309,13 +333,33 @@ function createClientTurn(sessionId: string, turnId: string, events: AsyncIterab
         wake();
     };
 
+    const accept = (e: AgentEvent) => {
+        if (done || e.turnId !== target) return;
+        if (boundary === 'waiting') {
+            if (e.type === 'user-message' && e.parentCallId === undefined && sameParts(e.parts, sent)) boundary = 'seen';
+            else if (e.type !== 'turn-end') return;
+        }
+        own.push(e);
+        wake();
+        if (e.type === 'turn-end') {
+            const { type: _t, sessionId: _s, epoch: _e, seq: _q, turnId: _i, parentCallId: _p, ...payload } = e;
+            resolveResult({ turnId: target, ...payload });
+            finish();
+        }
+    };
+
     void reply.then(
         (r) => {
             if (r.kind === 'error') {
                 const error = r.code === 'busy' ? new SessionBusyError(sessionId, turnId) : new RemoteCommandError('prompt', r.code, r.message);
                 rejectResult(error);
                 finish(error);
+                return;
             }
+            target = r.turnId ?? turnId;
+            if (target !== turnId) boundary = 'waiting';
+            acked = true;
+            for (const e of staged.splice(0)) accept(e);
         },
         (e: unknown) => {
             rejectResult(e);
@@ -328,19 +372,12 @@ function createClientTurn(sessionId: string, turnId: string, events: AsyncIterab
             for (;;) {
                 const next = await iterator.next();
                 if (next.done) break;
-                const e = next.value;
-                if (e.turnId !== turnId) continue;
-                own.push(e);
-                wake();
-                if (e.type === 'turn-end') {
-                    const { type: _t, sessionId: _s, epoch: _e, seq: _q, turnId: _i, parentCallId: _p, ...payload } = e;
-                    resolveResult({ turnId, ...payload });
-                    finish();
-                    return;
-                }
+                if (acked) accept(next.value);
+                else staged.push(next.value);
+                if (done) return;
             }
             if (!done) {
-                const e = new AgentError('protocol_error', `[sigx ai-agent] the connection ended before turn "${turnId}" did`);
+                const e = new AgentError('protocol_error', `[sigx ai-agent] the connection ended before turn "${target}" did`);
                 rejectResult(e);
                 finish(e);
             }
@@ -351,7 +388,9 @@ function createClientTurn(sessionId: string, turnId: string, events: AsyncIterab
     })();
 
     return {
-        id: turnId,
+        get id() {
+            return target;
+        },
         result,
         [Symbol.asyncIterator]() {
             let i = 0;
@@ -378,6 +417,29 @@ function createClientTurn(sessionId: string, turnId: string, events: AsyncIterab
             };
         }
     };
+}
+
+/**
+ * The parts a steer sent, as the adapter echoes them on its `user-message`.
+ * Structural equality: both sides are plain JSON, but an adapter may rebuild
+ * the parts in its own key order, and a `data` / `url` round-trip must not
+ * make a boundary invisible.
+ */
+function sameParts(a: readonly PromptPart[], b: readonly PromptPart[]): boolean {
+    return a.length === b.length && a.every((part, i) => canonical(part) === canonical(b[i]));
+}
+
+function canonical(value: unknown): string {
+    if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+    if (typeof value === 'object' && value !== null) {
+        const o = value as Record<string, unknown>;
+        return `{${Object.keys(o)
+            .filter((k) => o[k] !== undefined)
+            .sort()
+            .map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`)
+            .join(',')}}`;
+    }
+    return JSON.stringify(value) ?? 'null';
 }
 
 function failed(turnId: string, error: Error): AgentTurn {

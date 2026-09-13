@@ -8,6 +8,17 @@ follow [SemVer](https://semver.org/).
 
 ### Added
 
+- Steering and sub-agent control over the wire: a `cancel` command carries an
+  optional `agentId` (`serveSession` answers `unsupported` for a sub-agent
+  target unless the served capabilities say `subagents: 'control'` — the
+  session's own id cancels the running turn like no target — and `invalid`
+  for a malformed target; `connectSession`'s `cancel({ agentId })` sends it).
+  A prompt during a running turn on a steering session joins that turn: the
+  ack names the turn it went into and the client handle retargets to it —
+  same `id`, same `result`, events from the steer's own `user-message` on,
+  however far the transport lags — so a late joiner steers without ever
+  having seen the running turn's `turn-start`. The wire conformance suite
+  runs the steering mock and skips nothing.
 - `modelAgent` runs agent definitions (`defineAgents: true`): `session({ agents })`
   turns each definition into a tool named after it (`{ task }` in, final text
   out) that runs a nested `modelAgent` — same model, the definition's `prompt`
@@ -157,6 +168,10 @@ follow [SemVer](https://semver.org/).
 
 ### Changed
 
+- `coalesceFrames` merges a sub-agent's nested `part-delta` frames too — within
+  one part and nesting level, never across; before, nested deltas always
+  passed through one by one. A remote turn handle's `id` is now a getter: it
+  changes once when the ack names a different turn (a steer).
 - `MOCK_CAPABILITIES` now declares `steer: true` and `subagents: 'control'`;
   a test that relied on the mock rejecting a prompt during a turn passes
   `capabilities: { steer: false }`.

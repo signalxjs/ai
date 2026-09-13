@@ -99,9 +99,11 @@ export async function* coalesceFrames(frames: AsyncIterable<WireFrame>, options:
                 return;
             }
             const frame = result.value;
-            if (frame.kind === 'event' && frame.event.type === 'part-delta' && frame.event.parentCallId === undefined) {
+            if (frame.kind === 'event' && frame.event.type === 'part-delta') {
                 const event = frame.event;
-                if (pending && pending.event.partId === event.partId && pending.frame.epoch === frame.epoch && pending.frame.seq + 1 === frame.seq) {
+                // Nested deltas (a sub-agent's text) merge too — within their own part and nesting level; part ids are
+                // unique across levels already, the `parentCallId` check keeps a run honest should a harness reuse one.
+                if (pending && pending.event.partId === event.partId && pending.event.parentCallId === event.parentCallId && pending.frame.epoch === frame.epoch && pending.frame.seq + 1 === frame.seq) {
                     pending = { frame, event, seqFrom: pending.seqFrom, delta: pending.delta + event.delta };
                     if (pending.delta.length >= maxBytes) {
                         const flushed = flush();

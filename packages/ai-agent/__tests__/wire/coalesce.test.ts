@@ -28,7 +28,7 @@ describe('coalesceFrames', () => {
         ]);
         expect((out[1] as Extract<WireFrame, { kind: 'event' }>).event).toMatchObject({ type: 'part-delta', delta: 'Hello world' });
 
-        // A different part, a nested delta or a size cap breaks the run.
+        // A different part (nested or not) or a size cap breaks the run.
         seq = 0;
         const mixed = [delta('p', 'aa'), delta('p', 'bb'), delta('q', 'cc'), delta('q', 'dd'), frame({ type: 'part-delta', turnId: 't', parentCallId: 'c', partId: 'n', delta: 'x' } as never), delta('q', 'ee')];
         const out2 = await collect(coalesceFrames(from(mixed), { schedule: never, maxBytes: 4 }));
@@ -37,6 +37,22 @@ describe('coalesceFrames', () => {
             ['ccdd', 3, 4],
             ['x', 5, 5],
             ['ee', 6, 6]
+        ]);
+    });
+
+    it('nested deltas coalesce within their own part and never across levels or parents (#93)', async () => {
+        seq = 0;
+        const never = () => undefined;
+        const nested = (partId: string, text: string, parentCallId: string) => frame({ type: 'part-delta', turnId: 't', parentCallId, partId, delta: text } as never);
+        const frames = [nested('n', 'x', 'c'), nested('n', 'y', 'c'), nested('n', 'z', 'c'), delta('p', 'a'), nested('n', 'w', 'c'), delta('p', 'b'), nested('m', 'q', 'c'), nested('m', 'r', 'd')];
+        const out = await collect(coalesceFrames(from(frames), { schedule: never }));
+        expect(out.map((f) => (f.kind === 'event' ? [(f.event as { delta?: string }).delta, f.seqFrom ?? f.seq, f.seq, f.event.parentCallId] : f.kind))).toEqual([
+            ['xyz', 1, 3, 'c'],
+            ['a', 4, 4, undefined],
+            ['w', 5, 5, 'c'],
+            ['b', 6, 6, undefined],
+            ['q', 7, 7, 'c'],
+            ['r', 8, 8, 'd']
         ]);
     });
 
