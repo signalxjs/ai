@@ -17,3 +17,12 @@ follow [SemVer](https://semver.org/).
 - Session helpers every adapter reuses: `createEventLog`, `createTurn`,
   `createSessionCore`, `createGrants`.
 - `@sigx/ai-agent/testing`: `mockAgent`, a scripted agent.
+- The transcript: `AgentTranscript`, `createTranscript`, the in-place, replayable
+  `reduceAgentEvent` / `createReducer({ extensions })`; the bridges `toUIMessages`,
+  `fromUIMessages`, `toChatStream`; the store seams `TranscriptStore` /
+  `EventLogStore` with `memoryTranscriptStore` / `memoryEventLog`.
+- `request-resolved` carries `permissionKey`, so a session grant replays without
+  its request.
+- `@sigx/ai-agent/testing`: `agentConformance`, `CONFORMANCE_SCENARIOS`,
+  `CONFORMANCE_TOOLS` and the invariant checks `checkEventInvariants`,
+  `checkReplayEquality`, `checkResultMatchesTurnEnd`.
