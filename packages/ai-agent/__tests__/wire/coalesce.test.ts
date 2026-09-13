@@ -89,7 +89,11 @@ describe('coalesceFrames', () => {
             }
         };
         const out = await collect(coalesceFrames(slow, { maxDelayMs: 1 }));
-        expect(out.map((f) => (f.kind === 'event' ? f.event.type : f.kind))).toEqual(['part-start', 'part-delta', 'part-delta', 'part-delta', 'part-end']);
+        // How many frames the deltas end up merged into is a timing detail (the
+        // deterministic merge is pinned by the tests above); losing one is not.
+        const types = out.map((f) => (f.kind === 'event' ? f.event.type : f.kind));
+        expect(types[0]).toBe('part-start');
+        expect(types.at(-1)).toBe('part-end');
         expect(
             out
                 .filter((f): f is Extract<WireFrame, { kind: 'event' }> => f.kind === 'event' && f.event.type === 'part-delta')
