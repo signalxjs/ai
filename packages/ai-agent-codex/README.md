@@ -36,6 +36,8 @@ await agent.dispose(); // kills the app-server tree, on Windows too
 | `commandExecution` + `outputDelta` | `tool-call { name: 'shell', category: 'execute' }`, `coding.terminal`, `coding.terminal-exit` |
 | `fileChange` + `patchUpdated` | `tool-call { name: 'apply_patch', category: 'edit' }`, `coding.diff`, `coding.files-changed` |
 | `mcpToolCall`, `dynamicToolCall`, `webSearch` | `tool-call` / `tool-update` |
+| `collabAgentToolCall` (`spawnAgent`, `wait`, `sendInput`, `interruptAgent`, …) | `tool-call { name: 'collab/<tool>', category: 'other' }` / `tool-update`; the spawned thread is an `agent-start { kind: 'subagent', callId }` bound to the spawn call, and every change in the reported `agentsStates` an `agent-update` (`completed` with the agent's message as `output`, `errored` / `notFound` → `failed`, `interrupted` / `shutdown` → `cancelled`) |
+| `subAgentActivity` | `agent-update` for that thread (`started` / `interacted` → `running` with the kind as `summary`, `interrupted` → `cancelled`, `completed`); a thread no collab call named is announced first, without a spawning call |
 | `turn/plan/updated` | `coding.plan` |
 | `item/commandExecution/requestApproval`, `item/fileChange/requestApproval`, `item/permissions/requestApproval` | `request { kind: 'permission' }` through your policy → `accept` / `acceptForSession` / `decline` / `cancel` |
 | `item/tool/requestUserInput` | `request { kind: 'input' }` |
@@ -53,6 +55,21 @@ turn's — same `id`, same `result`. Codex may refuse a steer (the turn just
 ended, or it is a review or compaction turn); that comes back as
 `error { code: 'protocol_error', recoverable: true }` inside the turn and the
 turn carries on without the input.
+
+### Sub-agents
+
+Codex runs a sub-agent as a thread of its own and reports it on the parent
+thread, so the adapter declares `subagents: 'observe'`: you see every
+sub-agent as an `agent-start` bound to the `collab/spawnAgent` call that
+started it and follow it through `agent-update`s, exactly one terminal per
+agent. A sub-agent can outlive the turn that spawned it — one still running
+when its turn completes stays `running`; an interrupted turn cancels them, and
+so does closing the session (the app-server, and its threads, go with it).
+The sub-agent's own thread is not routed to this client yet, so its transcript
+is not nested under the call and it cannot be cancelled or answered from here
+(`cancel({ agentId })` is refused: `subagents` is not `'control'`). That
+step needs a live capture of how the app-server delivers child-thread
+notifications — [signalxjs/ai#100](https://github.com/signalxjs/ai/issues/100).
 
 ## Sandbox and approvals
 

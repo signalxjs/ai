@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { defineTool, type JsonSchema, type StandardSchemaV1 } from '@sigx/ai';
 import { allowAll, denyAll, createTranscript, createReducer, type AgentEvent, type Decision, type SessionRef } from '@sigx/ai-agent';
 import { codingExtension, codingState } from '@sigx/ai-agent/coding';
+import { checkEventInvariants } from '@sigx/ai-agent/testing';
 import { resolveExecutable } from '@sigx/ai-agent-node';
 import { codex, CODEX_CAPABILITIES, toErrorCode } from '@sigx/ai-agent-codex';
 import { fakeAppServer, say, type TurnProgram } from './fake-app-server';
@@ -153,6 +154,144 @@ describe('@sigx/ai-agent-codex', () => {
         expect(plan[0]).toMatchObject({ kind: 'text' });
         expect(plan.filter((e): e is Extract<AgentEvent, { type: 'part-delta' }> => e.type === 'part-delta').map((e) => e.delta)).toEqual(['Step one', ', then two']);
         expect(textOf(events)).toBe('Step one, then twook');
+    });
+
+    describe('sub-agents (#99)', () => {
+        const collab = (id: string, tool: string, status: string, extra: Record<string, unknown>) => ({ type: 'collabAgentToolCall', id, tool, status, senderThreadId: 'thread_1', receiverThreadIds: [], prompt: null, model: null, reasoningEffort: null, agentsStates: {}, ...extra });
+        const agentEvents = (events: AgentEvent[], agentId?: string) => events.filter((e): e is Extract<AgentEvent, { type: 'agent-start' | 'agent-update' }> => (e.type === 'agent-start' || e.type === 'agent-update') && (agentId === undefined || e.agentId === agentId));
+        /** Every session event from now until `close()`, for the invariants (a turn's own iterator skips session-level events). */
+        const observe = (session: { subscribe(): AsyncIterable<AgentEvent> }) => {
+            const events: AgentEvent[] = [];
+            const done = (async () => {
+                for await (const e of session.subscribe()) events.push(e);
+            })();
+            return { events, done };
+        };
+
+        it('declares subagents: observe', () => {
+            expect(CODEX_CAPABILITIES.subagents).toBe('observe');
+        });
+
+        it('spawnAgent binds the child thread to the collab call; a later wait settles it once with its output', async () => {
+            const fake = fakeAppServer({
+                onTurn: async (ctx) => {
+                    await ctx.item(collab('collab_1', 'spawnAgent', 'inProgress', { prompt: 'Find the tests', model: 'gpt-5-mini' }), 'started');
+                    await ctx.item(collab('collab_1', 'spawnAgent', 'completed', { prompt: 'Find the tests', model: 'gpt-5-mini', receiverThreadIds: ['child_1'], agentsStates: { child_1: { status: 'pendingInit', message: null } } }), 'completed');
+                    await ctx.item(collab('collab_2', 'wait', 'inProgress', { receiverThreadIds: ['child_1'], agentsStates: { child_1: { status: 'running', message: null } } }), 'started');
+                    await ctx.item(collab('collab_2', 'wait', 'completed', { receiverThreadIds: ['child_1'], agentsStates: { child_1: { status: 'completed', message: 'Found 3 test files' } } }), 'completed');
+                    // A second report of the same terminal state is not a second terminal update.
+                    await ctx.item(collab('collab_3', 'listAgents', 'completed', { agentsStates: { child_1: { status: 'completed', message: 'Found 3 test files' } } }), 'completed');
+                    await say('Done.')(ctx);
+                }
+            });
+            const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+            const all = observe(session);
+            const { events, result } = await drain(session.prompt('delegate'));
+            expect(result).toMatchObject({ stopReason: 'end_turn' });
+            expect(events.find((e) => e.type === 'ext' && e.name.startsWith('item.collab'))).toBeUndefined();
+            expect(events.filter((e): e is Extract<AgentEvent, { type: 'tool-call' }> => e.type === 'tool-call').map((e) => [e.callId, e.name])).toEqual([
+                ['collab_1', 'collab/spawnAgent'],
+                ['collab_2', 'collab/wait'],
+                ['collab_3', 'collab/listAgents']
+            ]);
+            expect(events.find((e) => e.type === 'tool-call' && e.callId === 'collab_1')).toMatchObject({ category: 'other', input: { prompt: 'Find the tests', model: 'gpt-5-mini', receiverThreadIds: [] } });
+            expect(updates(events, 'collab_1')).toEqual(['pending', 'in_progress', 'completed']);
+            const agent = agentEvents(events, 'child_1');
+            expect(agent.map((e) => (e.type === 'agent-start' ? 'start' : e.status))).toEqual(['start', 'running', 'completed']);
+            expect(agent[0]).toMatchObject({ type: 'agent-start', agentId: 'child_1', callId: 'collab_1', kind: 'subagent', description: 'Find the tests', model: 'gpt-5-mini', parentCallId: 'collab_1' });
+            expect(agent[2]).toMatchObject({ type: 'agent-update', status: 'completed', output: 'Found 3 test files', parentCallId: 'collab_1' });
+            // The spawn call is announced before the agent that binds to it.
+            expect(events.findIndex((e) => e.type === 'tool-call' && e.callId === 'collab_1')).toBeLessThan(events.indexOf(agent[0]!));
+            await session.close();
+            await all.done;
+            checkEventInvariants(all.events);
+        });
+
+        it('interruptAgent and closeAgent cancel a child once; errored and notFound fail it', async () => {
+            const fake = fakeAppServer({
+                onTurn: async (ctx) => {
+                    await ctx.item(collab('c1', 'spawnAgent', 'completed', { prompt: 'a', receiverThreadIds: ['a1', 'a2'], agentsStates: { a1: { status: 'running', message: null }, a2: { status: 'running', message: null } } }), 'completed');
+                    await ctx.item(collab('c2', 'interruptAgent', 'completed', { receiverThreadIds: ['a1'], agentsStates: { a1: { status: 'interrupted', message: null } } }), 'completed');
+                    await ctx.item(collab('c3', 'closeAgent', 'completed', { receiverThreadIds: ['a1'], agentsStates: { a1: { status: 'shutdown', message: null } } }), 'completed');
+                    await ctx.item(collab('c4', 'wait', 'failed', { receiverThreadIds: ['a2'], agentsStates: { a2: { status: 'errored', message: 'the model refused' } } }), 'completed');
+                    await ctx.item(collab('c5', 'sendInput', 'completed', { receiverThreadIds: ['a3'], agentsStates: { a3: { status: 'notFound', message: null } } }), 'completed');
+                    await say('ok')(ctx);
+                }
+            });
+            const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+            const all = observe(session);
+            const { events } = await drain(session.prompt('go'));
+            expect(agentEvents(events, 'a1').map((e) => (e.type === 'agent-start' ? 'start' : e.status))).toEqual(['start', 'running', 'cancelled']);
+            expect(agentEvents(events, 'a2').map((e) => (e.type === 'agent-start' ? 'start' : e.status))).toEqual(['start', 'running', 'failed']);
+            expect(agentEvents(events, 'a2').at(-1)).toMatchObject({ error: { code: 'provider_error', message: 'the model refused' } });
+            // A thread first reported by a non-spawn call is still an agent, without a spawning call.
+            expect(agentEvents(events, 'a3').map((e) => (e.type === 'agent-start' ? 'start' : e.status))).toEqual(['start', 'running', 'failed']);
+            expect(agentEvents(events, 'a3')[0]).not.toHaveProperty('callId');
+            expect(updates(events, 'c4')).toEqual(['pending', 'failed']);
+            await session.close();
+            await all.done;
+            checkEventInvariants(all.events);
+        });
+
+        it('subAgentActivity for a thread no collab call named is a synthesized agent; its kinds map onto statuses', async () => {
+            const fake = fakeAppServer({
+                onTurn: async (ctx) => {
+                    await ctx.item({ type: 'subAgentActivity', id: 'sa1', kind: 'started', agentThreadId: 'child_9', agentPath: 'explorer' }, 'started');
+                    await ctx.item({ type: 'subAgentActivity', id: 'sa1', kind: 'started', agentThreadId: 'child_9', agentPath: 'explorer' }, 'completed');
+                    await ctx.item({ type: 'subAgentActivity', id: 'sa2', kind: 'interacted', agentThreadId: 'child_9', agentPath: 'explorer' }, 'completed');
+                    await ctx.item({ type: 'subAgentActivity', id: 'sa3', kind: 'completed', agentThreadId: 'child_9', agentPath: 'explorer' }, 'completed');
+                    await say('ok')(ctx);
+                }
+            });
+            const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+            const all = observe(session);
+            const { events } = await drain(session.prompt('go'));
+            const agent = agentEvents(events, 'child_9');
+            expect(agent[0]).toMatchObject({ type: 'agent-start', agentId: 'child_9', kind: 'subagent', title: 'explorer' });
+            expect(agent[0]).not.toHaveProperty('callId');
+            expect(agent.slice(1).map((e) => (e.type === 'agent-update' ? [e.status, e.summary] : []))).toEqual([
+                ['running', 'started'],
+                ['running', 'interacted'],
+                ['completed', undefined]
+            ]);
+            expect(events.find((e) => e.type === 'ext' && e.name === 'item.subAgentActivity')).toBeUndefined();
+            await session.close();
+            await all.done;
+            checkEventInvariants(all.events);
+        });
+
+        it('an interrupted turn cancels the agents still running; closing the session settles the rest', async () => {
+            const fake = fakeAppServer({
+                onTurn: async (ctx) => {
+                    await ctx.item(collab('c1', 'spawnAgent', 'completed', { prompt: 'a', receiverThreadIds: ['r1'], agentsStates: { r1: { status: 'running', message: null } } }), 'completed');
+                    await ctx.interrupted;
+                    await ctx.complete('interrupted');
+                }
+            });
+            const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+            const { events, result } = await drain(session.prompt('go'), async (e) => {
+                if (e.type === 'agent-update' && e.status === 'running') await session.cancel();
+            });
+            expect(result).toMatchObject({ stopReason: 'cancelled' });
+            expect(agentEvents(events, 'r1').map((e) => (e.type === 'agent-start' ? 'start' : e.status))).toEqual(['start', 'running', 'cancelled']);
+
+            // A sub-agent can outlive its turn: one still running at `turn/completed` stays running until the session goes.
+            const fake2 = fakeAppServer({
+                onTurn: async (ctx) => {
+                    await ctx.item(collab('c1', 'spawnAgent', 'completed', { prompt: 'a', receiverThreadIds: ['r2'], agentsStates: { r2: { status: 'running', message: null } } }), 'completed');
+                    await say('spawned')(ctx);
+                }
+            });
+            const session2 = await codex({ transport: fake2.transport }).session({ cwd: '/repo' });
+            const all = observe(session2);
+            const second = await drain(session2.prompt('go'));
+            expect(agentEvents(second.events, 'r2').map((e) => (e.type === 'agent-start' ? 'start' : e.status))).toEqual(['start', 'running']);
+            await session2.close();
+            await all.done;
+            expect(agentEvents(all.events, 'r2').map((e) => (e.type === 'agent-start' ? 'start' : e.status))).toEqual(['start', 'running', 'cancelled']);
+            expect(agentEvents(all.events, 'r2').at(-1)).not.toHaveProperty('turnId');
+            checkEventInvariants(all.events);
+        });
     });
 
     it('not signed in → auth_required (account/read null, or getAuthStatus fallback)', async () => {
