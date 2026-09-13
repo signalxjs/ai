@@ -33,26 +33,42 @@ const INIT = (cwd: string, model = 'claude-opus-5') =>
     m({ type: 'system', subtype: 'init', ...base, cwd, model, permissionMode: 'default', tools: ['Read', 'Edit'], mcp_servers: [], apiKeySource: 'none', claude_code_version: '2.1.270', slash_commands: [], output_style: 'default', skills: [], plugins: [], agents: [] });
 
 const ev = (event: unknown, parent: string | null = null) => m({ type: 'stream_event', ...base, event, parent_tool_use_id: parent });
+const MESSAGE = { model: 'claude-opus-5', id: 'msg_1', type: 'message', role: 'assistant', container: null, stop_reason: null, stop_sequence: null, stop_details: null, usage: { input_tokens: 2, output_tokens: 1 } } as const;
+
+/**
+ * The `assistant` frame the CLI emits for a FINISHED content block, carrying
+ * only that block — and landing between the block's last delta and its
+ * `content_block_stop`, which is the ordering these fixtures exist to pin
+ * down (see the verbatim-order test below and issue #68).
+ */
+const assistantBlocks = (content: unknown[], parent: string | null = null) => m({ type: 'assistant', ...base, message: { ...MESSAGE, content }, parent_tool_use_id: parent });
+
 const textBlocks = (text: string, parent: string | null = null, index = 0): SDKMessage[] => [
     ev({ type: 'content_block_start', index, content_block: { type: 'text', text: '' } }, parent),
     ...text.split(' ').map((w, i, arr) => ev({ type: 'content_block_delta', index, delta: { type: 'text_delta', text: i < arr.length - 1 ? `${w} ` : w } }, parent)),
+    assistantBlocks([{ type: 'text', text }], parent),
     ev({ type: 'content_block_stop', index }, parent)
 ];
-const messageStart = (parent: string | null = null) => ev({ type: 'message_start', message: { id: 'msg_1', role: 'assistant', content: [] } }, parent);
-const messageStop = (parent: string | null = null) => [ev({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 5 } }, parent), ev({ type: 'message_stop' }, parent)];
+const messageStart = (parent: string | null = null) => ev({ type: 'message_start', message: { ...MESSAGE, content: [] } }, parent);
+const messageStop = (parent: string | null = null) => [ev({ type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null, stop_details: null, container: null }, usage: { input_tokens: 2, output_tokens: 5 } }, parent), ev({ type: 'message_stop' }, parent)];
 const thinkingBlocks = (): SDKMessage[] => [
     ev({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } }),
     ev({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'hmm' } }),
     ev({ type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'sig==' } }),
+    assistantBlocks([{ type: 'thinking', thinking: 'hmm', signature: 'sig==' }]),
     ev({ type: 'content_block_stop', index: 0 })
 ];
-const toolUseBlocks = (id: string, name: string, input: object, index = 0, parent: string | null = null): SDKMessage[] => {
+/** `assistant: false` is the turn that ended mid-message — no `assistant` frame ever arrives, so the reassembled partial JSON is all we have. */
+const toolUseBlocks = (id: string, name: string, input: object, index = 0, parent: string | null = null, options: { assistant?: boolean } = {}): SDKMessage[] => {
     const json = JSON.stringify(input);
     const half = Math.ceil(json.length / 2);
     return [
-        ev({ type: 'content_block_start', index, content_block: { type: 'tool_use', id, name, input: {} } }, parent),
+        ev({ type: 'content_block_start', index, content_block: { type: 'tool_use', id, name, input: {}, caller: { type: 'direct' } } }, parent),
+        // The real CLI opens the run with an empty chunk.
+        ev({ type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json: '' } }, parent),
         ev({ type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json: json.slice(0, half) } }, parent),
         ev({ type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json: json.slice(half) } }, parent),
+        ...(options.assistant === false ? [] : [assistantBlocks([{ type: 'tool_use', id, name, input, caller: { type: 'direct' } }], parent)]),
         ev({ type: 'content_block_stop', index }, parent)
     ];
 };
@@ -215,6 +231,50 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
         expect(second.result.costUsd).toBe(0);
         await agent.dispose();
         expect(fake.closes).toBe(1);
+    });
+
+    it('replays the real CLI frame order verbatim: the assistant message lands between the last delta and content_block_stop, and every delta survives', async () => {
+        // Captured from `@anthropic-ai/claude-agent-sdk` 0.3.270 with
+        // `includePartialMessages: true`, prompting "Reply with exactly one
+        // word: pong" — the sequence issue #68 was filed against. Written out
+        // frame by frame rather than through the helpers above, so that the
+        // helpers can never drift away from it silently.
+        const fake = fakeQuery(() => [
+            ev({ type: 'message_start', message: { ...MESSAGE, content: [] } }),
+            ev({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }),
+            ev({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'p' } }),
+            ev({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'ong' } }),
+            m({ type: 'assistant', ...base, message: { ...MESSAGE, content: [{ type: 'text', text: 'pong' }] }, parent_tool_use_id: null }),
+            ev({ type: 'content_block_stop', index: 0 }),
+            ev({ type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null, stop_details: null, container: null }, usage: { input_tokens: 2, output_tokens: 4 } }),
+            ev({ type: 'message_stop' }),
+            RESULT()
+        ]);
+        const agent = claudeCode({ query: fake.query, listen: fakeListen });
+        const session = await agent.session({ cwd, interactive: false });
+        const { events, result } = await drain(session.prompt('Reply with exactly one word: pong'));
+        // The assistant message must NOT re-emit the block it already streamed,
+        // and must not cut the streamed part short either.
+        expect(types(events)).toEqual(['turn-start', 'user-message', 'config', 'part-start', 'part-delta', 'part-delta', 'part-end', 'usage', 'usage', 'turn-end']);
+        expect(textOf(events)).toBe('pong');
+        const t = createTranscript(session.id);
+        const reduce = createReducer();
+        for (const e of events) reduce(t, e);
+        expect(t.messages.filter((msg) => msg.role === 'assistant').flatMap((msg) => msg.parts).filter((p) => p.type === 'text').map((p) => p.text)).toEqual(['pong']);
+        expect(result.stopReason).toBe('end_turn');
+    });
+
+    it('a tool_use block the turn never confirmed with an assistant frame is announced from the reassembled partial JSON', async () => {
+        const fake = fakeQuery(async function* () {
+            yield messageStart();
+            yield* toolUseBlocks('toolu_1', 'Read', { file_path: 'C:\\work\\repo\\a.ts' }, 0, null, { assistant: false });
+            yield* messageStop();
+            yield RESULT();
+        });
+        const agent = claudeCode({ query: fake.query, listen: fakeListen });
+        const session = await agent.session({ cwd, interactive: false, policy: allowAll });
+        const { events } = await drain(session.prompt('read it'));
+        expect(events.find((e) => e.type === 'tool-call')).toMatchObject({ callId: 'toolu_1', name: 'Read', input: { file_path: 'C:\\work\\repo\\a.ts' } });
     });
 
     it('tool use: partial JSON reassembled, permission asked through the policy, Edit becomes a coding.diff, denial reads denied', async () => {
@@ -540,8 +600,15 @@ describe.skipIf(!process.env.SIGX_LIVE_CLAUDE_CODE)('@sigx/ai-agent-claude-code 
         });
         try {
             const session = await agent.session({ cwd: dir, interactive: false, policy: allowReadOnly, maxTurns: 2 });
-            const { events, result } = await drain(session.prompt('Reply with the single word: pong'));
-            expect(textOf(events).toLowerCase()).toContain('pong');
+            // A SENTENCE, not a token: the real CLI splits an answer this long
+            // over several `text_delta` frames, so a stream that loses any
+            // delta but the first fails here. A one-word answer does not
+            // (issue #68 shipped past exactly that assertion).
+            const SENTENCE = 'The quick brown fox jumps over the lazy dog.';
+            const { events, result } = await drain(session.prompt(`Reply with exactly this sentence and nothing else: ${SENTENCE}`));
+            expect(textOf(events)).toContain(SENTENCE);
+            // More than one delta reached us — the whole point of the assertion above.
+            expect(events.filter((e) => e.type === 'part-delta' && !e.parentCallId).length).toBeGreaterThan(1);
             expect(result.stopReason).toBe('end_turn');
             expect(events.find((e) => e.type === 'config')).toBeDefined();
             expect(session.ref).toMatchObject({ agent: 'claude-code', v: 1, id: expect.stringMatching(/^[0-9a-f-]{36}$/), data: { cwd: dir } });

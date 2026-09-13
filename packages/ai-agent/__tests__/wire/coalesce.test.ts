@@ -73,6 +73,62 @@ describe('coalesceFrames', () => {
         void it.return?.();
     });
 
+    it('a timer flush never drops the pull that was already in flight (a slow model streams every delta)', async () => {
+        seq = 0;
+        // A real model pauses between deltas. Every gap here is longer than
+        // `maxDelayMs`, so the timer wins EVERY race — the pull racing against
+        // it is still owed a frame, and an async iterator delivers each value
+        // exactly once. Abandoning it drops the frame for good.
+        const frames = [frame({ type: 'part-start', turnId: 't', messageId: 'm', partId: 'p', kind: 'text' } as never), delta('p', 'p'), delta('p', 'on'), delta('p', 'g'), frame({ type: 'part-end', turnId: 't', partId: 'p' } as never)];
+        const slow: AsyncIterable<WireFrame> = {
+            async *[Symbol.asyncIterator]() {
+                for (const f of frames) {
+                    await new Promise((r) => setTimeout(r, 12));
+                    yield f;
+                }
+            }
+        };
+        const out = await collect(coalesceFrames(slow, { maxDelayMs: 1 }));
+        // How many frames the deltas end up merged into is a timing detail (the
+        // deterministic merge is pinned by the tests above); losing one is not.
+        const types = out.map((f) => (f.kind === 'event' ? f.event.type : f.kind));
+        expect(types[0]).toBe('part-start');
+        expect(types.at(-1)).toBe('part-end');
+        expect(
+            out
+                .filter((f): f is Extract<WireFrame, { kind: 'event' }> => f.kind === 'event' && f.event.type === 'part-delta')
+                .map((f) => (f.event as { delta: string }).delta)
+                .join('')
+        ).toBe('pong');
+    });
+
+    it('a source that fails while a timeout flush has us suspended reaches the consumer, and is never an unhandled rejection', async () => {
+        seq = 0;
+        const boom = new Error('the source failed');
+        // The pull is still in flight when the timer flushes the lone delta and
+        // suspends us on a `yield`; it rejects while nothing awaits it.
+        const failing: AsyncIterable<WireFrame> = {
+            async *[Symbol.asyncIterator]() {
+                yield delta('p', 'a');
+                await new Promise((r) => setTimeout(r, 12));
+                throw boom;
+            }
+        };
+        const unhandled: unknown[] = [];
+        const onUnhandled = (reason: unknown) => unhandled.push(reason);
+        process.on('unhandledRejection', onUnhandled);
+        try {
+            const it = coalesceFrames(failing, { maxDelayMs: 1 })[Symbol.asyncIterator]();
+            expect((await it.next()).value).toMatchObject({ kind: 'event', seq: 1 });
+            await expect(it.next()).rejects.toThrow('the source failed');
+            // Let a would-be unhandled rejection be reported before we look.
+            await new Promise((r) => setTimeout(r, 20));
+        } finally {
+            process.off('unhandledRejection', onUnhandled);
+        }
+        expect(unhandled).toEqual([]);
+    });
+
     it('a coalesced stream reduces to the same transcript as the original', async () => {
         const agent = mockAgent({ script: [[{ reasoning: 'thinking hard', text: 'Hello brave new world, this is a longer reply.' }, { tool: { name: 't', output: 1 } }, { text: 'Bye now.' }]] });
         const session = await agent.session({ policy: (r) => (r.kind === 'permission' ? { type: 'permission', outcome: 'allow', scope: 'once' } : 'ask') });

@@ -37,15 +37,34 @@ export async function* coalesceFrames(frames: AsyncIterable<WireFrame>, options:
     };
 
     const iterator = frames[Symbol.asyncIterator]();
+    /**
+     * The pull that is already in flight. An async iterator hands each value to
+     * exactly ONE `next()` promise, so when the flush timer wins the race the
+     * pull must be kept and awaited again — dropping it drops that frame, and
+     * with a model slower than `maxDelayMs` that is every frame after the first.
+     */
+    let inflight: Promise<IteratorResult<WireFrame>> | undefined;
+    /**
+     * A kept pull outlives the `yield` a timeout flush suspends us on, so it can
+     * reject while nothing is awaiting it. Park a no-op rejection handler on it
+     * the moment it is created — the value (and any error) still reaches the
+     * `await` below, but the rejection is never seen as unhandled.
+     */
+    const pullNext = (): Promise<IteratorResult<WireFrame>> => {
+        const p = iterator.next();
+        void p.catch(() => {});
+        return p;
+    };
     try {
         for (;;) {
             let timedOut = false;
             let timer: unknown;
+            const pull = (inflight ??= pullNext());
             let next: IteratorResult<WireFrame> | 'timeout';
             try {
                 next = pending
                     ? await Promise.race([
-                          iterator.next(),
+                          pull,
                           new Promise<'timeout'>((resolve) => {
                               timer = schedule(() => {
                                   timedOut = true;
@@ -53,19 +72,27 @@ export async function* coalesceFrames(frames: AsyncIterable<WireFrame>, options:
                               }, maxDelayMs);
                           })
                       ])
-                    : await iterator.next();
+                    : await pull;
+            } catch (e) {
+                inflight = undefined;
+                throw e;
             } finally {
                 // The next frame won the race (or the source failed): the timer would only wake the loop for nothing.
                 if (!timedOut && timer !== undefined) cancel(timer);
             }
-            if (next === 'timeout' || timedOut) {
+            if (next === 'timeout') {
                 const flushed = flush();
                 if (flushed) yield flushed;
-                if (next !== 'timeout') {
-                    // The iterator also produced a value; handle it below.
-                } else continue;
+                // `inflight` stays armed: the frame it will deliver is still owed to us.
+                continue;
             }
-            const result = next as IteratorResult<WireFrame>;
+            inflight = undefined;
+            if (timedOut) {
+                // Both settled: flush what was pending before the frame that arrived with it.
+                const flushed = flush();
+                if (flushed) yield flushed;
+            }
+            const result = next;
             if (result.done) {
                 const flushed = flush();
                 if (flushed) yield flushed;
