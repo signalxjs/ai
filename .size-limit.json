@@ -37,7 +37,7 @@
     "name": "@sigx/ai-agent-claude-code",
     "path": "packages/ai-agent-claude-code/dist/index.prod.js",
     "limit": "8 KB",
-    "ignore": ["@anthropic-ai/claude-agent-sdk", "@sigx/ai", "@sigx/ai-agent", "@sigx/ai-agent-node", "node:events", "node:stream"]
+    "ignore": ["@anthropic-ai/claude-agent-sdk", "@sigx/ai", "@sigx/ai-agent", "@sigx/ai-agent-node", "node:crypto", "node:events", "node:stream"]
   },
   {
     "name": "@sigx/ai-agent-node",
