@@ -103,6 +103,16 @@ export interface ThreadForkParams extends ThreadStartParams {
     readonly threadId: string;
 }
 
+/** Why a thread exists: a sub-agent thread says who spawned it and how deep it sits. */
+export type SubAgentSource =
+    | 'review'
+    | 'compact'
+    | 'memory_consolidation'
+    | { readonly thread_spawn: { readonly parent_thread_id: string; readonly depth: number; readonly agent_path: string | null; readonly agent_nickname: string | null; readonly agent_role: string | null } }
+    | { readonly other: string };
+
+export type SessionSource = 'cli' | 'vscode' | 'exec' | 'appServer' | 'unknown' | { readonly custom: string } | { readonly subAgent: SubAgentSource };
+
 /** The fields we read; the real `Thread` carries many more. */
 export interface Thread {
     readonly id: string;
@@ -111,6 +121,11 @@ export interface Thread {
     readonly reasoningEffort: ReasoningEffort | null;
     readonly cwd?: string;
     readonly updatedAt?: number | null;
+    /** Set only when the thread is a sub-agent of another thread. */
+    readonly parentThreadId?: string | null;
+    readonly source?: SessionSource;
+    readonly agentNickname?: string | null;
+    readonly agentRole?: string | null;
 }
 
 export interface ThreadStartResponse {
@@ -263,6 +278,16 @@ export type CommandExecutionStatus = 'inProgress' | 'completed' | 'failed' | 'de
 export type PatchApplyStatus = 'inProgress' | 'completed' | 'failed' | 'declined';
 export type ToolCallStatus = 'inProgress' | 'completed' | 'failed';
 
+/** The multi-agent tools Codex itself calls: `spawnAgent` starts a sub-agent thread, the rest address one. */
+export type CollabAgentTool = 'spawnAgent' | 'sendInput' | 'resumeAgent' | 'wait' | 'closeAgent' | 'sendMessage' | 'followupTask' | 'interruptAgent' | 'listAgents';
+export type CollabAgentToolCallStatus = 'inProgress' | 'completed' | 'failed' | 'interrupted';
+export type CollabAgentStatus = 'pendingInit' | 'running' | 'interrupted' | 'completed' | 'errored' | 'shutdown' | 'notFound';
+export interface CollabAgentState {
+    readonly status: CollabAgentStatus;
+    readonly message: string | null;
+}
+export type SubAgentActivityKind = 'started' | 'interacted' | 'interrupted' | 'completed';
+
 /** An item variant this adapter does not model — passed through as an `ext` event. */
 export interface UnknownThreadItem {
     readonly type: string;
@@ -307,7 +332,23 @@ export type KnownThreadItem =
           readonly contentItems: readonly DynamicToolCallOutputContentItem[] | null;
           readonly success: boolean | null;
       }
-    | { readonly type: 'webSearch'; readonly id: string; readonly query?: string };
+    | { readonly type: 'webSearch'; readonly id: string; readonly query?: string }
+    | {
+          readonly type: 'collabAgentToolCall';
+          readonly id: string;
+          readonly tool: CollabAgentTool;
+          readonly status: CollabAgentToolCallStatus;
+          /** The thread that issued the call — ours, or a sub-agent delegating further. */
+          readonly senderThreadId: string;
+          /** The threads addressed; for `spawnAgent`, the newly spawned one. */
+          readonly receiverThreadIds: readonly string[];
+          readonly prompt: string | null;
+          readonly model: string | null;
+          readonly reasoningEffort: ReasoningEffort | null;
+          /** Last known state of the target agents, by thread id. */
+          readonly agentsStates: { readonly [threadId: string]: CollabAgentState | undefined };
+      }
+    | { readonly type: 'subAgentActivity'; readonly id: string; readonly kind: SubAgentActivityKind; readonly agentThreadId: string; readonly agentPath: string };
 
 export interface ItemNotification {
     readonly item: ThreadItem;

@@ -29,7 +29,7 @@ import type {
     TurnSteerResponse,
     UserInput
 } from './schema.js';
-import { CODEX_NS, createTurnMapper, type TurnMapper } from './stream.js';
+import { CODEX_NS, createTurnMapper, settleSubAgents, type SubAgents, type TurnMapper } from './stream.js';
 import { callDynamicTool } from './tools.js';
 
 export interface CodexSessionDeps {
@@ -121,8 +121,12 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
         // A prompt during a turn is `turn/steer` on the running Codex turn.
         steer: true,
         // Refused before any event, for prompts and steers alike.
-        promptParts: 'text+image'
+        promptParts: 'text+image',
+        // Sub-agents are reported on this thread; their own threads are not routed here yet.
+        subagents: 'observe'
     });
+    /** Sub-agent threads seen on this thread — across turns, since one can outlive the turn that spawned it. */
+    const agents: SubAgents = new Map();
 
     // Per-turn overrides `configure()` records and the next `turn/start` applies.
     const overrides: { model?: string; approvalPolicy?: AskForApproval; sandbox?: SandboxMode; effort?: string } = {};
@@ -195,7 +199,7 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
             return core.startTurn(input, promptOptions, async (driver, ctx) => {
                 const parts = typeof input === 'string' ? [{ type: 'text' as const, text: input }] : [...input];
                 driver.emit({ type: 'user-message', messageId: `u:${driver.turnId}`, parts });
-                const mapper = createTurnMapper(driver, { messageId: `a:${driver.turnId}:0` });
+                const mapper = createTurnMapper(driver, { messageId: `a:${driver.turnId}:0`, agents });
                 let startedOk!: (id: string) => void;
                 let startedFailed!: (e: unknown) => void;
                 const started = new Promise<string>((resolve, reject) => {
@@ -266,6 +270,8 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
         },
         subscribe: (from) => core.subscribe(from),
         async close() {
+            // The thread goes with the session, and its sub-agents with the thread.
+            if (!core.closed) settleSubAgents(agents, 'cancelled', (e) => core.emit(e));
             await core.close();
             deps.onClose(threadId);
         },

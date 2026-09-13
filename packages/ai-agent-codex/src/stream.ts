@@ -5,15 +5,26 @@
  * changes and tool calls become `tool-call` / `tool-update` with the coding
  * extension events alongside, plans become `coding.plan`, and anything we do
  * not model is passed through as `ext { ns: 'codex' }`.
+ *
+ * Sub-agents: Codex runs a sub-agent as a thread of its own and reports it
+ * on the parent thread through `collabAgentToolCall` items (the spawn and
+ * every later instruction to it, each carrying the last known state of the
+ * agents it addressed) and `subAgentActivity` items. A spawn is a call
+ * (`collab/spawnAgent`) and the spawned thread an `agent-start` bound to it;
+ * state changes become `agent-update`s, once per change and one terminal
+ * each. The registry lives with the session, not the turn: a sub-agent can
+ * outlive the turn that spawned it.
  */
 
 import type { Usage } from '@sigx/ai';
-import type { AgentErrorCode, StopReason, ToolStatus, UnstampedEvent } from '@sigx/ai-agent';
+import type { AgentErrorCode, AgentStatus, StopReason, ToolStatus, UnstampedEvent } from '@sigx/ai-agent';
 import type { TurnDriver } from '@sigx/ai-agent';
 import { codingEvent } from '@sigx/ai-agent/coding';
 import { CODEX_METHODS } from './schema.js';
 import type {
     CodexErrorInfo,
+    CollabAgentState,
+    CollabAgentToolCallStatus,
     ErrorNotification,
     FileChangePatchUpdatedNotification,
     FileUpdateChange,
@@ -45,6 +56,57 @@ export interface TurnMapper {
     readonly outcome: Promise<TurnOutcome>;
     /** Mark a tool call's status from a request handler (approval flow). */
     toolStatus(callId: string, status: ToolStatus, error?: string): void;
+}
+
+/** What the session knows about one sub-agent thread: the call that spawned it and where it stands. */
+export interface SubAgent {
+    readonly callId?: string;
+    status: AgentStatus;
+    summary?: string;
+}
+
+/** Sub-agents by thread id, for the life of the session. */
+export type SubAgents = Map<string, SubAgent>;
+
+const TERMINAL: ReadonlySet<AgentStatus> = new Set<AgentStatus>(['completed', 'failed', 'cancelled']);
+
+/** Every sub-agent still running gets `status` — an interrupted turn, or the session closing under it. */
+export function settleSubAgents(agents: SubAgents, status: 'cancelled' | 'failed', emit: (e: UnstampedEvent) => void): void {
+    for (const [agentId, agent] of agents) {
+        if (TERMINAL.has(agent.status)) continue;
+        agent.status = status;
+        emit({ type: 'agent-update', agentId, status, ...(agent.callId !== undefined ? { parentCallId: agent.callId } : {}) });
+    }
+}
+
+function collabCallStatus(status: CollabAgentToolCallStatus): ToolStatus {
+    switch (status) {
+        case 'completed':
+            return 'completed';
+        case 'failed':
+            return 'failed';
+        case 'interrupted':
+            return 'cancelled';
+        default:
+            return 'in_progress';
+    }
+}
+
+/** A Codex agent state onto the contract's lifecycle, with what to say about it. */
+function agentTransition(state: CollabAgentState): { readonly status: AgentStatus; readonly output?: string; readonly error?: string } {
+    switch (state.status) {
+        case 'completed':
+            return { status: 'completed', ...(state.message !== null ? { output: state.message } : {}) };
+        case 'errored':
+            return { status: 'failed', error: state.message ?? 'The sub-agent failed.' };
+        case 'notFound':
+            return { status: 'failed', error: state.message ?? 'Codex has no such agent.' };
+        case 'interrupted':
+        case 'shutdown':
+            return { status: 'cancelled' };
+        default:
+            return { status: 'running' };
+    }
 }
 
 export function toUsage(u: TokenUsageBreakdown): Usage {
@@ -105,8 +167,9 @@ function itemStatus(status: string | undefined, success?: boolean | null): ToolS
     }
 }
 
-export function createTurnMapper(driver: TurnDriver, options: { readonly messageId: string }): TurnMapper {
+export function createTurnMapper(driver: TurnDriver, options: { readonly messageId: string; readonly agents?: SubAgents }): TurnMapper {
     const { messageId } = options;
+    const agents: SubAgents = options.agents ?? new Map();
     /** Open text/reasoning parts by part id, with how much of them has been streamed. */
     const parts = new Map<string, { kind: 'text' | 'reasoning'; streamed: number }>();
     /** Item ids of tool calls announced, so updates for unknown items are ignored. */
@@ -114,6 +177,8 @@ export function createTurnMapper(driver: TurnDriver, options: { readonly message
     /** Calls the policy denied — Codex still reports them `failed`, which must not follow `denied`. */
     const denied = new Set<string>();
     const diffsEmitted = new Set<string>();
+    /** Spawn calls that already bound their one agent. */
+    const spawned = new Set<string>();
     let finalText = '';
     let turnUsage: Usage | undefined;
     let resolveOutcome!: (o: TurnOutcome) => void;
@@ -148,6 +213,41 @@ export function createTurnMapper(driver: TurnDriver, options: { readonly message
         calls.add(item.id);
         emit({ type: 'tool-call', callId: item.id, name, messageId, input, category });
         emit({ type: 'tool-update', callId: item.id, status: 'pending' });
+    };
+
+    /** First sight of a sub-agent thread: announce it (bound to its spawn call when we saw one) as running. */
+    const startAgent = (agentId: string, init: { readonly callId?: string; readonly title?: string; readonly description?: string; readonly model?: string; readonly summary?: string }) => {
+        if (agents.has(agentId)) return;
+        agents.set(agentId, { ...(init.callId !== undefined ? { callId: init.callId } : {}), status: 'running', ...(init.summary !== undefined ? { summary: init.summary } : {}) });
+        const parent = init.callId !== undefined ? { parentCallId: init.callId } : {};
+        emit({
+            type: 'agent-start',
+            agentId,
+            kind: 'subagent',
+            ...(init.callId !== undefined ? { callId: init.callId } : {}),
+            ...(init.title !== undefined ? { title: init.title } : {}),
+            ...(init.description !== undefined ? { description: init.description } : {}),
+            ...(init.model !== undefined ? { model: init.model } : {}),
+            ...parent
+        });
+        emit({ type: 'agent-update', agentId, status: 'running', ...(init.summary !== undefined ? { summary: init.summary } : {}), ...parent });
+    };
+    /** A state change for a known sub-agent — nothing after its terminal, nothing for a repeat. */
+    const updateAgent = (agentId: string, next: { readonly status: AgentStatus; readonly summary?: string; readonly output?: unknown; readonly error?: string }) => {
+        const agent = agents.get(agentId);
+        if (!agent || TERMINAL.has(agent.status)) return;
+        if (next.status === agent.status && next.summary === agent.summary) return;
+        agent.status = next.status;
+        agent.summary = next.summary;
+        emit({
+            type: 'agent-update',
+            agentId,
+            status: next.status,
+            ...(next.summary !== undefined ? { summary: next.summary } : {}),
+            ...(next.output !== undefined ? { output: next.output } : {}),
+            ...(next.error !== undefined ? { error: { code: 'provider_error', message: next.error } } : {}),
+            ...(agent.callId !== undefined ? { parentCallId: agent.callId } : {})
+        });
     };
 
     const emitDiffs = (itemId: string, changes: readonly FileUpdateChange[]) => {
@@ -243,6 +343,51 @@ export function createTurnMapper(driver: TurnDriver, options: { readonly message
                 if (phase === 'completed') emit({ type: 'tool-update', callId: item.id, status: 'completed' });
                 break;
             }
+            case 'collabAgentToolCall': {
+                announceCall(item, `collab/${item.tool}`, 'other', { prompt: item.prompt, model: item.model, reasoningEffort: item.reasoningEffort, receiverThreadIds: [...item.receiverThreadIds] });
+                // A spawn names its child in `receiverThreadIds`; any call may carry
+                // the state of a thread we have not seen (a spawn before our resume).
+                // A call binds at most one agent — a spawn starts one thread — so a
+                // second thread on the same spawn is announced without the call.
+                const spawn = item.tool === 'spawnAgent';
+                const start = (agentId: string) => {
+                    if (agents.has(agentId)) return;
+                    const bind = spawn && !spawned.has(item.id);
+                    if (bind) spawned.add(item.id);
+                    startAgent(agentId, {
+                        ...(bind ? { callId: item.id } : {}),
+                        ...(spawn && item.prompt !== null ? { description: item.prompt } : {}),
+                        ...(spawn && item.model !== null ? { model: item.model } : {})
+                    });
+                };
+                for (const agentId of item.receiverThreadIds) if (spawn) start(agentId);
+                for (const [agentId, state] of Object.entries(item.agentsStates)) {
+                    if (!state) continue;
+                    start(agentId);
+                    updateAgent(agentId, agentTransition(state));
+                }
+                if (phase === 'completed') {
+                    const status = collabCallStatus(item.status);
+                    emit({ type: 'tool-update', callId: item.id, status, ...(status === 'failed' ? { error: 'The collab call failed.' } : {}) });
+                } else if (item.status === 'inProgress') emit({ type: 'tool-update', callId: item.id, status: 'in_progress' });
+                break;
+            }
+            case 'subAgentActivity': {
+                // Activity of a thread nobody spawned in our sight is still an agent — without a spawning call.
+                const running = item.kind === 'started' || item.kind === 'interacted';
+                startAgent(item.agentThreadId, { title: item.agentPath, ...(running ? { summary: item.kind } : {}) });
+                switch (item.kind) {
+                    case 'interrupted':
+                        updateAgent(item.agentThreadId, { status: 'cancelled' });
+                        break;
+                    case 'completed':
+                        updateAgent(item.agentThreadId, { status: 'completed' });
+                        break;
+                    default:
+                        updateAgent(item.agentThreadId, { status: 'running', summary: item.kind });
+                }
+                break;
+            }
             default:
                 emit({ type: 'ext', ns: CODEX_NS, name: `item.${n.item.type}`, data: { phase, item: n.item } });
         }
@@ -314,6 +459,8 @@ export function createTurnMapper(driver: TurnDriver, options: { readonly message
                     const p = params as TurnCompletedNotification;
                     for (const [partId, part] of Array.from(parts)) closePart(partId, part.kind, '');
                     const stopReason = toStopReason(p.turn.status);
+                    // An interrupt stops the sub-agents with the turn; otherwise they may run on.
+                    if (stopReason === 'cancelled') settleSubAgents(agents, 'cancelled', emit);
                     const error = p.turn.error ? { code: toErrorCode(p.turn.error.codexErrorInfo), message: p.turn.error.message } : undefined;
                     if (stopReason === 'error' && error) emit({ type: 'error', code: error.code, message: error.message, recoverable: false });
                     resolveOutcome({ stopReason, ...(error ? { error } : {}), finalText, ...(turnUsage ? { usage: turnUsage } : {}) });

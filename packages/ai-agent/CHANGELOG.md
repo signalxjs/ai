@@ -20,13 +20,18 @@ follow [SemVer](https://semver.org/).
 - `recordAgent` / `replayAgent` record a targeted cancel (`FixtureCommand`
   `cancel.agentId`) and a steer (a prompt into the running turn), and replay
   both.
-
-### Changed
-
-- `MOCK_CAPABILITIES` now declares `steer: true` and `subagents: 'control'`;
-  a test that relied on the mock rejecting a prompt during a turn passes
-  `capabilities: { steer: false }`.
-
+- `modelAgent` steers (`steer: true`): a prompt during a turn is a
+  `user-message` in that turn and reaches the model at the engine's next round
+  boundary (`streamText`'s `steer`), answered in a second assistant message;
+  what the engine never drains stays in the transcript for the next turn.
+- `modelAgent` controls its sub-agents (`subagents: 'control'`): `agentTool`
+  emits `agent-start` (bound to the calling tool call; `title` option) and
+  `agent-update` — running, the delegate's own cumulative usage, and exactly one
+  terminal status — attaches the delegate session so the host's `respond()`
+  answers a request raised inside it and `cancel({ agentId })` stops it, and
+  forwards a nested delegate's agent events so a grandchild sits one level
+  deeper in `agentTree`. The tool context `modelAgent` hands its tools gains
+  `attach(downstream)`.
 - The sub-agent tree in the transcript: `transcript.agents` (`AgentState` by
   id, folded from `agent-start` / `agent-update` — status, cumulative usage,
   output, the spawning `callId`, and `depth` / `parentAgentId` derived from the
@@ -144,6 +149,12 @@ follow [SemVer](https://semver.org/).
 
 ### Changed
 
+- `MOCK_CAPABILITIES` now declares `steer: true` and `subagents: 'control'`;
+  a test that relied on the mock rejecting a prompt during a turn passes
+  `capabilities: { steer: false }`.
+- `agentTool` no longer forwards a delegate's `usage` events into the host
+  turn: they were summed into the host session's totals. The delegate's usage
+  now rides on its `agent-update` and lands on `transcript.agents[id].usage`.
 - With the `steer` capability, `prompt()` while a turn runs now injects into
   the running turn instead of starting a concurrent second turn: the returned
   turn has the running turn's `id` and `result` and iterates its events from

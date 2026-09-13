@@ -12,9 +12,16 @@ import type { TurnDriver } from '../session/index.js';
 export interface ChunkMapper {
     /** Feed the next chunk; the driver receives the events. */
     apply(chunk: UIChunk): void;
+    /**
+     * Start the next assistant message of the turn (`a:<turnId>:<n>`): closes
+     * an open part. Called when steering input was injected, so the model's
+     * reply to it is a message of its own, after the user's.
+     */
+    nextMessage(): void;
 }
 
 export interface ChunkMapperOptions {
+    /** The first assistant message id; `nextMessage()` derives the following ones from it. */
     readonly messageId: string;
     readonly tools?: readonly AnyTool[];
     /** The turn's cost from its usage; `undefined` means unknown. */
@@ -37,7 +44,8 @@ function priceOf(usage: Usage, pricing: ChunkMapperOptions['pricing']): number |
 }
 
 export function createChunkMapper(driver: TurnDriver, options: ChunkMapperOptions): ChunkMapper {
-    const { messageId } = options;
+    let messageId = options.messageId;
+    let messageIndex = 0;
     let partSeq = 0;
     let open: { partId: string; kind: 'text' | 'reasoning' } | undefined;
     let hitStepLimit = false;
@@ -70,6 +78,11 @@ export function createChunkMapper(driver: TurnDriver, options: ChunkMapperOption
     };
 
     return {
+        nextMessage() {
+            closePart();
+            messageId = `${options.messageId.replace(/:\d+$/, '')}:${++messageIndex}`;
+            partSeq = 0;
+        },
         apply(chunk) {
             switch (chunk.type) {
                 case 'start':

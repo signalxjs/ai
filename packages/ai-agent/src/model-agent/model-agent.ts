@@ -9,14 +9,14 @@
  * carries it when there is none).
  */
 
-import { streamText, toModelMessages, type AnyTool, type JsonSchema, type LanguageModel, type StandardSchemaV1, type UIMessage, type Usage } from '@sigx/ai';
+import { streamText, toModelMessages, type AnyTool, type JsonSchema, type LanguageModel, type ModelUserMessage, type StandardSchemaV1, type UIMessage, type Usage } from '@sigx/ai';
 import type { AgentCapabilities, PromptInput } from '../protocol/index.js';
 import { AgentError, capabilities } from '../protocol/index.js';
 import { createGrants } from '../policy/index.js';
 import type { Agent, AgentSession, OutputSpec, PromptOptions, SessionLog, SessionOptions, SessionRef } from '../session/index.js';
 import { createEventLog, createSessionCore } from '../session/index.js';
 import type { AgentTranscript, ReducerExtension } from '../state/index.js';
-import { createReducer, createTranscript, fromUIMessages, toUIMessages } from '../state/index.js';
+import { createReducer, createTranscript, fromUIMessages, promptPartsToUI, toUIMessages } from '../state/index.js';
 import type { TranscriptStore } from '../store/index.js';
 import { generateId } from '../utils/id.js';
 import { gateTools } from './gate-tools.js';
@@ -57,11 +57,16 @@ export const MODEL_AGENT_CAPABILITIES: AgentCapabilities = capabilities({
     resume: 'portable',
     fork: true,
     cancel: true,
+    // A prompt during a turn is injected between model rounds (`streamText`'s `steer`).
+    steer: true,
     structuredOutput: true,
     promptParts: 'text+image+file',
     tools: 'native',
     permissions: 'every-call',
-    importTranscript: true
+    importTranscript: true,
+    // Delegates opened by `agentTool` are attached to the session: `respond()`
+    // reaches their requests and `cancel({ agentId })` stops one of them.
+    subagents: 'control'
 });
 
 const passthrough: StandardSchemaV1<unknown, unknown> = { '~standard': { version: 1, vendor: 'sigx-ai-agent', validate: (value) => ({ value }) } };
@@ -140,6 +145,8 @@ export function modelAgent(options: ModelAgentOptions): Agent {
             interactive: sessionOptions.interactive ?? true,
             ...(sessionOptions.requestTimeoutMs !== undefined ? { requestTimeoutMs: sessionOptions.requestTimeoutMs } : {}),
             ...(sessionOptions.signal ? { signal: sessionOptions.signal } : {}),
+            steer: MODEL_AGENT_CAPABILITIES.steer,
+            subagents: MODEL_AGENT_CAPABILITIES.subagents,
             promptParts: MODEL_AGENT_CAPABILITIES.promptParts
         });
         const tools: AnyTool[] = [...(options.tools ?? []), ...(sessionOptions.tools ?? [])];
@@ -159,15 +166,33 @@ export function modelAgent(options: ModelAgentOptions): Agent {
                     const parts = typeof input === 'string' ? [{ type: 'text' as const, text: input }] : [...input];
                     driver.emit({ type: 'user-message', messageId: `u:${driver.turnId}`, parts });
                     const messageId = `a:${driver.turnId}:0`;
-                    const gated = gateTools(tools, { driver, resolve: (request) => ctx.resolve(request) });
+                    const gated = gateTools(tools, { driver, resolve: (request) => ctx.resolve(request), attach: (downstream) => core.attach(downstream) });
                     const mapper = createChunkMapper(driver, { messageId, tools, ...(options.pricing ? { pricing: options.pricing } : {}) });
                     const output = toEngineOutput(promptOptions?.output);
+                    // Steering: the input goes into the transcript at once (a
+                    // `user-message` in this turn) and waits for the engine's next
+                    // round boundary. What the engine never drains — a steer
+                    // after its last round — stays in the transcript and feeds
+                    // the next turn's conversation.
+                    const steers: ModelUserMessage[] = [];
+                    let steerSeq = 0;
+                    ctx.onSteer((steerParts) => {
+                        driver.emit({ type: 'user-message', messageId: `u:${driver.turnId}:${++steerSeq}`, parts: steerParts });
+                        const [message] = toModelMessages([{ id: 'steer', role: 'user', parts: promptPartsToUI(steerParts) }]);
+                        if (message?.role === 'user') steers.push(message);
+                    });
                     try {
                         for await (const chunk of streamText({
                             model: options.model,
                             ...(system !== undefined ? { system } : {}),
                             // `omit`: a delegate's words are its own, never the host model's.
                             messages: toModelMessages(toUIMessages(transcript!, { subagents: 'omit' })),
+                            steer: () => {
+                                const taken = steers.splice(0);
+                                // The reply to steering input is a message of its own.
+                                if (taken.length) mapper.nextMessage();
+                                return taken;
+                            },
                             ...(gated.tools.length ? { tools: gated.tools, onToolApproval: gated.onToolApproval } : {}),
                             ...(options.maxSteps !== undefined ? { maxSteps: options.maxSteps } : {}),
                             ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
@@ -186,7 +211,7 @@ export function modelAgent(options: ModelAgentOptions): Agent {
                 });
             },
             respond: (requestId, decision) => core.respond(requestId, decision),
-            cancel: () => core.cancel(),
+            cancel: (target) => core.cancel(target),
             subscribe: (from) => core.subscribe(from),
             async close() {
                 await core.close();

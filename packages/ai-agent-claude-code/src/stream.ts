@@ -12,6 +12,7 @@ import { parsePartialJson, type Usage } from '@sigx/ai';
 import type { AgentErrorCode, StopReason, TurnDriver, UnstampedEvent } from '@sigx/ai-agent';
 import { codingEvent, type CodingPlanEntry } from '@sigx/ai-agent/coding';
 import { categoryFor, PERMISSION_MODES, splitToolName, toolAnnotations } from './request.js';
+import { toUsage, type AgentTracker } from './tasks.js';
 
 export const CLAUDE_CODE_NS = 'claude-code';
 
@@ -21,6 +22,8 @@ export type Emit = (event: UnstampedEvent) => void;
 export interface TurnMapperOptions {
     readonly driver: TurnDriver;
     readonly serverName: string;
+    /** The session's sub-agents — task frames and Task results fold into it. */
+    readonly tracker: AgentTracker;
     /** Called with the result that ended the turn. */
     readonly onResult: (result: SDKResultMessage) => void;
     /** `true` once we asked the CLI to interrupt — `error_during_execution` then means `cancelled`. */
@@ -54,7 +57,8 @@ export interface TurnMapper {
 }
 
 export function createTurnMapper(options: TurnMapperOptions): TurnMapper {
-    const { driver, serverName } = options;
+    const { driver, serverName, tracker } = options;
+    const emit: Emit = (e) => driver.emit(e);
     let messageIndex = 0;
     let messageId = `a:${driver.turnId}:0`;
     let partSeq = 0;
@@ -68,6 +72,8 @@ export function createTurnMapper(options: TurnMapperOptions): TurnMapper {
 
     const nextPartId = () => `${messageId}:${partSeq++}`;
     const parentOf = (m: { parent_tool_use_id?: string | null }) => (m.parent_tool_use_id ? { parentCallId: m.parent_tool_use_id } : {});
+    /** A nested part's context: the spawning call, and the sub-agent type as its actor. */
+    const nestedIn = (parent: string | null | undefined, actor?: string) => (parent ? { parentCallId: parent, actor: actor ?? tracker.actorFor(parent) ?? 'subagent' } : {});
 
     const announceCall = (id: string, rawName: string, input: unknown, parent: string | null | undefined) => {
         if (calls.has(id)) return;
@@ -102,15 +108,14 @@ export function createTurnMapper(options: TurnMapperOptions): TurnMapper {
         void parent;
     };
 
-    const emitTextPart = (kind: 'text' | 'reasoning', text: string, providerData: unknown, parent: string | null | undefined) => {
+    const emitTextPart = (kind: 'text' | 'reasoning', text: string, providerData: unknown, parent: string | null | undefined, actor?: string) => {
         const partId = nextPartId();
-        const ctx = parent ? { parentCallId: parent, actor: 'subagent' } : {};
-        driver.emit({ type: 'part-start', messageId, partId, kind, ...ctx });
+        driver.emit({ type: 'part-start', messageId, partId, kind, ...nestedIn(parent, actor) });
         if (text) driver.emit({ type: 'part-delta', partId, delta: text, ...(parent ? { parentCallId: parent } : {}) });
         driver.emit({ type: 'part-end', partId, ...(providerData !== undefined ? { providerData } : {}), ...(parent ? { parentCallId: parent } : {}) });
     };
 
-    const settleToolResult = (block: Block, parent: string | null | undefined) => {
+    const settleToolResult = (block: Block, parent: string | null | undefined, toolUseResult: unknown) => {
         const id = String(block.tool_use_id);
         const call = calls.get(id);
         const content = block.content;
@@ -118,6 +123,8 @@ export function createTurnMapper(options: TurnMapperOptions): TurnMapper {
         const isError = block.is_error === true;
         const pc = parent ? { parentCallId: parent } : {};
         settled.add(id);
+        // A Task call's result ends the sub-agent it spawned (or sends it to the background) — before the call itself settles.
+        tracker.settleCall(id, toolUseResult, text, isError, emit);
         if (call && !isError) emitCodingExtras(driver, call.name, call.input, id);
         if (denied.has(id)) driver.emit({ type: 'tool-update', callId: id, status: 'denied', error: text, ...pc });
         else driver.emit(isError ? { type: 'tool-update', callId: id, status: 'failed', error: text, ...pc } : { type: 'tool-update', callId: id, status: 'completed', output: text, ...pc });
@@ -137,11 +144,11 @@ export function createTurnMapper(options: TurnMapperOptions): TurnMapper {
                 if (block.type === 'text') {
                     const partId = nextPartId();
                     open.set(index, { kind: 'text', partId });
-                    driver.emit({ type: 'part-start', messageId, partId, kind: 'text', ...(parent ? { parentCallId: parent, actor: 'subagent' } : {}) });
+                    driver.emit({ type: 'part-start', messageId, partId, kind: 'text', ...nestedIn(parent) });
                 } else if (block.type === 'thinking') {
                     const partId = nextPartId();
                     open.set(index, { kind: 'thinking', partId, thinking: '', signature: '' });
-                    driver.emit({ type: 'part-start', messageId, partId, kind: 'reasoning', ...(parent ? { parentCallId: parent, actor: 'subagent' } : {}) });
+                    driver.emit({ type: 'part-start', messageId, partId, kind: 'reasoning', ...nestedIn(parent) });
                 } else if (block.type === 'redacted_thinking') {
                     emitTextPart('reasoning', '', block, parent);
                 } else if (block.type === 'tool_use') {
@@ -210,14 +217,15 @@ export function createTurnMapper(options: TurnMapperOptions): TurnMapper {
                     break;
                 case 'assistant': {
                     const parent = message.parent_tool_use_id;
+                    const actor = (message as { subagent_type?: string }).subagent_type;
                     const content = (message.message as unknown as { content?: Block[] }).content ?? [];
                     if (!streamedThisMessage) {
                         // No partial frames for this message: build the parts from the whole message.
                         startMessage(parent);
                         for (const block of content) {
-                            if (block.type === 'text') emitTextPart('text', String(block.text), undefined, parent);
-                            else if (block.type === 'thinking') emitTextPart('reasoning', String(block.thinking), { type: 'thinking', thinking: block.thinking, signature: block.signature }, parent);
-                            else if (block.type === 'redacted_thinking') emitTextPart('reasoning', '', block, parent);
+                            if (block.type === 'text') emitTextPart('text', String(block.text), undefined, parent, actor);
+                            else if (block.type === 'thinking') emitTextPart('reasoning', String(block.thinking), { type: 'thinking', thinking: block.thinking, signature: block.signature }, parent, actor);
+                            else if (block.type === 'redacted_thinking') emitTextPart('reasoning', '', block, parent, actor);
                         }
                     }
                     // Reconcile: every tool use is announced exactly once, with the final input.
@@ -228,7 +236,11 @@ export function createTurnMapper(options: TurnMapperOptions): TurnMapper {
                 }
                 case 'user': {
                     const content = (message.message as { content?: unknown }).content;
-                    if (Array.isArray(content)) for (const block of content as Block[]) if (block.type === 'tool_result') settleToolResult(block, message.parent_tool_use_id);
+                    if (!Array.isArray(content)) break;
+                    const results = (content as Block[]).filter((block) => block.type === 'tool_result');
+                    // The structured `tool_use_result` rides the frame, not the block: it belongs to the one result the frame carries.
+                    const structured = results.length === 1 ? (message as { tool_use_result?: unknown }).tool_use_result : undefined;
+                    for (const block of results) settleToolResult(block, message.parent_tool_use_id, structured);
                     break;
                 }
                 case 'tool_progress': {
@@ -241,22 +253,24 @@ export function createTurnMapper(options: TurnMapperOptions): TurnMapper {
                 }
                 case 'result': {
                     // A call the result left unsettled is over one way or another.
+                    const aborted = options.interrupted() || driver.signal.aborted;
                     for (const [id, call] of calls) {
                         if (settled.has(id)) continue;
                         settled.add(id);
                         const pc = call.parent ? { parentCallId: call.parent } : {};
-                        driver.emit(
-                            options.interrupted() || driver.signal.aborted
-                                ? { type: 'tool-update', callId: id, status: 'cancelled', ...pc }
-                                : { type: 'tool-update', callId: id, status: 'failed', error: 'The turn ended before the tool call was settled.', ...pc }
-                        );
+                        driver.emit(aborted ? { type: 'tool-update', callId: id, status: 'cancelled', ...pc } : { type: 'tool-update', callId: id, status: 'failed', error: 'The turn ended before the tool call was settled.', ...pc });
                     }
+                    // So is a foreground sub-agent; a background one runs on past the turn.
+                    tracker.sweep(aborted ? 'cancelled' : 'failed', emit, { background: false, message: 'The turn ended before the sub-agent finished.' });
                     emitResult(driver, message, options);
                     options.onResult(message);
                     break;
                 }
+                case 'system':
+                    if (!tracker.handleTask(message, emit, (id) => calls.has(id))) mapSessionMessage(message, emit);
+                    break;
                 default:
-                    mapSessionMessage(message, (e) => driver.emit(e));
+                    mapSessionMessage(message, emit);
             }
         }
     };
@@ -345,22 +359,6 @@ function emitResult(driver: TurnDriver, result: SDKResultMessage, options: TurnM
         ...(output !== undefined ? { output } : {}),
         ...(error ? { error } : {})
     });
-}
-
-function toUsage(u: Record<string, unknown> | undefined): Usage | undefined {
-    if (!u) return undefined;
-    const out: Usage = {};
-    const num = (k: string) => (typeof u[k] === 'number' ? (u[k] as number) : undefined);
-    const map: Record<string, string> = { input_tokens: 'inputTokens', output_tokens: 'outputTokens', cache_read_input_tokens: 'cacheReadInputTokens', cache_creation_input_tokens: 'cacheCreationInputTokens' };
-    for (const [from, to] of Object.entries(map)) {
-        const v = num(from);
-        if (v !== undefined) out[to] = v;
-    }
-    // The billed thinking tokens — a BREAKDOWN of `output_tokens`, not an
-    // addition to them, and the same key the Anthropic provider reports.
-    const thinking = (u.output_tokens_details as { thinking_tokens?: unknown } | undefined)?.thinking_tokens;
-    if (typeof thinking === 'number') out.reasoningTokens = thinking;
-    return Object.keys(out).length ? out : undefined;
 }
 
 /** The same usage without the reasoning breakdown — for the additive turn-scope event. */

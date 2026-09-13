@@ -172,6 +172,17 @@ a turn's usage into `costUsd` on the `usage` event, the result and the
 transcript; the `LanguageModel` seam carries no price list, so without it no
 cost is reported.
 
+**Steering** (`steer: true`): `prompt()` while a turn runs emits a
+`user-message` in that turn at once and hands the input to the engine at its
+next round boundary — after a round's tool results, or after a round that
+answered without tools — where the model reads it and replies in a second
+assistant message. The engine polls only while another round is allowed, so
+a steer that lands after the last round stays in the transcript and opens the
+next turn's conversation instead. Sub-agents (`subagents: 'control'`): a
+delegate opened by `agentTool` is attached to the session, so `respond()`
+reaches a request it raises and `cancel({ agentId })` stops it while the turn
+goes on.
+
 **U1 — an edge chat agent** (workerd, Bun, Deno — no Node globals):
 
 ```ts
@@ -191,12 +202,21 @@ const { stopReason, output } = await session.prompt('Review the diff.', { output
 
 ## An agent as a tool: `agentTool`
 
-`agentTool(delegate, { name, description, input, output?, prompt })` returns
-a `defineTool` tool that opens a headless session on `delegate`, prompts it
-with `prompt(input)` and returns its structured output (or its final text).
-Inside a `modelAgent` turn the delegate's events are forwarded with
-`parentCallId` set to the calling tool call, so a UI can show the nested work;
-`ctx.signal` cancels the delegate.
+`agentTool(delegate, { name, description, title?, input, output?, prompt })`
+returns a `defineTool` tool that opens a headless session on `delegate`,
+prompts it with `prompt(input)` and returns its structured output (or its
+final text). Inside a `modelAgent` turn the delegate is a sub-agent of the
+turn: an `agent-start` bound to the calling tool call (`agentId` is the
+delegate's session id, `kind` the tool's name), its events forwarded with
+`parentCallId` set to that call so a UI can show the nested work, an
+`agent-update` per usage report carrying the delegate's own cumulative usage
+(never summed into the host's totals), and exactly one terminal update —
+`completed` with the output, `failed` with the error (a schema mismatch
+included), or `cancelled`. The delegate session is attached to the host: a
+`request` it raises (open it with `sessionOptions: { interactive: true }`) is
+answered through the host's `respond()`, `cancel({ agentId })` stops it, and
+`ctx.signal` cancels it too. A delegate that delegates in turn shows up one
+level deeper in `agentTree(transcript)`.
 
 ## Rendering a transcript
 
