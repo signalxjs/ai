@@ -12,7 +12,8 @@ import { resolveExecutable, spawnAgentProcess } from '@sigx/ai-agent-node';
 import { createJsonRpcPeer } from '@sigx/ai-agent/harness';
 
 const exe = await resolveExecutable('gemini');                       // PATH / Path, PATHEXT, npm .cmd shims
-const proc = spawnAgentProcess({ ...exe, args: [...exe.args, '--experimental-acp'], cwd, env: { GEMINI_API_KEY: key } });
+// Keep `exe.env` (a pnpm shim's NODE_PATH) and add what the harness needs.
+const proc = spawnAgentProcess({ ...exe, args: [...exe.args, '--experimental-acp'], cwd, env: { ...exe.env, GEMINI_API_KEY: key } });
 const peer = createJsonRpcPeer({ readable: proc.readable, writable: proc.writable });
 // …
 await proc.kill(); // the whole tree, on every OS
