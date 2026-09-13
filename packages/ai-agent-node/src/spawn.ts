@@ -141,7 +141,14 @@ export function spawnAgentProcess(options: SpawnAgentProcessOptions): AgentProce
         {
             start(controller) {
                 stdout.on('data', (chunk: Buffer) => {
-                    controller.enqueue(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+                    // A consumer may cancel while a chunk is in flight: enqueueing into
+                    // a closed stream must not turn a teardown into a crash.
+                    try {
+                        controller.enqueue(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+                    } catch {
+                        stdout.destroy();
+                        return;
+                    }
                     if ((controller.desiredSize ?? 1) <= 0) stdout.pause();
                 });
                 stdout.once('end', () => {
@@ -176,8 +183,10 @@ export function spawnAgentProcess(options: SpawnAgentProcessOptions): AgentProce
                 if (stdinError) return reject(stdinError);
                 if (stdin.destroyed || stdin.writableEnded) return reject(new Error('[sigx ai-agent-node] stdin is closed'));
                 // Settle on the write callback: it reports a failure (EPIPE when the
-                // child died) and, for a buffered chunk, fires once it was flushed —
-                // which is the backpressure the Web Stream needs.
+                // child died) and, for a chunk Node had to buffer (`write` returned
+                // false), it fires only once that chunk has been handed to the OS —
+                // stricter than waiting for 'drain', so the Web Stream's backpressure
+                // is real: the next write is not accepted until this one left Node.
                 stdin.write(chunk, (e) => (e ? reject(e) : resolve()));
             });
         },

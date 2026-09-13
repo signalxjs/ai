@@ -204,6 +204,16 @@ To run the example: `pnpm build` first (it resolves the packages from
   allowlist, `NODE_OPTIONS` excluded) and `listenMcp` (loopback `node:http`
   host for the harness MCP tool handler). Adapters that spawn a harness take
   it as a regular `dependencies` entry. Tested on Ubuntu, Windows and macOS.
+- `packages/ai-agent-claude-code` → `@sigx/ai-agent-claude-code` — **experimental**,
+  Claude Code as an `Agent` on the official `@anthropic-ai/claude-agent-sdk`
+  (peer, literal range). Layout `options ← request ← permissions ← tools ←
+  stream ← provider ← index`: one `query()` per session with a streaming
+  prompt, `canUseTool` → `resolveRequest`, client tools over HTTP MCP
+  (`createMcpToolHandler` + `listenMcp`), spawning through
+  `@sigx/ai-agent-node` (a regular dependency), `system/init` → `config`,
+  `result` → `usage` + `turn-end`. Tests replay recorded SDK messages through
+  a fake `query` injected via `claudeCode({ query })`; a live smoke is gated on
+  `SIGX_LIVE_CLAUDE_CODE=1`.
 - `packages/ai-anthropic` → `@sigx/ai-anthropic` — Claude on the official
   `@anthropic-ai/sdk` (a peer dependency, literal range): `anthropic()` →
   `.model(id)`. Streams `client.messages.stream`, maps text / thinking /
