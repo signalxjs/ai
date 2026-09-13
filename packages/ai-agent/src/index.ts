@@ -75,8 +75,8 @@ export type {
 export { createEventLog, createTurn, failedTurn, createSessionCore } from './session/index.js';
 
 // State
-export type { TextPartState, ReasoningPartState, ToolPartState, AgentPart, AgentMessage, OpenRequest, TurnState, TranscriptError, AgentTranscript, ReducerExtension, AgentReducer, CreateReducerOptions, FromUIOptions, Imported } from './state/index.js';
-export { createTranscript, createReducer, reduceAgentEvent, toUIMessages, toolState, toolOutput, contentToOutput, fromUIMessages, toChatStream, toFinishReason } from './state/index.js';
+export type { TextPartState, ReasoningPartState, ToolPartState, AgentPart, AgentMessage, OpenRequest, TurnState, TranscriptError, AgentState, AgentNode, AgentTranscript, ReducerExtension, AgentReducer, CreateReducerOptions, ToUIOptions, FromUIOptions, Imported } from './state/index.js';
+export { createTranscript, createReducer, reduceAgentEvent, spawnedAgent, callerAgent, childAgents, agentMessages, agentTree, walkAgents, agentsUsage, toUIMessages, promptPartsToUI, toolState, toolOutput, contentToOutput, fromUIMessages, toChatStream, toFinishReason } from './state/index.js';
 
 // Stores
 export type { TranscriptStore, EventLogStore } from './store/index.js';

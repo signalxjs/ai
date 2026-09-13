@@ -11,6 +11,7 @@
 import type { Usage } from '@sigx/ai';
 import type {
     AgentErrorCode,
+    AgentStatus,
     ConfigOption,
     ContentBlock,
     ErrorInfo,
@@ -62,6 +63,38 @@ export interface ToolPartState {
     content?: readonly ContentBlock[];
     /** The open permission request for this call, while there is one. */
     requestId?: string;
+    /** The sub-agent this call spawned, once its `agent-start` arrived. */
+    agentId?: string;
+}
+
+/**
+ * One sub-agent. A spawn is always a call: `callId` names the `tool-call`
+ * that started the agent, and the messages produced inside it are the ones
+ * whose `parentCallId` is that call. `depth` and `parentAgentId` come from
+ * the call chain (the message that made the spawning call was itself inside
+ * some call, or not); a call-less ambient agent is a root and keeps the
+ * harness's own `depth`.
+ */
+export interface AgentState {
+    readonly agentId: string;
+    readonly callId?: string;
+    readonly parentAgentId?: string;
+    readonly depth: number;
+    readonly turnId?: string;
+    /** The `seq` of `agent-start` — the order a UI lists agents in. */
+    readonly seq: number;
+    kind?: string;
+    title?: string;
+    description?: string;
+    model?: string;
+    background?: boolean;
+    status: AgentStatus;
+    summary?: string;
+    /** Cumulative for this agent — an `agent-update` replaces it. */
+    usage?: Usage;
+    costUsd?: number;
+    output?: unknown;
+    error?: ErrorInfo;
 }
 
 /** User-message parts keep their prompt shape; assistant parts carry ids and state. */
@@ -118,7 +151,9 @@ export interface AgentTranscript {
     requests: Record<string, OpenRequest>;
     /** Session-scoped permission grants (`permissionKey`s). */
     grants: string[];
-    /** Session totals — `session`-scoped `usage` events replace, `turn`-scoped ones add. */
+    /** Every sub-agent seen, by id — see `agentTree` and the other selectors. */
+    agents: Record<string, AgentState>;
+    /** Session totals — `session`-scoped `usage` events replace, `turn`-scoped ones add. Sub-agent usage lives on `agents`. */
     usage?: Usage;
     costUsd?: number;
     /** The running or most recent turn. */
@@ -130,5 +165,5 @@ export interface AgentTranscript {
 }
 
 export function createTranscript(sessionId: string): AgentTranscript {
-    return { sessionId, epoch: 0, seq: 0, state: 'idle', config: [], messages: [], requests: {}, grants: [], ext: {} };
+    return { sessionId, epoch: 0, seq: 0, state: 'idle', config: [], messages: [], requests: {}, grants: [], agents: {}, ext: {} };
 }

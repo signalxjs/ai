@@ -121,6 +121,88 @@ describe('reduceAgentEvent', () => {
         expect(t.error).toEqual({ code: 'rate_limited', message: 'slow', recoverable: true });
     });
 
+    it('folds agent-start / agent-update into transcript.agents and links the spawning tool part', () => {
+        seq = 0;
+        const t = reduceAll([
+            ev({ type: 'turn-start', turnId: 't1', input: [] }),
+            ev({ type: 'tool-call', turnId: 't1', callId: 'c1', name: 'delegate' }),
+            ev({ type: 'agent-start', turnId: 't1', parentCallId: 'c1', agentId: 'a1', callId: 'c1', kind: 'researcher', title: 'Research', description: 'find it', model: 'm', background: false }),
+            ev({ type: 'agent-update', turnId: 't1', parentCallId: 'c1', agentId: 'a1', status: 'running', summary: 'reading', usage: { outputTokens: 5 } }),
+            ev({ type: 'agent-update', turnId: 't1', parentCallId: 'c1', agentId: 'a1', status: 'completed', usage: { outputTokens: 9 }, costUsd: 0.2, output: 'found' })
+        ]);
+        expect(t.agents).toEqual({
+            a1: {
+                agentId: 'a1',
+                callId: 'c1',
+                depth: 0,
+                turnId: 't1',
+                seq: 3,
+                kind: 'researcher',
+                title: 'Research',
+                description: 'find it',
+                model: 'm',
+                background: false,
+                status: 'completed',
+                summary: 'reading',
+                usage: { outputTokens: 9 },
+                costUsd: 0.2,
+                output: 'found'
+            }
+        });
+        expect(t.messages[0]!.parts[0]).toMatchObject({ type: 'tool', callId: 'c1', agentId: 'a1' });
+        // Usage on an agent is cumulative: it replaces, and never lands on the session totals.
+        expect(t.usage).toBeUndefined();
+        expect(JSON.parse(JSON.stringify(t))).toEqual(t);
+    });
+
+    it('derives depth and parentAgentId from the call that made the spawning call; ignores duplicate starts and unknown updates', () => {
+        seq = 0;
+        const t = reduceAll([
+            ev({ type: 'turn-start', turnId: 't1', input: [] }),
+            ev({ type: 'tool-call', turnId: 't1', callId: 'c1', name: 'delegate' }),
+            ev({ type: 'agent-start', turnId: 't1', parentCallId: 'c1', agentId: 'a1', callId: 'c1' }),
+            ev({ type: 'tool-call', turnId: 't1', parentCallId: 'c1', callId: 'c2', name: 'delegate' }),
+            // The harness claims depth 7; the call chain says 1 and wins.
+            ev({ type: 'agent-start', turnId: 't1', parentCallId: 'c2', agentId: 'a2', callId: 'c2', depth: 7 }),
+            ev({ type: 'tool-call', turnId: 't1', parentCallId: 'c2', callId: 'c3', name: 'delegate' }),
+            ev({ type: 'agent-start', turnId: 't1', parentCallId: 'c3', agentId: 'a3', callId: 'c3' }),
+            ev({ type: 'agent-start', turnId: 't1', parentCallId: 'c1', agentId: 'a1', callId: 'c1', title: 'again' }),
+            ev({ type: 'agent-update', turnId: 't1', agentId: 'ghost', status: 'completed' }),
+            ev({ type: 'agent-update', turnId: 't1', parentCallId: 'c3', agentId: 'a3', status: 'failed', error: { code: 'provider_error', message: 'boom' } })
+        ]);
+        expect(t.agents.a1).toMatchObject({ depth: 0, status: 'running' });
+        expect(t.agents.a1).not.toHaveProperty('title');
+        expect(t.agents.a2).toMatchObject({ depth: 1, parentAgentId: 'a1' });
+        expect(t.agents.a3).toMatchObject({ depth: 2, parentAgentId: 'a2', status: 'failed', error: { code: 'provider_error', message: 'boom' } });
+        expect(t.agents).not.toHaveProperty('ghost');
+        // A call-less agent inside a sub-agent still finds its parent through the event's parentCallId.
+        reduceAgentEvent(t, ev({ type: 'agent-start', turnId: 't1', parentCallId: 'c2', agentId: 'amb' }));
+        expect(t.agents.amb).toMatchObject({ depth: 2, parentAgentId: 'a2' });
+    });
+
+    it('agents replay from any snapshot', () => {
+        seq = 0;
+        const events: AgentEvent[] = [
+            ev({ type: 'turn-start', turnId: 't1', input: [] }),
+            ev({ type: 'tool-call', turnId: 't1', callId: 'c1', name: 'delegate' }),
+            ev({ type: 'agent-start', turnId: 't1', parentCallId: 'c1', agentId: 'a1', callId: 'c1' }),
+            ev({ type: 'tool-call', turnId: 't1', parentCallId: 'c1', callId: 'c2', name: 'delegate' }),
+            ev({ type: 'agent-start', turnId: 't1', parentCallId: 'c2', agentId: 'a2', callId: 'c2' }),
+            ev({ type: 'agent-update', turnId: 't1', parentCallId: 'c2', agentId: 'a2', status: 'completed', usage: { outputTokens: 1 } }),
+            ev({ type: 'tool-update', turnId: 't1', parentCallId: 'c1', callId: 'c2', status: 'completed' }),
+            ev({ type: 'agent-update', turnId: 't1', parentCallId: 'c1', agentId: 'a1', status: 'completed' }),
+            ev({ type: 'tool-update', turnId: 't1', callId: 'c1', status: 'completed' }),
+            ev({ type: 'turn-end', turnId: 't1', stopReason: 'end_turn' })
+        ];
+        const full = reduceAll(events);
+        for (let k = 0; k < events.length; k++) {
+            const snap = reduceAll(events.slice(0, k));
+            const copy = structuredClone(snap);
+            for (const e of events.slice(k)) reduceAgentEvent(copy, e);
+            expect(copy).toEqual(full);
+        }
+    });
+
     it('ignores deltas for unknown parts and updates for unknown calls', () => {
         seq = 0;
         const t = reduceAll([ev({ type: 'part-delta', turnId: 't1', partId: 'nope', delta: 'x' }), ev({ type: 'tool-update', turnId: 't1', callId: 'nope', status: 'completed' })]);

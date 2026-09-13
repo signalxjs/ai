@@ -8,6 +8,16 @@ follow [SemVer](https://semver.org/).
 
 ### Added
 
+- The sub-agent tree in the transcript: `transcript.agents` (`AgentState` by
+  id, folded from `agent-start` / `agent-update` — status, cumulative usage,
+  output, the spawning `callId`, and `depth` / `parentAgentId` derived from the
+  call chain), `ToolPartState.agentId` on the spawning tool part, and the
+  selectors `spawnedAgent`, `callerAgent`, `childAgents`, `agentMessages`,
+  `agentTree`, `walkAgents`, `agentsUsage`. `checkEventInvariants` now holds
+  every agent to one start, a seen spawning call and a terminal status.
+- `toUIMessages(transcript, { subagents: 'flatten' | 'omit' })` — `omit` drops
+  the messages produced inside a sub-agent (the default flattens them as
+  before), and `promptPartsToUI` exposes the user half of the mapping.
 - The contract: `Agent`, `AgentSession`, `AgentTurn`, `SessionOptions`,
   `SessionRef`, `TurnResult`, `PromptInput`.
 - The event union (`AgentEvent`) with `(epoch, seq)` stamps, `AgentCapabilities`,
