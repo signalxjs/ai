@@ -5,7 +5,7 @@
  * whatever the agent advertised.
  */
 
-import { AgentError, capabilities, type Agent, type AgentCapabilities, type SessionSummary } from '@sigx/ai-agent';
+import { AgentError, capabilities, type Agent, type AgentCapabilities, type AgentSession, type SessionSummary } from '@sigx/ai-agent';
 import { createJsonRpcPeer, type JsonRpcPeer } from '@sigx/ai-agent/harness';
 import { buildChildEnv, resolveExecutable, spawnAgentProcess, type AgentProcess } from '@sigx/ai-agent-node';
 import { registerClientMethods, type AcpSessionRuntime } from './client-methods.js';
@@ -44,6 +44,7 @@ export function capabilitiesFrom(init: AcpInitializeResponse): AgentCapabilities
 export function acp(options: AcpOptions = {}): AcpAgent {
     const id = options.id ?? 'acp';
     const runtimes = new Map<string, AcpSessionRuntime>();
+    const sessions = new Set<AgentSession>();
     let caps: AgentCapabilities = ACP_BASE_CAPABILITIES;
     let init: AcpInitializeResponse | undefined;
     let peer: JsonRpcPeer | undefined;
@@ -81,7 +82,8 @@ export function acp(options: AcpOptions = {}): AcpAgent {
                     for (const r of runtimes.values()) r.emit({ type: 'error', code: 'process_exited', message: `[sigx ai-agent-acp] agent "${id}" exited (code ${exit.code}, signal ${exit.signal})${tail ? `: ${tail.slice(-500)}` : ''}`, recoverable: false });
                 });
             }
-            peer = createJsonRpcPeer({ readable: streams.readable, writable: streams.writable });
+            // ACP cancels a turn with `session/cancel`, never a JSON-RPC-level cancel notification.
+            peer = createJsonRpcPeer({ readable: streams.readable, writable: streams.writable, cancelMethod: null });
             registerClientMethods(peer, {
                 sessions: (sessionId) => runtimes.get(sessionId),
                 allSessions: () => runtimes.values(),
@@ -118,23 +120,45 @@ export function acp(options: AcpOptions = {}): AcpAgent {
         connect,
         async session(sessionOptions) {
             await connect();
-            return openAcpSession({ peer: peer!, agentId: id, init: init!, options, sessionOptions: sessionOptions ?? {}, runtimes });
+            const opened = await openAcpSession({ peer: peer!, agentId: id, init: init!, options, sessionOptions: sessionOptions ?? {}, runtimes });
+            const session: AgentSession = {
+                ...opened,
+                get ref() {
+                    return opened.ref;
+                },
+                async close() {
+                    sessions.delete(session);
+                    await opened.close();
+                }
+            };
+            sessions.add(session);
+            return session;
         },
         async listSessions(): Promise<SessionSummary[]> {
             await connect();
             if (!caps.listSessions) return [];
-            const res = await peer!.request<AcpListSessionsResponse>(ACP_METHODS.sessionList, {});
-            return res.sessions.map((s) => {
-                const updatedAt = s.updatedAt ? Date.parse(s.updatedAt) : NaN;
-                return {
-                    ref: { agent: id, v: 1, id: s.sessionId, data: { cwd: s.cwd, epoch: 0 } },
-                    ...(s.title ? { title: s.title } : {}),
-                    ...(Number.isFinite(updatedAt) ? { updatedAt } : {})
-                };
-            });
+            const out: SessionSummary[] = [];
+            let cursor: string | null | undefined;
+            do {
+                const page: AcpListSessionsResponse = await peer!.request<AcpListSessionsResponse>(ACP_METHODS.sessionList, cursor ? { cursor } : {});
+                for (const s of page.sessions) {
+                    const updatedAt = s.updatedAt ? Date.parse(s.updatedAt) : NaN;
+                    out.push({
+                        ref: { agent: id, v: 1, id: s.sessionId, data: { cwd: s.cwd, epoch: 0 } },
+                        ...(s.title ? { title: s.title } : {}),
+                        ...(Number.isFinite(updatedAt) ? { updatedAt } : {})
+                    });
+                }
+                cursor = page.nextCursor;
+            } while (cursor);
+            return out;
         },
         async dispose() {
             disposed = true;
+            // Sessions first, while the peer can still say `session/close`: each one
+            // ends its log (`state: closed`), kills its terminals and drops its MCP listener.
+            await Promise.all([...sessions].map((s) => s.close().catch(() => {})));
+            sessions.clear();
             for (const r of runtimes.values()) {
                 for (const t of r.terminals.values()) await t.process.kill().catch(() => {});
             }
