@@ -44,11 +44,22 @@ export async function* coalesceFrames(frames: AsyncIterable<WireFrame>, options:
      * with a model slower than `maxDelayMs` that is every frame after the first.
      */
     let inflight: Promise<IteratorResult<WireFrame>> | undefined;
+    /**
+     * A kept pull outlives the `yield` a timeout flush suspends us on, so it can
+     * reject while nothing is awaiting it. Park a no-op rejection handler on it
+     * the moment it is created — the value (and any error) still reaches the
+     * `await` below, but the rejection is never seen as unhandled.
+     */
+    const pullNext = (): Promise<IteratorResult<WireFrame>> => {
+        const p = iterator.next();
+        void p.catch(() => {});
+        return p;
+    };
     try {
         for (;;) {
             let timedOut = false;
             let timer: unknown;
-            const pull = (inflight ??= iterator.next());
+            const pull = (inflight ??= pullNext());
             let next: IteratorResult<WireFrame> | 'timeout';
             try {
                 next = pending

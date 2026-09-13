@@ -98,6 +98,33 @@ describe('coalesceFrames', () => {
         ).toBe('pong');
     });
 
+    it('a source that fails while a timeout flush has us suspended reaches the consumer, and is never an unhandled rejection', async () => {
+        seq = 0;
+        const boom = new Error('the source failed');
+        // The pull is still in flight when the timer flushes the lone delta and
+        // suspends us on a `yield`; it rejects while nothing awaits it.
+        const failing: AsyncIterable<WireFrame> = {
+            async *[Symbol.asyncIterator]() {
+                yield delta('p', 'a');
+                await new Promise((r) => setTimeout(r, 12));
+                throw boom;
+            }
+        };
+        const unhandled: unknown[] = [];
+        const onUnhandled = (reason: unknown) => unhandled.push(reason);
+        process.on('unhandledRejection', onUnhandled);
+        try {
+            const it = coalesceFrames(failing, { maxDelayMs: 1 })[Symbol.asyncIterator]();
+            expect((await it.next()).value).toMatchObject({ kind: 'event', seq: 1 });
+            await expect(it.next()).rejects.toThrow('the source failed');
+            // Let a would-be unhandled rejection be reported before we look.
+            await new Promise((r) => setTimeout(r, 20));
+        } finally {
+            process.off('unhandledRejection', onUnhandled);
+        }
+        expect(unhandled).toEqual([]);
+    });
+
     it('a coalesced stream reduces to the same transcript as the original', async () => {
         const agent = mockAgent({ script: [[{ reasoning: 'thinking hard', text: 'Hello brave new world, this is a longer reply.' }, { tool: { name: 't', output: 1 } }, { text: 'Bye now.' }]] });
         const session = await agent.session({ policy: (r) => (r.kind === 'permission' ? { type: 'permission', outcome: 'allow', scope: 'once' } : 'ask') });
