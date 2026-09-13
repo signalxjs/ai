@@ -42,6 +42,9 @@ function behaviour(scenario: ConformanceScenario) {
                 const { JsonRpcError } = await import('@sigx/ai-agent/harness');
                 throw new JsonRpcError(-32603, 'the model is down');
             }
+            case 'usage':
+                await api.text('Hello!');
+                return { stopReason: 'end_turn' as const, usage: { totalTokens: 5, inputTokens: 3, outputTokens: 2 } };
             default:
                 await api.text('Hello!');
                 return { stopReason: 'end_turn' as const };
@@ -49,10 +52,13 @@ function behaviour(scenario: ConformanceScenario) {
     };
 }
 
+/** Every session the fake opens offers two modes, so `configure()` has something to switch. */
+const modes = { currentModeId: 'ask', availableModes: [{ id: 'ask', name: 'Ask' }, { id: 'plan', name: 'Plan' }] };
+
 describe('agentConformance: acp over a fake ACP agent', () => {
     const skip = (s: ConformanceScenario) => (s.name === 'input-request' || s.name === 'support-agent' ? 'ACP has no client input request in the subset this adapter speaks' : undefined);
     const make = async (s: ConformanceScenario) => {
-        const fake = fakeAcpAgent({ onPrompt: behaviour(s) });
+        const fake = fakeAcpAgent({ onPrompt: behaviour(s), modes });
         fakes.push(fake);
         const agent = acp({ transport: fake.transport });
         await agent.connect();

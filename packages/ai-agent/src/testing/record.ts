@@ -13,7 +13,7 @@
 import type { JsonSchema } from '@sigx/ai';
 import type { AgentCapabilities, AgentEvent, Decision, PromptPart, UnstampedEvent } from '../protocol/index.js';
 import { AgentError, toPromptParts } from '../protocol/index.js';
-import type { Agent, AgentSession, AgentTurn, EventCursor, PromptOptions, SessionOptions, SessionRef } from '../session/index.js';
+import type { Agent, AgentSession, AgentTurn, EventCursor, PromptOptions, SessionOptions, SessionRef, SessionSummary } from '../session/index.js';
 import { createEventLog, createSessionCore, failedTurn } from '../session/index.js';
 import type { TurnDriver } from '../session/index.js';
 import { jsonEqual, jsonRoundTrip } from '../utils/json.js';
@@ -56,6 +56,8 @@ export interface AgentFixture {
     readonly version: typeof FIXTURE_VERSION;
     readonly agent: { readonly id: string; readonly capabilities: AgentCapabilities };
     readonly sessions: FixtureSession[];
+    /** Every `listSessions()` result, in call order — present only when the recorded agent had `listSessions`. */
+    listSessions?: SessionSummary[][];
 }
 
 const KNOWN_OPTION_KEYS = new Set(['system', 'model', 'tools', 'policy', 'interactive', 'requestTimeoutMs', 'resume', 'fork', 'signal']);
@@ -104,12 +106,20 @@ export interface RecordingAgent extends Agent {
 
 /** Wrap `agent`; every session opened through the wrapper is recorded into `fixture`. */
 export function recordAgent(agent: Agent, options: RecordAgentOptions = {}): RecordingAgent {
-    const fixture: AgentFixture = { version: FIXTURE_VERSION, agent: { id: agent.id, capabilities: agent.capabilities }, sessions: [] };
+    const fixture: AgentFixture = { version: FIXTURE_VERSION, agent: { id: agent.id, capabilities: agent.capabilities }, sessions: [], ...(agent.listSessions ? { listSessions: [] } : {}) };
     return {
         id: agent.id,
         capabilities: agent.capabilities,
         fixture,
-        ...(agent.listSessions ? { listSessions: () => agent.listSessions!() } : {}),
+        ...(agent.listSessions
+            ? {
+                  listSessions: async () => {
+                      const summaries = await agent.listSessions!();
+                      fixture.listSessions!.push(structuredClone(summaries));
+                      return summaries;
+                  }
+              }
+            : {}),
         async session(sessionOptions = {}) {
             const real = await agent.session(sessionOptions);
             const recorded: FixtureSession = { id: real.id, options: fixtureOptions(sessionOptions as SessionOptions & Record<string, unknown>), ref: { initial: real.ref }, log: [] };
@@ -230,11 +240,21 @@ export interface ReplayAgentOptions {
 export function replayAgent(fixture: AgentFixture, options: ReplayAgentOptions = {}): Agent {
     if (fixture.version !== FIXTURE_VERSION) throw new AgentError('protocol_error', `[sigx ai-agent] unsupported fixture version ${String(fixture.version)}`);
     let nextSession = 0;
+    let nextListing = 0;
     const sessions: AgentSession[] = [];
 
     return {
         id: fixture.agent.id,
         capabilities: fixture.agent.capabilities,
+        ...(fixture.listSessions
+            ? {
+                  listSessions: async (): Promise<SessionSummary[]> => {
+                      const listed = fixture.listSessions![nextListing++];
+                      if (!listed) throw new ReplayMismatchError(undefined, { kind: 'listSessions' }, 'no further listSessions result');
+                      return structuredClone(listed);
+                  }
+              }
+            : {}),
         async session(sessionOptions = {}) {
             const recorded = fixture.sessions[nextSession++];
             if (!recorded) throw new ReplayMismatchError(undefined, fixtureOptions(sessionOptions as SessionOptions & Record<string, unknown>), 'no further session');

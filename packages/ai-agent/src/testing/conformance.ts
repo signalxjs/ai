@@ -16,8 +16,8 @@
  */
 
 import { defineTool, type AnyTool, type JsonSchema, type StandardSchemaV1, type ToolContext } from '@sigx/ai';
-import type { AgentCapabilities, AgentEvent, StopReason } from '../protocol/index.js';
-import { SessionBusyError } from '../protocol/index.js';
+import type { AgentCapabilities, AgentEvent, ConfigOption, StopReason } from '../protocol/index.js';
+import { AgentError, SessionBusyError } from '../protocol/index.js';
 import { allowAll, type Policy } from '../policy/index.js';
 import type { Agent, AgentSession, SessionOptions, TurnResult } from '../session/index.js';
 import { createReducer } from '../state/index.js';
@@ -35,6 +35,8 @@ export interface ConformanceScenario {
     readonly policy?: Policy;
     /** Structured output requested for the prompt, if any. */
     readonly outputSchema?: JsonSchema;
+    /** Session options the scenario itself needs (a short `requestTimeoutMs`, say); merged after the caller's. */
+    readonly sessionOptions?: Partial<SessionOptions>;
     /** Capabilities the scenario needs; a case is skipped when they are missing. */
     readonly needs: Partial<AgentCapabilities>;
 }
@@ -136,7 +138,46 @@ export const CONFORMANCE_SCENARIOS: readonly ConformanceScenario[] = [
         outputSchema: OUTPUT_SCHEMA,
         needs: { structuredOutput: true }
     },
-    { name: 'busy-session', description: 'Reply with text (the suite prompts twice at once).', prompt: 'Say hello.', tools: [], interactive: false, needs: {} }
+    { name: 'busy-session', description: 'Reply with text (the suite prompts twice at once).', prompt: 'Say hello.', tools: [], interactive: false, needs: {} },
+    {
+        name: 'session-grant',
+        description: 'Call the `guarded` tool twice in a row (the client allows the first call for the session; the second must not ask), then end the turn.',
+        prompt: 'Use the guarded tool twice.',
+        tools: [CONFORMANCE_TOOLS.guarded],
+        interactive: true,
+        needs: { permissions: 'every-call' }
+    },
+    {
+        name: 'request-timeout',
+        description: 'Call the `guarded` tool once (the client never answers; the request times out and the call is denied), then end the turn normally.',
+        prompt: 'Use the guarded tool.',
+        tools: [CONFORMANCE_TOOLS.guarded],
+        interactive: true,
+        sessionOptions: { requestTimeoutMs: 50 },
+        needs: { permissions: 'every-call' }
+    },
+    {
+        name: 'configure',
+        description: 'Announce at least one `config` option with two or more values (during the turn or when the session opens), reply with text; the suite then switches that option through `configure()` and expects a `config` event reflecting it.',
+        prompt: 'Say hello.',
+        tools: [],
+        interactive: false,
+        needs: { config: true }
+    },
+    { name: 'fork', description: 'Two turns of text (the suite forks the session after the first and prompts both).', prompt: 'Say hello.', tools: [], interactive: false, needs: { fork: true, resume: 'local' } },
+    { name: 'list-sessions', description: 'Reply with text; the suite then expects `listSessions()` to include the session.', prompt: 'Say hello.', tools: [], interactive: false, needs: { listSessions: true } },
+    { name: 'late-join', description: 'Reply with text; the suite then replays the session from `{ epoch: 0, seq: 0 }` and expects the same events, gapless from seq 1.', prompt: 'Say hello.', tools: [], interactive: false, needs: {} },
+    {
+        name: 'portable-resume',
+        description: 'Two turns of text; after the first the ref is resumed on a NEW agent instance (nothing but the ref carries over).',
+        prompt: 'Say hello.',
+        tools: [],
+        interactive: false,
+        needs: { resume: 'portable' }
+    },
+    { name: 'prompt-after-close', description: 'Reply with text (the suite closes the session, then prompts again and closes again).', prompt: 'Say hello.', tools: [], interactive: false, needs: {} },
+    { name: 'respond-unknown', description: 'Reply with text (the suite first answers a request that does not exist).', prompt: 'Say hello.', tools: [], interactive: false, needs: {} },
+    { name: 'usage', description: 'Reply with text and report token usage (a `usage` event with input/output or total tokens).', prompt: 'Say hello.', tools: [], interactive: false, needs: {} }
 ];
 
 /** `resume: 'local'` in `needs` means "any resume" (`portable` satisfies it too); every other value must match exactly. */
@@ -162,15 +203,16 @@ export function agentConformance(make: (scenario: ConformanceScenario) => Agent 
                 const agent = await make(scenario);
                 const reason = missingCapability(scenario.needs, agent.capabilities);
                 if (reason) return; // skipped at run time when capabilities were not known up front
-                await withTimeout(runScenario(scenario, agent, options), options.timeoutMs ?? 10_000, scenario.name);
+                await withTimeout(runScenario(scenario, agent, options, make), options.timeoutMs ?? 10_000, scenario.name);
             }
         };
     });
 }
 
-async function runScenario(scenario: ConformanceScenario, agent: Agent, options: ConformanceOptions): Promise<void> {
+async function runScenario(scenario: ConformanceScenario, agent: Agent, options: ConformanceOptions, make: (scenario: ConformanceScenario) => Agent | Promise<Agent>): Promise<void> {
     const sessionOptions: SessionOptions = {
         ...options.sessionOptions,
+        ...scenario.sessionOptions,
         tools: scenario.tools,
         interactive: scenario.interactive,
         ...(scenario.policy ? { policy: scenario.policy } : {})
@@ -181,6 +223,9 @@ async function runScenario(scenario: ConformanceScenario, agent: Agent, options:
     const pump = (async () => {
         for await (const e of subscription) all.push(e);
     })();
+    const allow = (scope: 'once' | 'session') => async (e: AgentEvent) => {
+        if (e.type === 'request' && e.kind === 'permission') await session.respond(e.requestId, { type: 'permission', outcome: 'allow', scope });
+    };
     try {
         switch (scenario.name) {
             case 'text': {
@@ -190,9 +235,7 @@ async function runScenario(scenario: ConformanceScenario, agent: Agent, options:
                 break;
             }
             case 'tool-permission': {
-                const r = await runTurn(session, scenario, async (e) => {
-                    if (e.type === 'request' && e.kind === 'permission') await session.respond(e.requestId, { type: 'permission', outcome: 'allow', scope: 'once' });
-                });
+                const r = await runTurn(session, scenario, allow('once'));
                 const req = r.events.find((e) => e.type === 'request');
                 assert(req, 'expected a permission request');
                 const res = r.events.find((e) => e.type === 'request-resolved');
@@ -294,6 +337,135 @@ async function runScenario(scenario: ConformanceScenario, agent: Agent, options:
                 assertStop(result, 'end_turn');
                 break;
             }
+            case 'session-grant': {
+                const r = await runTurn(session, scenario, allow('session'));
+                const requests = r.events.filter((e) => e.type === 'request');
+                assert(requests.length === 1, `a session grant must settle the second call without asking (saw ${requests.length} requests)`);
+                const calls = r.events.filter((e) => e.type === 'tool-call');
+                assert(calls.length >= 2, `expected the guarded tool to be called twice (saw ${calls.length} calls)`);
+                const resolved = r.events.filter((e): e is Extract<AgentEvent, { type: 'request-resolved' }> => e.type === 'request-resolved');
+                assert(resolved.length >= 2, 'every call must be resolved, granted ones included');
+                assert(resolved[0]!.by === 'client' && resolved[0]!.outcome === 'allow' && resolved[0]!.scope === 'session', 'the first call is allowed by the client for the session');
+                assert(resolved[1]!.by === 'policy' && resolved[1]!.outcome === 'allow' && resolved[1]!.ruleId === 'grant', 'the second call is allowed by the session grant (by: policy, ruleId: grant)');
+                assert(r.events.filter((e) => e.type === 'tool-update' && e.status === 'completed').length >= 2, 'both calls must complete');
+                assertStop(r.result, 'end_turn');
+                break;
+            }
+            case 'request-timeout': {
+                const r = await runTurn(session, scenario);
+                assert(r.events.some((e) => e.type === 'request' && e.kind === 'permission'), 'expected a permission request');
+                const res = r.events.find((e) => e.type === 'request-resolved');
+                assert(res && res.type === 'request-resolved' && res.by === 'timeout' && res.outcome === 'deny', 'an unanswered request must resolve to deny by timeout');
+                assert(r.events.some((e) => e.type === 'tool-update' && e.status === 'denied'), 'expected the tool to be denied');
+                assertStop(r.result, 'end_turn');
+                break;
+            }
+            case 'configure': {
+                const r = await runTurn(session, scenario);
+                assertStop(r.result, 'end_turn');
+                assert(session.configure, 'an agent with the config capability must expose configure()');
+                const option = switchable(await configOptions(session, all));
+                assert(option, 'expected a config option with two or more values and a current one among them');
+                const next = option.values.find((v) => v.id !== option.current)!;
+                const before = all.length;
+                await session.configure({ [option.id]: next.id });
+                const updated = await waitFor(() => all.slice(before).find((e) => e.type === 'config' && e.options.some((o) => o.id === option.id && o.current === next.id)), 2000);
+                assert(updated, `expected a config event with "${option.id}" switched to "${next.id}"`);
+                break;
+            }
+            case 'fork': {
+                const first = await runTurn(session, scenario);
+                assertStop(first.result, 'end_turn');
+                const ref = session.ref;
+                const forked = await agent.session({ ...sessionOptions, resume: ref, fork: true });
+                try {
+                    assert(forked.id !== session.id, 'a fork is a new session with its own id');
+                    const second = await runTurn(forked, scenario);
+                    assertStop(second.result, 'end_turn');
+                    // The original goes on unaffected.
+                    const third = await runTurn(session, scenario);
+                    assertStop(third.result, 'end_turn');
+                } finally {
+                    await forked.close();
+                }
+                break;
+            }
+            case 'list-sessions': {
+                const r = await runTurn(session, scenario);
+                assertStop(r.result, 'end_turn');
+                assert(agent.listSessions, 'an agent with the listSessions capability must expose listSessions()');
+                const summaries = await agent.listSessions();
+                const ref = session.ref;
+                const own = summaries.find((s) => s.ref.id === ref.id);
+                assert(own, `listSessions() must include the open session "${ref.id}" (saw ${JSON.stringify(summaries.map((s) => s.ref.id))})`);
+                assert(own.ref.agent === agent.id, 'a listed ref names the agent');
+                assert(jsonSafe(own), 'a session summary must be plain JSON');
+                break;
+            }
+            case 'late-join': {
+                const r = await runTurn(session, scenario);
+                assertStop(r.result, 'end_turn');
+                const replayed: AgentEvent[] = [];
+                for await (const e of session.subscribe({ epoch: 0, seq: 0 })) {
+                    replayed.push(e);
+                    if (e.type === 'turn-end' && e.turnId === r.result.turnId) break;
+                }
+                assert(replayed[0]?.seq === 1, `a replay from (0, 0) starts at seq 1 (saw ${replayed[0]?.epoch}:${replayed[0]?.seq})`);
+                checkEventInvariants(replayed, { fromStart: true });
+                checkReplayEquality(replayed, createReducer());
+                // Everything the live subscriber saw up to the turn's end is in the replay, unchanged.
+                const seen = new Map(replayed.map((e) => [`${e.epoch}:${e.seq}`, e.type] as const));
+                const end = all.findIndex((e) => e.type === 'turn-end' && e.turnId === r.result.turnId);
+                assert(end >= 0, 'the live subscription must have seen the turn end');
+                for (const e of all.slice(0, end + 1)) assert(seen.get(`${e.epoch}:${e.seq}`) === e.type, `event ${e.epoch}:${e.seq} (${e.type}) is missing from the replay or differs`);
+                break;
+            }
+            case 'portable-resume': {
+                const first = await runTurn(session, scenario);
+                assertStop(first.result, 'end_turn');
+                const ref = JSON.parse(JSON.stringify(session.ref)) as typeof session.ref;
+                await session.close();
+                await pump;
+                const other = await make(scenario);
+                const resumed = await other.session({ ...sessionOptions, resume: ref });
+                try {
+                    assert(resumed.id === session.id, 'a portable ref resumes the same session id on another instance');
+                    const second = await runTurn(resumed, scenario);
+                    assertStop(second.result, 'end_turn');
+                    assert(second.events[0]!.epoch > first.events[0]!.epoch, 'a resumed session must start a new epoch');
+                } finally {
+                    await resumed.close();
+                }
+                return;
+            }
+            case 'prompt-after-close': {
+                const r = await runTurn(session, scenario);
+                assertStop(r.result, 'end_turn');
+                await session.close();
+                let rejected: unknown;
+                await session.prompt(scenario.prompt).result.catch((e: unknown) => (rejected = e));
+                assert(rejected instanceof AgentError && rejected.code === 'protocol_error', `a prompt after close() must reject with AgentError(protocol_error), got ${String(rejected)}`);
+                await session.close(); // idempotent
+                await pump;
+                return;
+            }
+            case 'respond-unknown': {
+                await session.respond('no-such-request', { type: 'permission', outcome: 'allow', scope: 'once' });
+                const r = await runTurn(session, scenario);
+                assertStop(r.result, 'end_turn');
+                assert(!all.some((e) => e.type === 'request-resolved'), 'answering an unknown request resolves nothing');
+                break;
+            }
+            case 'usage': {
+                const r = await runTurn(session, scenario);
+                assertStop(r.result, 'end_turn');
+                const usages = all.filter((e): e is Extract<AgentEvent, { type: 'usage' }> => e.type === 'usage');
+                assert(usages.length >= 1, 'expected a usage event');
+                const counted = (u: Extract<AgentEvent, { type: 'usage' }>) => ['inputTokens', 'outputTokens', 'totalTokens'].some((k) => typeof u.usage[k] === 'number');
+                assert(usages.some(counted), 'a usage event must carry inputTokens, outputTokens or totalTokens as numbers');
+                if (usages.at(-1)!.scope === 'turn') assert(r.result.usage !== undefined, 'a turn-scoped usage event must be reflected on turn-end.usage');
+                break;
+            }
         }
     } finally {
         await session.close().catch(() => {});
@@ -322,6 +494,37 @@ async function runTurn(session: AgentSession, scenario: ConformanceScenario, onE
     assert(events.every((e) => e.turnId === turn.id), 'every event of a turn carries its turnId');
     checkResultMatchesTurnEnd(events, result);
     return { events, result };
+}
+
+/** The options of the last `config` event seen live — or, when the session announced them before the client attached, from a replay. */
+async function configOptions(session: AgentSession, all: readonly AgentEvent[]): Promise<readonly ConfigOption[]> {
+    const live = all.findLast((e) => e.type === 'config');
+    if (live && live.type === 'config') return live.options;
+    const head = all.at(-1);
+    let options: readonly ConfigOption[] = [];
+    try {
+        for await (const e of session.subscribe({ epoch: 0, seq: 0 })) {
+            if (e.type === 'config') options = e.options;
+            if (!head || (e.epoch === head.epoch && e.seq >= head.seq) || e.epoch > head.epoch) break;
+        }
+    } catch {
+        // A session that cannot replay from the start has no announced config to find.
+    }
+    return options;
+}
+
+function switchable(options: readonly ConfigOption[]): ConfigOption | undefined {
+    return options.find((o) => o.values.length >= 2 && o.values.some((v) => v.id === o.current));
+}
+
+async function waitFor<T>(probe: () => T | undefined, ms: number): Promise<T | undefined> {
+    const deadline = Date.now() + ms;
+    for (;;) {
+        const found = probe();
+        if (found !== undefined) return found;
+        if (Date.now() >= deadline) return undefined;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+    }
 }
 
 function assertStop(result: TurnResult, expected: StopReason): void {

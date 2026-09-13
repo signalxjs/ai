@@ -12,7 +12,14 @@ function scriptFor(scenario: ConformanceScenario): MockStep[] {
     switch (scenario.name) {
         case 'tool-permission':
         case 'headless-deny':
+        case 'request-timeout':
             return [{ tool: { name: 'guarded', input: {}, output: { ok: true }, source: 'client' } }, { text: 'Done.' }];
+        case 'session-grant':
+            return [{ tool: { name: 'guarded', input: {}, output: { ok: true }, source: 'client' } }, { tool: { name: 'guarded', input: {}, output: { ok: true }, source: 'client' } }, { text: 'Done twice.' }];
+        case 'configure':
+            return [{ config: [{ id: 'mode', label: 'Mode', values: [{ id: 'ask', label: 'Ask' }, { id: 'plan', label: 'Plan' }], current: 'ask' }] }, { text: 'Hello!' }];
+        case 'usage':
+            return [{ text: 'Hello!' }, { usage: { inputTokens: 3, outputTokens: 2 } }];
         case 'tool-error':
             return [{ tool: { name: 'failing', input: {}, status: 'failed', error: 'the tool failed on purpose', source: 'client' } }, { text: 'It failed.' }];
         case 'slow-tool':
@@ -51,7 +58,11 @@ describe('agentConformance', () => {
                 'conformance: slow-tool': 'needs cancel: true (agent has false)',
                 'conformance: resume': 'needs the resume capability (agent has resume: false)',
                 'conformance: structured-output': 'needs structuredOutput: true (agent has false)',
-                'conformance: support-agent': 'needs structuredOutput: true (agent has false)'
+                'conformance: support-agent': 'needs structuredOutput: true (agent has false)',
+                'conformance: session-grant': 'needs permissions: "every-call" (agent has "none")',
+                'conformance: request-timeout': 'needs permissions: "every-call" (agent has "none")',
+                'conformance: fork': 'needs the resume capability (agent has resume: false)',
+                'conformance: portable-resume': 'needs resume: "portable" (agent has false)'
             });
         });
         for (const c of cases) it.skipIf(!!c.skip)(c.name, c.run, 15_000);
@@ -92,6 +103,9 @@ describe('agentConformance', () => {
         expect(() => checkEventInvariants(midSecondEpoch)).not.toThrow();
         // A real gap inside that later epoch is still caught.
         expect(() => checkEventInvariants([midSecondEpoch[0]!, midSecondEpoch[1]!, midSecondEpoch[2]!, { ...midSecondEpoch[3]!, seq: 6 }])).toThrow(/seq gap in epoch 2/);
+        // A late joiner that replays from (0, 0) must see every epoch from its first seq.
+        expect(() => checkEventInvariants(ok, { fromStart: true })).not.toThrow();
+        expect(() => checkEventInvariants(midSecondEpoch, { fromStart: true })).toThrow(/seq gap in epoch 1: expected 1/);
         // A reducer that depends on hidden state is not replayable.
         let calls = 0;
         expect(() =>

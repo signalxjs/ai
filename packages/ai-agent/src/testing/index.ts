@@ -4,6 +4,7 @@ export type { MockToolStep, MockStep, MockRespondContext, MockAgentOptions, Mock
 export { mockAgent, MOCK_CAPABILITIES } from './mock-agent.js';
 export type { ConformanceScenario, ConformanceCase, ConformanceOptions } from './conformance.js';
 export { agentConformance, CONFORMANCE_SCENARIOS, CONFORMANCE_TOOLS } from './conformance.js';
+export type { EventInvariantOptions } from './invariants.js';
 export { checkEventInvariants, checkReplayEquality, checkResultMatchesTurnEnd } from './invariants.js';
 export { ConformanceError } from './assert.js';
 export type { AgentFixture, FixtureSession, FixtureSessionOptions, FixtureCommand, FixtureEntry, RecordAgentOptions, RecordingAgent, ReplayAgentOptions } from './record.js';
