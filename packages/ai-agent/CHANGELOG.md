@@ -14,8 +14,9 @@ follow [SemVer](https://semver.org/).
   call chain), `ToolPartState.agentId` on the spawning tool part, and the
   selectors `spawnedAgent`, `callerAgent`, `childAgents`, `agentMessages`,
   `agentTree`, `walkAgents`, `agentsUsage`. `checkEventInvariants` now holds
-  every agent to one start, a seen spawning call bound to no other agent, and
-  a terminal status.
+  every agent to one start, a seen spawning call bound to no other agent (and,
+  when nested, nested under that very call), and a terminal status — and every
+  `tool-call` to a fresh `callId`.
 - `toUIMessages(transcript, { subagents: 'flatten' | 'omit' })` — `omit` drops
   the messages produced inside a sub-agent (the default flattens them as
   before), and `promptPartsToUI` exposes the user half of the mapping.

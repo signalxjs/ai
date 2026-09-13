@@ -88,6 +88,11 @@ describe('agentConformance', () => {
         const unbound: EventOf<'agent-start'> = { ...base, seq: 2, type: 'agent-start', agentId: 'a1', callId: 'nope' };
         const unboundDone: EventOf<'agent-update'> = { ...base, seq: 3, type: 'agent-update', agentId: 'a1', status: 'completed' };
         expect(() => checkEventInvariants([turnStart, unbound, unboundDone, { ...turnEnd, seq: 4 }])).toThrow(/agent "a1" .*callId "nope"/);
+        // Bound to one call but nested under another (both real).
+        const otherCall: AgentEvent = { ...base, seq: 3, type: 'tool-call', callId: 'c2', name: 'delegate' };
+        expect(() => checkEventInvariants([turnStart, call, otherCall, { ...start, seq: 4, callId: 'c2', parentCallId: 'c1' }, { ...done, seq: 5 }, { ...settle, seq: 6 }, { ...settle, seq: 7, callId: 'c2' }, { ...turnEnd, seq: 8 }])).toThrow(/agent "a1" .*callId "c2" but nested under "c1"/);
+        // A second tool-call reusing a callId.
+        expect(() => checkEventInvariants([turnStart, call, { ...call, seq: 3 }, { ...settle, seq: 4 }, { ...turnEnd, seq: 5 }])).toThrow(/tool-call "c1" .*reuses a callId/);
         // Two agents bound to the same spawning call.
         const twin: EventOf<'agent-start'> = { ...start, seq: 4, agentId: 'a2' };
         const twinDone: EventOf<'agent-update'> = { ...done, seq: 6, agentId: 'a2' };

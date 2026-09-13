@@ -53,6 +53,7 @@ export function checkEventInvariants(events: readonly AgentEvent[]): void {
                 turnEnds.set(e.turnId, (turnEnds.get(e.turnId) ?? 0) + 1);
                 break;
             case 'tool-call':
+                assert(!calls.has(e.callId), `tool-call "${e.callId}" at seq ${e.seq} reuses a callId already announced`);
                 calls.set(e.callId, 'pending');
                 break;
             case 'tool-update':
@@ -63,6 +64,8 @@ export function checkEventInvariants(events: readonly AgentEvent[]): void {
                 assert(!agents.has(e.agentId), `agent "${e.agentId}" started twice (seq ${e.seq})`);
                 if (e.callId !== undefined) {
                     assert(calls.has(e.callId), `agent "${e.agentId}" at seq ${e.seq} is bound to callId "${e.callId}" before its tool-call`);
+                    // A spawn announced inside a call is inside the call that spawned it — no other.
+                    assert(e.parentCallId === undefined || e.parentCallId === e.callId, `agent "${e.agentId}" at seq ${e.seq} is bound to callId "${e.callId}" but nested under "${e.parentCallId}"`);
                     const other = spawnedBy.get(e.callId);
                     assert(other === undefined, `agent "${e.agentId}" at seq ${e.seq} is bound to callId "${e.callId}", already bound to agent "${other}"`);
                     spawnedBy.set(e.callId, e.agentId);
