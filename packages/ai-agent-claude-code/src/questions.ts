@@ -47,7 +47,8 @@ export function parseQuestions(input: unknown): readonly AskQuestion[] | undefin
             const { label, description } = o as { label?: unknown; description?: unknown };
             if (typeof label === 'string' && label !== '') choices.push({ label, ...(typeof description === 'string' ? { description } : {}) });
         }
-        out.push({ question, header: typeof header === 'string' ? header : question, options: choices, multiSelect: multiSelect === true });
+        // `header` is display text — an empty one would render a blank legend, so the question stands in.
+        out.push({ question, header: typeof header === 'string' && header !== '' ? header : question, options: choices, multiSelect: multiSelect === true });
     }
     return out;
 }

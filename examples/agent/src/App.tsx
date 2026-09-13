@@ -66,8 +66,13 @@ function readAnswers(form: HTMLFormElement, fields: readonly Field[]): Answers {
     const answers: Answers = {};
     for (const f of fields) {
         const other = String(data.get(`${f.id}:other`) ?? '').trim();
-        if (f.multi) answers[f.id] = [...data.getAll(f.id).map(String), ...(other ? [other] : [])];
-        else {
+        // A question nobody answered is LEFT OUT, never sent as `''` or `[]`:
+        // the adapter reports exactly what it was given, and an empty value
+        // would read as answered on this side and unanswered on the other.
+        if (f.multi) {
+            const picked = [...data.getAll(f.id).map(String), ...(other ? [other] : [])].filter((v) => v !== '');
+            if (picked.length) answers[f.id] = picked;
+        } else {
             const picked = other || String(data.get(f.id) ?? '');
             if (picked) answers[f.id] = picked;
         }

@@ -470,6 +470,12 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
         // No options and no header: still a question, and the schema stays open.
         const bare = parseQuestions({ questions: [{ question: 'Why?' }] })!;
         expect(bare).toEqual([{ question: 'Why?', header: 'Why?', options: [], multiSelect: false }]);
+        // An EMPTY header is display text too: it would render a blank legend, so the question stands in.
+        expect(parseQuestions({ questions: [{ question: 'Why?', header: '' }] })).toEqual(bare);
+        // An option with no label is not a choice; one with no description keeps the key off.
+        expect(parseQuestions({ questions: [{ question: 'Why?', header: 'H', options: [{ label: '' }, { label: 'a' }, 'nope'] }] })).toEqual([
+            { question: 'Why?', header: 'H', options: [{ label: 'a' }], multiSelect: false }
+        ]);
         expect(questionsSchema(bare)).toEqual({ type: 'object', additionalProperties: false, required: ['q1'], properties: { q1: { type: 'string', title: 'Why?', description: 'Why?' } } });
         expect(questionOptions(bare)).toEqual([]);
         // Unanswered questions are left out rather than reported as an empty answer.
