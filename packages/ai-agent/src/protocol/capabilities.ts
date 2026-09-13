@@ -9,7 +9,7 @@ export interface AgentCapabilities {
     readonly resume: 'portable' | 'local' | false;
     readonly fork: boolean;
     readonly cancel: boolean;
-    /** `prompt()` while a turn runs is delivered to the running turn instead of rejecting. */
+    /** `prompt()` while a turn runs is accepted as steering input instead of rejecting with `SessionBusyError`. */
     readonly steer: boolean;
     /** `configure()` and `config` events. */
     readonly config: boolean;

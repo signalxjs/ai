@@ -18,10 +18,12 @@ import { mockAgent } from '@sigx/ai-agent/testing';
 const agent = mockAgent({ script: [[{ text: 'Hello from the agent.' }]] });
 const session = await agent.session({ interactive: false, policy: allowReadOnly });
 const turn = session.prompt('Say hello');
+let text = '';
 for await (const event of turn) {
-    if (event.type === 'part-delta') process.stdout.write(event.delta);
+    if (event.type === 'part-delta') text += event.delta;
 }
 const { stopReason } = await turn.result; // 'end_turn'
+console.log(text); // 'Hello from the agent.'
 ```
 
 Two entries today (more land with the following milestones):
