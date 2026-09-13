@@ -122,7 +122,8 @@ export function codex(options: CodexOptions = {}): CodexAgent {
             cwd: sessionOptions.cwd,
             ...(sessionOptions.model !== undefined ? { model: sessionOptions.model } : {}),
             approvalPolicy: sessionOptions.approvalPolicy ?? (strict ? 'untrusted' : 'on-request'),
-            sandbox: sessionOptions.sandbox ?? (strict ? 'workspace-write' : 'workspace-write'),
+            // `workspace-write` either way: the strictest sandbox under which Codex still asks.
+            sandbox: sessionOptions.sandbox ?? 'workspace-write',
             ...(sessionOptions.system !== undefined ? { baseInstructions: sessionOptions.system } : {}),
             ...(tools.length ? { dynamicTools: toDynamicTools(tools) } : {})
         };

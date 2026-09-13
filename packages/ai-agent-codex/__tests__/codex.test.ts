@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defineTool, type JsonSchema, type StandardSchemaV1 } from '@sigx/ai';
-import { allowAll, denyAll, createTranscript, createReducer, type AgentEvent, type Decision } from '@sigx/ai-agent';
+import { allowAll, denyAll, createTranscript, createReducer, type AgentEvent, type Decision, type SessionRef } from '@sigx/ai-agent';
 import { codingExtension, codingState } from '@sigx/ai-agent/coding';
 import { resolveExecutable } from '@sigx/ai-agent-node';
 import { codex, CODEX_CAPABILITIES, toErrorCode } from '@sigx/ai-agent-codex';
@@ -68,7 +68,7 @@ describe('@sigx/ai-agent-codex', () => {
         expect(fake.requests.map((r) => r.method)).toEqual(['initialize', 'initialized', 'account/read', 'model/list', 'thread/start']);
         expect(fake.requests[0]!.params).toEqual({ clientInfo: { name: 'test', title: null, version: '1.2.3' }, capabilities: { experimentalApi: true, requestAttestation: false } });
         expect(fake.requests[4]!.params).toMatchObject({ cwd: '/repo', approvalPolicy: 'on-request', sandbox: 'workspace-write' });
-        expect(session.ref).toEqual({ agent: 'codex', v: 1, id: session.id, data: { cwd: '/repo' } });
+        expect(session.ref).toEqual({ agent: 'codex', v: 1, id: session.id, data: { cwd: '/repo', epoch: 1 } });
         const { events, result } = await drain(session.prompt('hi'));
         expect(types(events)).toEqual(['turn-start', 'user-message', 'ext', 'part-start', 'part-delta', 'part-delta', 'part-end', 'turn-end']);
         expect(events[2]).toMatchObject({ type: 'ext', ns: 'codex', name: 'turn', data: { turnId: expect.stringMatching(/^turn_/) } });
@@ -353,7 +353,7 @@ describe('@sigx/ai-agent-codex', () => {
         expect(r1.events[0]!.epoch).toBe(1);
         const ref = s1.ref;
         await s1.close();
-        const s2 = await agent.session({ cwd: '/repo', resume: { ...ref, data: { cwd: '/repo', epoch: 1 } } });
+        const s2 = await agent.session({ cwd: '/repo', resume: ref });
         expect(s2.id).toBe('thread_fixed');
         expect(fake.threads.at(-1)).toMatchObject({ method: 'thread/resume', params: { threadId: 'thread_fixed', cwd: '/repo' } });
         const r2 = await drain(s2.prompt('b'));
@@ -363,6 +363,26 @@ describe('@sigx/ai-agent-codex', () => {
         expect(fake.threads.at(-1)!.method).toBe('thread/fork');
         await expect(agent.session({ cwd: '/repo', resume: { agent: 'other', v: 1, id: 'x' } })).rejects.toThrow(/belongs to agent/);
         expect(await agent.listSessions!()).toEqual([{ ref: { agent: 'codex', v: 1, id: 'thread_a', data: { cwd: '/repo' } }, title: 'First thread' }]);
+        await agent.dispose();
+    });
+
+    it('the ref carries the epoch, so successive resumes from a persisted ref keep advancing it', async () => {
+        const fake = fakeAppServer({ onTurn: say('x'), threadId: 'thread_fixed' });
+        const agent = codex({ transport: fake.transport });
+        // A caller persists `session.ref` verbatim (JSON round-trip) and resumes from what it stored.
+        const persist = (ref: SessionRef): SessionRef => JSON.parse(JSON.stringify(ref)) as SessionRef;
+        const s1 = await agent.session({ cwd: '/repo' });
+        expect((await drain(s1.prompt('a'))).events[0]!.epoch).toBe(1);
+        const ref1 = persist(s1.ref);
+        expect(ref1.data).toEqual({ cwd: '/repo', epoch: 1 });
+        await s1.close();
+        const s2 = await agent.session({ cwd: '/repo', resume: ref1 });
+        expect((await drain(s2.prompt('b'))).events[0]!.epoch).toBe(2);
+        const ref2 = persist(s2.ref);
+        expect(ref2.data).toEqual({ cwd: '/repo', epoch: 2 });
+        await s2.close();
+        const s3 = await agent.session({ cwd: '/repo', resume: ref2 });
+        expect((await drain(s3.prompt('c'))).events[0]!.epoch).toBe(3);
         await agent.dispose();
     });
 

@@ -128,7 +128,9 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
         id: threadId,
         threadId,
         get ref(): SessionRef {
-            return { agent: deps.agentId, v: 1, id: threadId, data: { cwd: deps.cwd } };
+            // `epoch` travels with the ref so a caller that persists it verbatim and
+            // resumes again keeps advancing the epoch instead of re-using one.
+            return { agent: deps.agentId, v: 1, id: threadId, data: { cwd: deps.cwd, epoch: log.epoch } };
         },
         prompt(input, promptOptions) {
             return core.startTurn(input, promptOptions, async (driver, ctx) => {
