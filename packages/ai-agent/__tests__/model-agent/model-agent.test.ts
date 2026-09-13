@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { defineTool, type StandardSchemaV1, type JsonSchema } from '@sigx/ai';
 import { mockModel, type MockModelOptions } from '@sigx/ai/testing';
-import { modelAgent, MODEL_AGENT_CAPABILITIES, allowAll, allowReadOnly, firstMatch, memoryTranscriptStore, createTranscript, reduceAgentEvent, toUIMessages, type AgentEvent } from '@sigx/ai-agent';
+import { modelAgent, MODEL_AGENT_CAPABILITIES, agentTool, allowAll, allowReadOnly, firstMatch, memoryTranscriptStore, createTranscript, reduceAgentEvent, toUIMessages, type AgentEvent } from '@sigx/ai-agent';
+import { mockAgent } from '@sigx/ai-agent/testing';
 import { collect, drain, types, textOf } from '../helpers';
 
 /** A dependency-free Standard Schema from a predicate + JSON Schema (as the core tests do). */
@@ -27,6 +28,27 @@ const agentWith = (opts: MockModelOptions, extra: Partial<Parameters<typeof mode
     const model = mockModel(opts);
     return { model, agent: modelAgent({ model, tools: [echo, readOnly, failing, slow], ...extra }) };
 };
+
+describe('modelAgent and delegates', () => {
+    it('never feeds a delegate’s words back to the host model as its own', async () => {
+        const delegate = mockAgent({ script: [[{ text: 'found it in the archive', actor: 'researcher' }]] });
+        const ask = agentTool(delegate, { name: 'ask', description: 'x', input: anyObject, prompt: () => 'q', sessionOptions: { policy: allowAll } });
+        const model = mockModel({ respond: (_r, round) => (round === 0 ? { toolCalls: [{ name: 'ask', input: {}, id: 'host1' }] } : { text: 'Summary.' }) });
+        const host = modelAgent({ model, tools: [ask] });
+        const session = await host.session({ policy: allowAll });
+        await session.prompt('go').result;
+        await session.prompt('again').result;
+        // The second turn rebuilds the conversation from the transcript: the
+        // delegate's words reach the model ONLY as the tool result, never as a
+        // text part of the host's own assistant message.
+        const replayed = model.requests.at(-1)!.messages;
+        const assistant = JSON.stringify(replayed.find((m) => m.role === 'assistant'));
+        expect(assistant).toContain('Summary.');
+        expect(assistant).not.toContain('found it in the archive');
+        expect(JSON.stringify(replayed)).not.toContain('[researcher');
+        expect(JSON.stringify(replayed.find((m) => m.role === 'tool'))).toContain('found it in the archive');
+    });
+});
 
 describe('modelAgent', () => {
     it('declares its capabilities and streams a text turn from the engine', async () => {

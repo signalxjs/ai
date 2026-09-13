@@ -230,6 +230,33 @@ if (part.type === 'reasoning') {
 }
 ```
 
+### Sub-agents in the transcript
+
+Every sub-agent an `agent-start` announced lives under `transcript.agents`
+(by id, with its `status`, cumulative `usage`, `output` and the `callId` that
+spawned it), and the spawning tool part carries `agentId` back. The reducer
+derives `depth` and `parentAgentId` from the call chain, so a harness's own
+depth only counts for an ambient agent that no call started. Selectors build
+the views from that flat record:
+
+```ts
+import { agentTree, walkAgents, spawnedAgent, callerAgent, agentMessages, agentsUsage } from '@sigx/ai-agent';
+
+agentTree(transcript);                 // AgentNode[] — { agent, children }, start order
+walkAgents(transcript, (agent, depth) => …);
+spawnedAgent(transcript, callId);      // the agent this call started
+callerAgent(transcript, callId);       // the agent that MADE this call (undefined: the session)
+agentMessages(transcript, agentId);    // the messages produced inside it
+agentsUsage(transcript);               // summed over every agent — separate from transcript.usage
+```
+
+A sub-agent's messages stay in `transcript.messages` with their
+`parentCallId`. `toUIMessages` flattens them into the calling message as a
+marked text part by default; `toUIMessages(t, { subagents: 'omit' })` drops
+them — what a host feeding its transcript back to a model wants, so a
+delegate's words are never taken for its own. `promptPartsToUI(parts)` is the
+user half of that mapping on its own.
+
 ## Usage: the well-known keys
 
 `Usage` (from `@sigx/ai`) is an open index signature, but adapters do not get
@@ -314,10 +341,19 @@ usage, and a second tab that joins the same session.
 An adapter is a mapping from a harness onto the contract; the conformance
 suite checks the contract's invariants (gapless `seq`, one `turn-end` per turn,
 every request resolved exactly once, replay equality, cancel → `cancelled`, …)
-through eleven scenarios. Each scenario tells your factory what the agent must
-do — for a real harness that is a recorded fixture or a fake peer; the suite
-plays the client. A case that needs a capability the agent lacks is skipped
-with the reason. No test-runner import: wire the cases into yours.
+through twenty-one scenarios: `text`, `tool-permission`, `headless-deny`,
+`tool-error`, `slow-tool`, `model-error`, `resume`, `input-request`,
+`structured-output`, `support-agent`, `busy-session`, `session-grant`,
+`request-timeout`, `configure`, `fork`, `list-sessions`, `late-join`,
+`portable-resume`, `prompt-after-close`, `respond-unknown` and `usage`. Each
+scenario tells your factory what the agent must do — for a real harness that is
+a recorded fixture or a fake peer; the suite plays the client. A case that needs
+a capability the agent lacks is skipped with the reason (pass `capabilities` so
+the skips are computed up front and can be asserted; without them a scenario the
+agent cannot run passes as a no-op). `late-join` replays the session from
+`{ epoch: 0, seq: 0 }` and holds it to `checkEventInvariants(events, { fromStart:
+true })` — gapless from seq 1 in every epoch. No test-runner import: wire the
+cases into yours.
 
 Capabilities are enforced where the helpers can: `createSessionCore({ promptParts })`
 fails a prompt that carries a part beyond the declared level before any event

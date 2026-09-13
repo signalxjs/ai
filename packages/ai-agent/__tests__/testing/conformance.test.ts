@@ -5,14 +5,21 @@
  */
 import { describe, it, expect } from 'vitest';
 import { agentConformance, mockAgent, MOCK_CAPABILITIES, CONFORMANCE_SCENARIOS, checkEventInvariants, checkReplayEquality, ConformanceError, type ConformanceScenario, type MockStep } from '@sigx/ai-agent/testing';
-import { createReducer, type AgentEvent } from '@sigx/ai-agent';
+import { createReducer, type AgentEvent, type EventOf } from '@sigx/ai-agent';
 
 /** What the mock does for each scenario — the same behaviour a real adapter's fake would show. */
 function scriptFor(scenario: ConformanceScenario): MockStep[] {
     switch (scenario.name) {
         case 'tool-permission':
         case 'headless-deny':
+        case 'request-timeout':
             return [{ tool: { name: 'guarded', input: {}, output: { ok: true }, source: 'client' } }, { text: 'Done.' }];
+        case 'session-grant':
+            return [{ tool: { name: 'guarded', input: {}, output: { ok: true }, source: 'client' } }, { tool: { name: 'guarded', input: {}, output: { ok: true }, source: 'client' } }, { text: 'Done twice.' }];
+        case 'configure':
+            return [{ config: [{ id: 'mode', label: 'Mode', values: [{ id: 'ask', label: 'Ask' }, { id: 'plan', label: 'Plan' }], current: 'ask' }] }, { text: 'Hello!' }];
+        case 'usage':
+            return [{ text: 'Hello!' }, { usage: { inputTokens: 3, outputTokens: 2 } }];
         case 'tool-error':
             return [{ tool: { name: 'failing', input: {}, status: 'failed', error: 'the tool failed on purpose', source: 'client' } }, { text: 'It failed.' }];
         case 'slow-tool':
@@ -51,7 +58,11 @@ describe('agentConformance', () => {
                 'conformance: slow-tool': 'needs cancel: true (agent has false)',
                 'conformance: resume': 'needs the resume capability (agent has resume: false)',
                 'conformance: structured-output': 'needs structuredOutput: true (agent has false)',
-                'conformance: support-agent': 'needs structuredOutput: true (agent has false)'
+                'conformance: support-agent': 'needs structuredOutput: true (agent has false)',
+                'conformance: session-grant': 'needs permissions: "every-call" (agent has "none")',
+                'conformance: request-timeout': 'needs permissions: "every-call" (agent has "none")',
+                'conformance: fork': 'needs the resume capability (agent has resume: false)',
+                'conformance: portable-resume': 'needs resume: "portable" (agent has false)'
             });
         });
         for (const c of cases) it.skipIf(!!c.skip)(c.name, c.run, 15_000);
@@ -73,6 +84,40 @@ describe('agentConformance', () => {
         await expect(perm.run()).rejects.toBeInstanceOf(ConformanceError);
     });
 
+    it('invariant checks hold sub-agents to one start, a seen spawning call, and a terminal end', () => {
+        const base = { sessionId: 's', epoch: 1, turnId: 't' } as const;
+        const turnStart: AgentEvent = { ...base, seq: 1, type: 'turn-start', input: [] };
+        const call: AgentEvent = { ...base, seq: 2, type: 'tool-call', callId: 'c1', name: 'delegate' };
+        const start: EventOf<'agent-start'> = { ...base, seq: 3, type: 'agent-start', parentCallId: 'c1', agentId: 'a1', callId: 'c1' };
+        const done: EventOf<'agent-update'> = { ...base, seq: 4, type: 'agent-update', parentCallId: 'c1', agentId: 'a1', status: 'completed' };
+        const settle: AgentEvent = { ...base, seq: 5, type: 'tool-update', callId: 'c1', status: 'completed' };
+        const turnEnd: AgentEvent = { ...base, seq: 6, type: 'turn-end', stopReason: 'end_turn' };
+        expect(() => checkEventInvariants([turnStart, call, start, done, settle, turnEnd])).not.toThrow();
+        // Started twice.
+        expect(() => checkEventInvariants([turnStart, call, start, { ...start, seq: 4 }, { ...done, seq: 5 }, { ...settle, seq: 6 }, { ...turnEnd, seq: 7 }])).toThrow(/agent "a1" started twice/);
+        // Bound to a call nobody emitted.
+        const unbound: EventOf<'agent-start'> = { ...base, seq: 2, type: 'agent-start', agentId: 'a1', callId: 'nope' };
+        const unboundDone: EventOf<'agent-update'> = { ...base, seq: 3, type: 'agent-update', agentId: 'a1', status: 'completed' };
+        expect(() => checkEventInvariants([turnStart, unbound, unboundDone, { ...turnEnd, seq: 4 }])).toThrow(/agent "a1" .*callId "nope"/);
+        // Bound to one call but nested under another (both real).
+        const otherCall: AgentEvent = { ...base, seq: 3, type: 'tool-call', callId: 'c2', name: 'delegate' };
+        expect(() => checkEventInvariants([turnStart, call, otherCall, { ...start, seq: 4, callId: 'c2', parentCallId: 'c1' }, { ...done, seq: 5 }, { ...settle, seq: 6 }, { ...settle, seq: 7, callId: 'c2' }, { ...turnEnd, seq: 8 }])).toThrow(/agent "a1" .*callId "c2" but nested under "c1"/);
+        // A second tool-call reusing a callId.
+        expect(() => checkEventInvariants([turnStart, call, { ...call, seq: 3 }, { ...settle, seq: 4 }, { ...turnEnd, seq: 5 }])).toThrow(/tool-call "c1" .*reuses a callId/);
+        // Two agents bound to the same spawning call.
+        const twin: EventOf<'agent-start'> = { ...start, seq: 4, agentId: 'a2' };
+        const twinDone: EventOf<'agent-update'> = { ...done, seq: 6, agentId: 'a2' };
+        expect(() => checkEventInvariants([turnStart, call, start, twin, { ...done, seq: 5 }, twinDone, { ...settle, seq: 7 }, { ...turnEnd, seq: 8 }])).toThrow(/agent "a2" .*callId "c1", already bound to agent "a1"/);
+        // Updated before it started.
+        expect(() => checkEventInvariants([turnStart, call, { ...done, seq: 3 }, { ...settle, seq: 4 }, { ...turnEnd, seq: 5 }])).toThrow(/agent-update for unknown agentId "a1"/);
+        // Never reached a terminal status.
+        expect(() => checkEventInvariants([turnStart, call, start, { ...done, status: 'running' }, settle, turnEnd])).toThrow(/agent "a1" never reached a terminal status/);
+        // A call-less ambient agent needs no call.
+        const ambient: AgentEvent = { ...base, seq: 2, type: 'agent-start', agentId: 'obs' };
+        const ambientDone: AgentEvent = { ...base, seq: 3, type: 'agent-update', agentId: 'obs', status: 'cancelled' };
+        expect(() => checkEventInvariants([turnStart, ambient, ambientDone, { ...turnEnd, seq: 4 }])).not.toThrow();
+    });
+
     it('invariant checks catch a seq gap and a replay mismatch', () => {
         const ok: AgentEvent[] = [
             { type: 'turn-start', turnId: 't', input: [], sessionId: 's', epoch: 1, seq: 1 },
@@ -92,6 +137,9 @@ describe('agentConformance', () => {
         expect(() => checkEventInvariants(midSecondEpoch)).not.toThrow();
         // A real gap inside that later epoch is still caught.
         expect(() => checkEventInvariants([midSecondEpoch[0]!, midSecondEpoch[1]!, midSecondEpoch[2]!, { ...midSecondEpoch[3]!, seq: 6 }])).toThrow(/seq gap in epoch 2/);
+        // A late joiner that replays from (0, 0) must see every epoch from its first seq.
+        expect(() => checkEventInvariants(ok, { fromStart: true })).not.toThrow();
+        expect(() => checkEventInvariants(midSecondEpoch, { fromStart: true })).toThrow(/seq gap in epoch 1: expected 1/);
         // A reducer that depends on hidden state is not replayable.
         let calls = 0;
         expect(() =>

@@ -10,18 +10,32 @@ import { jsonEqual } from '../utils/json.js';
 import { assert, assertEqual, fail } from './assert.js';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'denied']);
+const AGENT_TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 
-/** Gapless `seq` per epoch, one start/end per turn, terminal tools, one resolution per request, JSON-safe, nesting refers back. */
-export function checkEventInvariants(events: readonly AgentEvent[]): void {
+export interface EventInvariantOptions {
+    /**
+     * The observer replayed from `{ epoch: 0, seq: 0 }`: every epoch must start
+     * at seq 1. Default `false` — a live subscriber may have missed a session's
+     * early events (a config announcement), so it is only gapless from the
+     * first event it saw.
+     */
+    readonly fromStart?: boolean;
+}
+
+/** Gapless `seq` per epoch, one start/end per turn, terminal tools and agents, one resolution per request, JSON-safe, nesting refers back. */
+export function checkEventInvariants(events: readonly AgentEvent[], options: EventInvariantOptions = {}): void {
     assert(events.length > 0, 'no events were observed');
     const sessionId = events[0]!.sessionId;
     let epoch = events[0]!.epoch;
     // Gapless from the first event the observer saw: a session may have emitted
     // events (a config announcement) before the client subscribed.
-    let seq = events[0]!.seq - 1;
+    let seq = options.fromStart ? 0 : events[0]!.seq - 1;
     const turnStarts = new Map<string, number>();
     const turnEnds = new Map<string, number>();
     const calls = new Map<string, string>();
+    const agents = new Map<string, string>();
+    /** callId → agentId: a spawning call binds at most one agent, or `spawnedAgent` is ambiguous. */
+    const spawnedBy = new Map<string, string>();
     const requests = new Map<string, number>();
     const resolved = new Map<string, number>();
 
@@ -32,7 +46,7 @@ export function checkEventInvariants(events: readonly AgentEvent[]): void {
             epoch = e.epoch;
             // Same rule as the first epoch: the observer may have missed this
             // epoch's early events too, so baseline from the first one it saw.
-            seq = e.seq - 1;
+            seq = options.fromStart ? 0 : e.seq - 1;
         }
         assert(e.seq === seq + 1, `seq gap in epoch ${epoch}: expected ${seq + 1}, got ${e.seq} (${e.type})`);
         seq = e.seq;
@@ -49,11 +63,28 @@ export function checkEventInvariants(events: readonly AgentEvent[]): void {
                 turnEnds.set(e.turnId, (turnEnds.get(e.turnId) ?? 0) + 1);
                 break;
             case 'tool-call':
+                assert(!calls.has(e.callId), `tool-call "${e.callId}" at seq ${e.seq} reuses a callId already announced`);
                 calls.set(e.callId, 'pending');
                 break;
             case 'tool-update':
                 assert(calls.has(e.callId), `tool-update for unknown callId "${e.callId}" at seq ${e.seq}`);
                 calls.set(e.callId, e.status);
+                break;
+            case 'agent-start':
+                assert(!agents.has(e.agentId), `agent "${e.agentId}" started twice (seq ${e.seq})`);
+                if (e.callId !== undefined) {
+                    assert(calls.has(e.callId), `agent "${e.agentId}" at seq ${e.seq} is bound to callId "${e.callId}" before its tool-call`);
+                    // A spawn announced inside a call is inside the call that spawned it — no other.
+                    assert(e.parentCallId === undefined || e.parentCallId === e.callId, `agent "${e.agentId}" at seq ${e.seq} is bound to callId "${e.callId}" but nested under "${e.parentCallId}"`);
+                    const other = spawnedBy.get(e.callId);
+                    assert(other === undefined, `agent "${e.agentId}" at seq ${e.seq} is bound to callId "${e.callId}", already bound to agent "${other}"`);
+                    spawnedBy.set(e.callId, e.agentId);
+                }
+                agents.set(e.agentId, 'running');
+                break;
+            case 'agent-update':
+                assert(agents.has(e.agentId), `agent-update for unknown agentId "${e.agentId}" at seq ${e.seq}`);
+                agents.set(e.agentId, e.status);
                 break;
             case 'request':
                 requests.set(e.requestId, (requests.get(e.requestId) ?? 0) + 1);
@@ -69,6 +100,7 @@ export function checkEventInvariants(events: readonly AgentEvent[]): void {
     }
     for (const [turnId] of turnEnds) assert(turnStarts.has(turnId), `turn "${turnId}" ended without starting`);
     for (const [callId, status] of calls) assert(TERMINAL.has(status), `tool call "${callId}" never reached a terminal status (last: ${status})`);
+    for (const [agentId, status] of agents) assert(AGENT_TERMINAL.has(status), `agent "${agentId}" never reached a terminal status (last: ${status})`);
     for (const [id, n] of requests) {
         assert(n === 1, `request "${id}" was emitted ${n} times`);
         assert(resolved.get(id) === 1, `request "${id}" has ${resolved.get(id) ?? 0} resolutions`);

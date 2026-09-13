@@ -8,6 +8,18 @@ follow [SemVer](https://semver.org/).
 
 ### Added
 
+- The sub-agent tree in the transcript: `transcript.agents` (`AgentState` by
+  id, folded from `agent-start` / `agent-update` — status, cumulative usage,
+  output, the spawning `callId`, and `depth` / `parentAgentId` derived from the
+  call chain), `ToolPartState.agentId` on the spawning tool part, and the
+  selectors `spawnedAgent`, `callerAgent`, `childAgents`, `agentMessages`,
+  `agentTree`, `walkAgents`, `agentsUsage`. `checkEventInvariants` now holds
+  every agent to one start, a seen spawning call bound to no other agent (and,
+  when nested, nested under that very call), and a terminal status — and every
+  `tool-call` to a fresh `callId`.
+- `toUIMessages(transcript, { subagents: 'flatten' | 'omit' })` — `omit` drops
+  the messages produced inside a sub-agent (the default flattens them as
+  before), and `promptPartsToUI` exposes the user half of the mapping.
 - The contract: `Agent`, `AgentSession`, `AgentTurn`, `SessionOptions`,
   `SessionRef`, `TurnResult`, `PromptInput`.
 - The event union (`AgentEvent`) with `(epoch, seq)` stamps, `AgentCapabilities`,
@@ -76,6 +88,16 @@ follow [SemVer](https://semver.org/).
 - `createSessionCore({ promptParts })` fails a prompt carrying a part beyond
   the declared level before any event is emitted; `mockAgent` and `modelAgent`
   pass theirs.
+- `agentConformance`: ten more scenarios — `session-grant`, `request-timeout`,
+  `configure`, `fork`, `list-sessions`, `late-join`, `portable-resume`,
+  `prompt-after-close`, `respond-unknown`, `usage` (twenty-one in all). A
+  scenario may carry its own `sessionOptions` (a short `requestTimeoutMs`);
+  `checkEventInvariants(events, { fromStart: true })` requires every epoch to
+  start at seq 1, which `late-join` holds a replay from `{ epoch: 0, seq: 0 }`
+  to.
+- `mockAgent` declares `fork` and `listSessions` and lists every session it
+  opened; `recordAgent` records `listSessions()` results
+  (`AgentFixture.listSessions`) and `replayAgent` replays them in order.
 - `@sigx/ai-agent/wire`: `AgentSessionClient.status` (`connecting` /
   `connected` / `reconnecting` / `lost` / `closed`), `onStatusChange(listener)`
   and `reconnect()`; `RemoteCommandError` (an `AgentError` with `command` and
@@ -116,6 +138,9 @@ follow [SemVer](https://semver.org/).
 
 ### Fixed
 
+- `modelAgent` fed a delegate's flattened text back to the host model as the
+  host's own words on the next turn; it now builds the conversation with
+  `toUIMessages(transcript, { subagents: 'omit' })`.
 - Session grants survive resume: `modelAgent` and `mockAgent` seed the session
   from the transcript's (or the ref's) grants, so a tool allowed for the session
   is not asked again after `resume`.
