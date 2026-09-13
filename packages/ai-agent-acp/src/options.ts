@@ -34,7 +34,9 @@ export interface AcpOptions {
 /** What a preset supplies — spread it into `acp()` and override what you need. */
 export type AcpPreset = Pick<AcpOptions, 'command' | 'args' | 'env' | 'passEnv' | 'id'>;
 
-export interface AcpSessionOptions extends CodingSessionOptions {
+export interface AcpSessionOptions extends Omit<CodingSessionOptions, 'cwd'> {
+    /** The working directory — required for a new session; a resumed one defaults to the ref's. */
+    readonly cwd?: string;
     /** Further MCP servers the agent should connect to (client tools are added automatically). */
     readonly mcpServers?: readonly AcpMcpServer[];
 }

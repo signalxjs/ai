@@ -118,17 +118,20 @@ export function acp(options: AcpOptions = {}): AcpAgent {
         connect,
         async session(sessionOptions) {
             await connect();
-            return openAcpSession({ peer: peer!, agentId: id, init: init!, options, sessionOptions: sessionOptions ?? ({ cwd: process.cwd() } as AcpSessionOptions), runtimes });
+            return openAcpSession({ peer: peer!, agentId: id, init: init!, options, sessionOptions: sessionOptions ?? {}, runtimes });
         },
         async listSessions(): Promise<SessionSummary[]> {
             await connect();
             if (!caps.listSessions) return [];
             const res = await peer!.request<AcpListSessionsResponse>(ACP_METHODS.sessionList, {});
-            return res.sessions.map((s) => ({
-                ref: { agent: id, v: 1, id: s.sessionId, data: { cwd: s.cwd, epoch: 0 } },
-                ...(s.title ? { title: s.title } : {}),
-                ...(s.updatedAt ? { updatedAt: Date.parse(s.updatedAt) } : {})
-            }));
+            return res.sessions.map((s) => {
+                const updatedAt = s.updatedAt ? Date.parse(s.updatedAt) : NaN;
+                return {
+                    ref: { agent: id, v: 1, id: s.sessionId, data: { cwd: s.cwd, epoch: 0 } },
+                    ...(s.title ? { title: s.title } : {}),
+                    ...(Number.isFinite(updatedAt) ? { updatedAt } : {})
+                };
+            });
         },
         async dispose() {
             disposed = true;

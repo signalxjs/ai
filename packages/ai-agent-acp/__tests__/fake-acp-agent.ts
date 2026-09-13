@@ -122,7 +122,8 @@ export function fakeAcpAgent(options: FakeAcpOptions): FakeAcp {
     });
     peer.onRequest(ACP_METHODS.sessionList, (params) => {
         record(ACP_METHODS.sessionList)(params);
-        return { sessions: sessions.map((sessionId) => ({ sessionId, cwd: '/repo', title: `Session ${sessionId}`, updatedAt: '2026-09-13T12:00:00Z' })) };
+        // The second session carries an unparseable timestamp on purpose.
+        return { sessions: sessions.map((sessionId, i) => ({ sessionId, cwd: '/repo', title: `Session ${sessionId}`, updatedAt: i === 0 ? '2026-09-13T12:00:00Z' : 'yesterday-ish' })) };
     });
     peer.onRequest<{ sessionId: string }>(ACP_METHODS.sessionClose, (params) => {
         record(ACP_METHODS.sessionClose)(params);

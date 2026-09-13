@@ -55,8 +55,12 @@ const TERMINAL: ReadonlySet<ToolStatus> = new Set(['completed', 'failed', 'cance
 export async function openAcpSession(o: OpenAcpSessionOptions): Promise<AgentSession> {
     const { peer, agentId, init, sessionOptions, runtimes } = o;
     const caps = init.agentCapabilities ?? {};
-    const cwd = sessionOptions.cwd ?? process.cwd();
-    const additionalDirectories = sessionOptions.additionalDirectories ? [...sessionOptions.additionalDirectories] : undefined;
+    const resume = sessionOptions.resume;
+    const refData = (resume?.data ?? {}) as Partial<AcpRefData>;
+    // A resumed session continues in the same place unless the caller says otherwise.
+    const cwd = sessionOptions.cwd ?? refData.cwd;
+    if (!cwd) throw new AgentError('protocol_error', `[sigx ai-agent-acp] a session needs a cwd (none given and none in the ref)`);
+    const additionalDirectories = sessionOptions.additionalDirectories ? [...sessionOptions.additionalDirectories] : refData.additionalDirectories ? [...refData.additionalDirectories] : undefined;
     const roots = [cwd, ...(additionalDirectories ?? [])];
     const tools: readonly AnyTool[] = sessionOptions.tools ?? [];
 
@@ -75,7 +79,6 @@ export async function openAcpSession(o: OpenAcpSessionOptions): Promise<AgentSes
     let epoch = 1;
     let modes: AcpSessionModeState | null | undefined;
     let configOptions: AcpSessionConfigOption[] | null | undefined;
-    const resume = sessionOptions.resume;
     let pendingLoad: (() => Promise<void>) | undefined;
 
     const authError = (e: unknown, what: string): never => {
@@ -88,7 +91,7 @@ export async function openAcpSession(o: OpenAcpSessionOptions): Promise<AgentSes
     try {
         if (resume) {
             if (resume.agent !== agentId) throw new AgentError('protocol_error', `[sigx ai-agent-acp] session ref belongs to agent "${resume.agent}", not "${agentId}"`);
-            const data = (resume.data ?? {}) as Partial<AcpRefData>;
+            const data = refData;
             const base = { cwd, ...(additionalDirectories ? { additionalDirectories } : {}) };
             if (sessionOptions.fork) {
                 if (!caps.sessionCapabilities?.fork) throw new AgentError('protocol_error', `[sigx ai-agent-acp] agent "${agentId}" cannot fork sessions`);

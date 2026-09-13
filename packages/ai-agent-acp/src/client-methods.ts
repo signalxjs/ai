@@ -6,7 +6,7 @@
  */
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import type { PolicyRequest, UnstampedEvent } from '@sigx/ai-agent';
 import { codingEvent, isWithin, resolveFrom } from '@sigx/ai-agent/coding';
 import { JSON_RPC, JsonRpcError, type JsonRpcPeer } from '@sigx/ai-agent/harness';
@@ -58,17 +58,23 @@ export interface ClientMethodOptions {
     readonly terminal?: boolean;
 }
 
-/** A path the agent named, fenced to the session's roots (relative paths resolve against `cwd`). */
-function fence(runtime: AcpSessionRuntime, path: string): void {
-    const resolved = resolveFrom(runtime.cwd, path);
-    if (!runtime.roots.some((root) => isWithin(resolved, root))) {
+/**
+ * A path the agent named, fenced to the session's roots: relative paths
+ * resolve against the session `cwd` (never the process's), and the absolute
+ * result is what gets used — for the check, the policy and the file system.
+ */
+function fence(runtime: AcpSessionRuntime, path: string): string {
+    const absolute = resolve(runtime.cwd, path);
+    if (!runtime.roots.some((root) => isWithin(resolveFrom(runtime.cwd, absolute), root))) {
         throw new JsonRpcError(JSON_RPC.INVALID_PARAMS, `[sigx ai-agent-acp] "${path}" is outside the session's working directory`);
     }
+    return absolute;
 }
 
+/** A policy denial is an invalid request from the agent's point of view — never the auth-required code. */
 async function guard(runtime: AcpSessionRuntime, request: PolicyRequest): Promise<void> {
     const { allowed, message } = await runtime.authorize(request);
-    if (!allowed) throw new JsonRpcError(-32000, message ?? `[sigx ai-agent-acp] ${request.toolName ?? 'the request'} was denied by policy`);
+    if (!allowed) throw new JsonRpcError(JSON_RPC.INVALID_REQUEST, message ?? `[sigx ai-agent-acp] ${request.toolName ?? 'the request'} was denied by policy`);
 }
 
 function withSession<P extends { sessionId: string }, R>(options: ClientMethodOptions, handler: (runtime: AcpSessionRuntime, params: P) => R | Promise<R>) {
@@ -95,9 +101,9 @@ export function registerClientMethods(peer: JsonRpcPeer, options: ClientMethodOp
         peer.onRequest<AcpReadTextFileRequest, AcpReadTextFileResponse>(
             ACP_METHODS.fsReadTextFile,
             withSession(options, async (runtime, params) => {
-                fence(runtime, params.path);
-                await guard(runtime, { kind: 'permission', toolName: 'fs/read_text_file', input: { path: params.path }, category: 'read', source: 'client', permissionKey: 'fs/read_text_file' });
-                const text = await readFile(params.path, 'utf8');
+                const path = fence(runtime, params.path);
+                await guard(runtime, { kind: 'permission', toolName: 'fs/read_text_file', input: { path }, category: 'read', source: 'client', permissionKey: 'fs/read_text_file' });
+                const text = await readFile(path, 'utf8');
                 if (params.line == null && params.limit == null) return { content: text };
                 const lines = text.split('\n');
                 const start = Math.max(0, (params.line ?? 1) - 1);
@@ -111,10 +117,10 @@ export function registerClientMethods(peer: JsonRpcPeer, options: ClientMethodOp
         peer.onRequest<AcpWriteTextFileRequest, null>(
             ACP_METHODS.fsWriteTextFile,
             withSession(options, async (runtime, params) => {
-                fence(runtime, params.path);
-                await guard(runtime, { kind: 'permission', toolName: 'fs/write_text_file', input: { path: params.path }, category: 'edit', source: 'client', permissionKey: `fs/write_text_file:${params.path}` });
-                await mkdir(dirname(params.path), { recursive: true });
-                await writeFile(params.path, params.content, 'utf8');
+                const path = fence(runtime, params.path);
+                await guard(runtime, { kind: 'permission', toolName: 'fs/write_text_file', input: { path }, category: 'edit', source: 'client', permissionKey: `fs/write_text_file:${path}` });
+                await mkdir(dirname(path), { recursive: true });
+                await writeFile(path, params.content, 'utf8');
                 return null;
             })
         );
@@ -125,8 +131,7 @@ export function registerClientMethods(peer: JsonRpcPeer, options: ClientMethodOp
         peer.onRequest<AcpCreateTerminalRequest, AcpCreateTerminalResponse>(
             ACP_METHODS.terminalCreate,
             withSession(options, async (runtime, params) => {
-                const cwd = params.cwd ?? runtime.cwd;
-                fence(runtime, cwd);
+                const cwd = fence(runtime, params.cwd ?? runtime.cwd);
                 await guard(runtime, {
                     kind: 'permission',
                     toolName: 'terminal/create',

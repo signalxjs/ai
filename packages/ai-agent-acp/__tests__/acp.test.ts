@@ -287,14 +287,20 @@ describe('acp(): sessions and turns', () => {
         await s1.prompt('a').result;
         const ref = s1.ref;
         await s1.close();
-        const s2 = await resumable.agent.session({ cwd, resume: ref });
+        // No cwd given: the ref's cwd is used, so a ref alone resumes "in the same place".
+        const s2 = await resumable.agent.session({ resume: ref });
         expect(s2.id).toBe(s1.id);
         expect(resumable.fake.requests.at(-1)).toMatchObject({ method: 'session/resume', params: { sessionId: 'fake-1', cwd } });
+        expect(s2.ref.data).toMatchObject({ cwd });
+        await expect(resumable.agent.session({})).rejects.toThrow(/needs a cwd/);
         const { events } = await drain(s2.prompt('b'));
         expect(events[0]!.epoch).toBe(2);
         const forked = await resumable.agent.session({ cwd, resume: ref, fork: true });
         expect(forked.id).not.toBe(s1.id);
-        expect((await resumable.agent.listSessions!()).map((s) => s.ref.id)).toContain('fake-1');
+        const listed = await resumable.agent.listSessions!();
+        expect(listed.map((s) => s.ref.id)).toContain('fake-1');
+        expect(listed[0]).toMatchObject({ title: 'Session fake-1', updatedAt: Date.parse('2026-09-13T12:00:00Z'), ref: { data: { cwd: '/repo' } } });
+        expect(listed[1]).not.toHaveProperty('updatedAt'); // unparseable timestamps are omitted, never NaN
 
         const loading = connect({
             capabilities: { loadSession: true },
@@ -359,10 +365,12 @@ describe('acp(): sessions and turns', () => {
                 {
                     onPrompt: async (api) => {
                         results.push(await api.readFile(join(dir, 'a.txt')));
-                        results.push(await api.readFile(join(dir, 'a.txt')).catch((e: Error) => e.message));
-                        await api.writeFile(join(dir, 'sub', 'b.txt'), 'written');
+                        // A relative path resolves against the SESSION cwd, not the process's.
+                        results.push(await api.readFile('a.txt'));
+                        await api.writeFile(join('sub', 'b.txt'), 'written');
                         results.push(await api.readFile(join(dir, '..', 'escape.txt')).catch((e: Error) => e.message));
-                        results.push(await api.writeFile(join(dir, 'denied.txt'), 'x').catch((e: Error) => e.message));
+                        results.push(await api.readFile('../escape.txt').catch((e: Error) => e.message));
+                        results.push(await api.writeFile(join(dir, 'denied.txt'), 'x').catch((e: Error & { code?: number }) => `${e.code}:${e.message}`));
                         return { stopReason: 'end_turn' };
                     }
                 },
@@ -379,9 +387,14 @@ describe('acp(): sessions and turns', () => {
             expect(results[1]).toEqual({ content: 'line1\nline2\nline3' });
             expect(await readFile(join(dir, 'sub', 'b.txt'), 'utf8')).toBe('written');
             expect(results[2]).toMatch(/outside the session's working directory/);
-            expect(results[3]).toMatch(/one write only/);
+            expect(results[3]).toMatch(/outside the session's working directory/);
+            // A policy denial is an invalid request (-32600), never the auth-required code.
+            expect(results[4]).toMatch(/^-32600:.*one write only/);
             const resolved = events.filter((e): e is Extract<AgentEvent, { type: 'request-resolved' }> => e.type === 'request-resolved');
             expect(resolved.map((r) => r.outcome)).toEqual(['allow', 'allow', 'allow', 'deny']);
+            // The policy saw absolute paths.
+            const requests = events.filter((e): e is Extract<AgentEvent, { type: 'request-resolved' }> => e.type === 'request-resolved');
+            expect(requests).toHaveLength(4);
         } finally {
             await rm(dir, { recursive: true, force: true });
         }
