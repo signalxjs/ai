@@ -6,12 +6,15 @@
  * fields.
  */
 
-import type { UIMessage, UIPart } from '../protocol/index.js';
+import type { UIMessage, UIPart, UIToolState } from '../protocol/index.js';
 import type { StandardSchemaV1 } from '../schema/index.js';
 
 export interface ChatInput {
     readonly messages: UIMessage[];
 }
+
+const TOOL_STATES: readonly UIToolState[] = ['pending', 'awaiting', 'approved', 'done', 'error', 'denied'];
+const isToolState = (v: unknown): v is UIToolState => TOOL_STATES.includes(v as UIToolState);
 
 const MAX_MESSAGES = 500;
 const MAX_TEXT = 200_000;
@@ -69,21 +72,22 @@ function checkPart(p: unknown, path: (string | number)[], issues: StandardSchema
                 return undefined;
             }
             const state = part.state;
-            if (state !== 'pending' && state !== 'done' && state !== 'error') {
-                issues.push(issue([...path, 'state'], 'must be pending, done or error'));
+            if (!isToolState(state)) {
+                issues.push(issue([...path, 'state'], `must be ${TOOL_STATES.slice(0, -1).join(', ')} or ${TOOL_STATES[TOOL_STATES.length - 1]}`));
                 return undefined;
             }
             // `input` is always present (JSON has no undefined), and a result
-            // exists only once the call has run — a `pending` part's `output`
-            // would be a caller-injected "result", so it is dropped. Both are
-            // arbitrary JSON from the wire, so they are size-capped (and, as a
-            // consequence of measuring them, proven serializable).
+            // exists only once the call has settled — an undecided part's
+            // `output` would be a caller-injected "result", so it is dropped.
+            // Both are arbitrary JSON from the wire, so they are size-capped
+            // (and, as a consequence of measuring them, proven serializable).
             const input = part.input === undefined ? null : part.input;
             if (!withinJsonCap(input)) {
                 issues.push(issue([...path, 'input'], JSON_CAP_MESSAGE));
                 return undefined;
             }
-            const hasOutput = state !== 'pending' && part.output !== undefined;
+            const settled = state === 'done' || state === 'error' || state === 'denied';
+            const hasOutput = settled && part.output !== undefined;
             if (hasOutput && !withinJsonCap(part.output)) {
                 issues.push(issue([...path, 'output'], JSON_CAP_MESSAGE));
                 return undefined;

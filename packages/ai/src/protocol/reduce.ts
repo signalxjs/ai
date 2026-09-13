@@ -43,12 +43,24 @@ export function applyChunk(message: UIMessage, chunk: UIChunk): boolean {
         case 'tool-call':
             parts.push({ type: 'tool', id: chunk.id, name: chunk.name, input: chunk.input, state: 'pending' });
             return false;
+        case 'tool-approval-request': {
+            for (let i = parts.length - 1; i >= 0; i--) {
+                const p = parts[i]!;
+                if (p.type === 'tool' && p.id === chunk.id) {
+                    // A request re-sent for a call the client already settled
+                    // (a resumed turn) never reopens it.
+                    if (p.state === 'pending' || p.state === 'awaiting') p.state = 'awaiting';
+                    break;
+                }
+            }
+            return false;
+        }
         case 'tool-result': {
             for (let i = parts.length - 1; i >= 0; i--) {
                 const p = parts[i]!;
                 if (p.type === 'tool' && p.id === chunk.id) {
                     p.output = chunk.output;
-                    p.state = chunk.isError ? 'error' : 'done';
+                    p.state = chunk.denied ? 'denied' : chunk.isError ? 'error' : 'done';
                     break;
                 }
             }

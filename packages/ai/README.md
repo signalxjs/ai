@@ -16,6 +16,26 @@ Four entries:
 | `@sigx/ai/server` | `chatStream` for `serverStream` handlers, `ChatInput` wire schema |
 | `@sigx/ai/testing` | `mockModel` — a scripted model for tests, docs and CI |
 
+## Asking before a tool runs
+
+```ts
+const sendEmail = defineTool({
+    name: 'send_email',
+    description: 'Send an email',
+    input: EmailInput,
+    needsApproval: true, // or ({ to }) => !to.endsWith('@example.com')
+    annotations: { openWorld: true },
+    execute: ({ to, body }) => mailer.send(to, body)
+});
+```
+
+`streamText` yields `tool-approval-request` and asks `onToolApproval` —
+`'allow'`, `'deny'` / `{ deny: reason }`, or `'defer'`. Without a handler the
+call is denied, never silently run. `chatStream` defers by default: the turn
+ends with the call `awaiting`, `useChat` reports `status: 'awaiting'` and
+`approvals`, and `approve(id)` / `deny(id, reason?)` send the transcript back
+so the same assistant message resumes where it stopped.
+
 ## Install
 
 ```bash

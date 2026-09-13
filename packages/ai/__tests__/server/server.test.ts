@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { ChatInput, chatStream, toTextStream, type ChatInput as ChatInputType } from '@sigx/ai/server';
-import { userMessage } from '@sigx/ai';
+import { userMessage, defineTool } from '@sigx/ai';
 import { mockModel } from '@sigx/ai/testing';
-import { collect } from '../helpers';
+import { collect, citySchema } from '../helpers';
 
 const validate = (v: unknown) => ChatInput['~standard'].validate(v) as ReturnType<typeof ChatInput['~standard']['validate']> & { issues?: unknown[]; value?: unknown };
 
@@ -33,7 +33,7 @@ describe('ChatInput', () => {
             { message: 'unknown part type', path: ['messages', 0, 'parts', 0, 'type'] }
         ]);
         expect(validate({ messages: [{ id: 'a', role: 'user', parts: [{ type: 'tool', id: 'c', name: 't', state: 'weird' }] }] }).issues).toEqual([
-            { message: 'must be pending, done or error', path: ['messages', 0, 'parts', 0, 'state'] }
+            { message: 'must be pending, awaiting, approved, done, error or denied', path: ['messages', 0, 'parts', 0, 'state'] }
         ]);
     });
 
@@ -56,6 +56,28 @@ describe('ChatInput', () => {
             { type: 'tool', id: 'c2', name: 't', input: { a: 1 }, state: 'done', output: 'real' }
         ]);
         expect('output' in (r.value as ChatInputType).messages[0]!.parts[0]!).toBe(false);
+    });
+
+    it('accepts the approval states and drops output on undecided calls', () => {
+        const r = validate({
+            messages: [
+                {
+                    id: 'a1',
+                    role: 'assistant',
+                    parts: [
+                        { type: 'tool', id: 'c1', name: 't', input: {}, state: 'awaiting', output: 'injected' },
+                        { type: 'tool', id: 'c2', name: 't', input: {}, state: 'approved', output: 'injected' },
+                        { type: 'tool', id: 'c3', name: 't', input: {}, state: 'denied', output: 'reason' }
+                    ]
+                }
+            ]
+        });
+        expect(r.issues).toBeUndefined();
+        expect((r.value as ChatInputType).messages[0]!.parts).toEqual([
+            { type: 'tool', id: 'c1', name: 't', input: {}, state: 'awaiting' },
+            { type: 'tool', id: 'c2', name: 't', input: {}, state: 'approved' },
+            { type: 'tool', id: 'c3', name: 't', input: {}, state: 'denied', output: 'reason' }
+        ]);
     });
 
     it('caps reasoning replay data like a tool payload', () => {
@@ -99,5 +121,15 @@ describe('chatStream / toTextStream', () => {
         const text = await collect(toTextStream(chatStream({ model: mockModel({ script: [{ reasoning: 'r', text: 'a b' }] }), messages: [userMessage('x')] })));
         expect(text).toEqual(['a ', 'b']);
         await expect(collect(toTextStream(chatStream({ model: mockModel({ script: [{ error: 'x' }] }), messages: [userMessage('x')] })))).rejects.toThrow('x');
+    });
+    it('chatStream defers approvals by default, so the client can decide', async () => {
+        const guarded = defineTool({ name: 'g', description: 'g', input: citySchema, needsApproval: true, execute: () => 'ran' });
+        const script = (): ReturnType<typeof mockModel> => mockModel({ respond: (_r, round) => (round === 0 ? { toolCalls: [{ name: 'g', input: { city: 'Oslo' }, id: 'c1' }] } : { text: 'end' }) });
+        const chunks = await collect(chatStream({ model: script(), messages: [userMessage('x')], tools: [guarded] }));
+        expect(chunks.map((c) => c.type)).toEqual(['start', 'tool-call', 'tool-approval-request', 'finish']);
+        expect(chunks[chunks.length - 1]).toEqual({ type: 'finish', reason: 'tool' });
+        // An explicit handler wins over the default.
+        const ran = await collect(chatStream({ model: script(), messages: [userMessage('x')], tools: [guarded], onToolApproval: () => 'allow' as const }));
+        expect(ran.map((c) => c.type)).toEqual(['start', 'tool-call', 'tool-approval-request', 'tool-result', 'text', 'finish']);
     });
 });

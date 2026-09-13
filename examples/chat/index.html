@@ -17,7 +17,9 @@
             .reasoning { opacity: 0.6; font-size: 0.85em; font-style: italic; }
             .tool { display: block; font-family: ui-monospace, monospace; font-size: 0.8em; margin: 0.3rem 0; padding: 0.4rem 0.6rem; border-left: 3px solid Highlight; background: color-mix(in srgb, CanvasText 5%, Canvas); }
             .tool.pending { border-color: GrayText; }
-            .tool.error { border-color: crimson; }
+            .tool.error, .tool.denied { border-color: crimson; }
+            .tool.awaiting { border-color: orange; }
+            .approval { font-size: 0.9em; }
             /* Assistant text is markdown (`@sigx/markdown/dom`). The view ships no CSS:
                every element carries data-scope="markdown" data-part="<name>", so a
                stylesheet targets those and nothing else. The bubble's pre-wrap is

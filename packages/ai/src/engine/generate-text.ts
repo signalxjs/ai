@@ -21,7 +21,7 @@ export async function generateText(options: StreamTextOptions): Promise<Generate
     const toolCalls: { id: string; name: string; input: unknown; output?: unknown; isError?: boolean }[] = [];
     for (const p of message.parts) {
         if (p.type === 'reasoning') reasoning += p.text;
-        else if (p.type === 'tool') toolCalls.push({ id: p.id, name: p.name, input: p.input, output: p.output, ...(p.state === 'error' ? { isError: true } : {}) });
+        else if (p.type === 'tool') toolCalls.push({ id: p.id, name: p.name, input: p.input, output: p.output, ...(p.state === 'error' || p.state === 'denied' ? { isError: true } : {}) });
     }
     return {
         text: messageText(message),
