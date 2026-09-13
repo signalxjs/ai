@@ -13,7 +13,7 @@ import type { AgentCapabilities, AgentEvent, Decision, PromptInput } from '../pr
 import { AgentError, SessionBusyError, isAgentEvent, toPromptParts } from '../protocol/index.js';
 import type { AgentSession, AgentTurn, PromptOptions, SessionRef, TurnResult } from '../session/index.js';
 import { generateId } from '../utils/id.js';
-import { cursorBefore, isWireFrame, WIRE_PROTOCOL_VERSION, type Cursor, type WireCommand, type WireCommandPayload, type WireFrame, type WireReply } from './envelope.js';
+import { cursorBefore, isWireFrame, WIRE_PROTOCOL_VERSION, type Cursor, type WireCommand, type WireCommandPayload, type WireErrorCode, type WireFrame, type WireReply } from './envelope.js';
 import { createReplayBuffer } from './replay-buffer.js';
 
 /** How commands and frames travel — the app's transport, as two functions. */
@@ -23,14 +23,14 @@ export interface SessionTransport {
 }
 
 export interface ReconnectOptions {
-    /** Consecutive failed attempts before giving up. Default 5. */
+    /** Consecutive failed attempts before the client gives up and reports `lost`. Default 10. */
     readonly maxAttempts?: number;
-    /** Delay before attempt `n` (1-based). Default `100 * n` ms. */
+    /** Delay before attempt `n` (1-based). Default: exponential from 250 ms, capped at 10 s. */
     readonly backoffMs?: (attempt: number) => number;
 }
 
 export interface ConnectOptions {
-    /** `false`: a broken stream ends the client. Default: reconnect with backoff. */
+    /** `false`: a broken stream is not retried — the client goes `lost` at once (`reconnect()` still works). Default: reconnect with backoff. */
     readonly reconnect?: false | ReconnectOptions;
     /** Start from this cursor (a late joiner replaying history); default: live from now. */
     readonly from?: Cursor;
@@ -39,27 +39,64 @@ export interface ConnectOptions {
     readonly bufferSize?: number;
 }
 
+/**
+ * Where the client stands with its transport. `lost` is not the end: the
+ * session is still there and the local buffer stays open, so a `reconnect()`
+ * resumes from the last cursor and pending turns carry on. `closed` is final.
+ */
+export type ClientStatus = 'connecting' | 'connected' | 'reconnecting' | 'lost' | 'closed';
+
+/**
+ * A command the server refused. The wire code survives as `remote`, so a
+ * client can branch on `unauthorized` / `closed` / `unsupported` instead of
+ * parsing a message. (A `busy` prompt is a `SessionBusyError`, as locally.)
+ */
+export class RemoteCommandError extends AgentError {
+    constructor(
+        readonly command: WireCommandPayload['type'],
+        readonly remote: WireErrorCode,
+        message: string
+    ) {
+        super('protocol_error', `[sigx ai-agent] remote ${command} failed (${remote}): ${message}`);
+    }
+}
+
 export interface AgentSessionClient extends AgentSession {
     readonly agentId: string;
     readonly capabilities: AgentCapabilities;
+    readonly status: ClientStatus;
+    /** `status === 'connected'`. */
     readonly connected: boolean;
     /** The last remote `(epoch, seq)` seen. */
     readonly cursor: Cursor | undefined;
-    /** Stop following events without closing the remote session. */
+    /** Observe `status`; returns the unsubscribe. */
+    onStatusChange(listener: (status: ClientStatus) => void): () => void;
+    /** From `lost`: follow again from the last cursor with a fresh attempt budget. A no-op in any other status. */
+    reconnect(): void;
+    /** Stop following events without closing the remote session. Final: pending turns reject. */
     disconnect(): void;
 }
 
 const V = WIRE_PROTOCOL_VERSION;
+const DEFAULT_MAX_ATTEMPTS = 10;
+const defaultBackoff = (attempt: number) => Math.min(10_000, 250 * 2 ** (attempt - 1));
 
 export async function connectSession(transport: SessionTransport, options: ConnectOptions = {}): Promise<AgentSessionClient> {
     const newId = options.newId ?? (() => generateId('cmd'));
     const buffer = createReplayBuffer(options.bufferSize !== undefined ? { size: options.bufferSize } : {});
-    const reconnect = options.reconnect === false ? undefined : { maxAttempts: options.reconnect?.maxAttempts ?? 5, backoffMs: options.reconnect?.backoffMs ?? ((n: number) => 100 * n) };
+    const reconnect = options.reconnect === false ? undefined : { maxAttempts: options.reconnect?.maxAttempts ?? DEFAULT_MAX_ATTEMPTS, backoffMs: options.reconnect?.backoffMs ?? defaultBackoff };
 
     let hello: Extract<WireFrame, { kind: 'hello' }> | undefined;
     let last: Cursor | undefined = options.from;
-    let connected = false;
+    let status: ClientStatus = 'connecting';
+    const listeners = new Set<(status: ClientStatus) => void>();
+    const setStatus = (value: ClientStatus) => {
+        if (status === value) return;
+        status = value;
+        for (const listener of listeners) listener(value);
+    };
     let stopped = false;
+    let remoteClosed = false;
     let controller = new AbortController();
     let resolveHello!: (h: Extract<WireFrame, { kind: 'hello' }>) => void;
     let rejectHello!: (e: unknown) => void;
@@ -88,6 +125,8 @@ export async function connectSession(transport: SessionTransport, options: Conne
                 if (last && !cursorBefore(last, cursor)) return;
                 buffer.push(frame.event, frame.seqFrom);
                 last = cursor;
+                // The session's last word: what follows is the stream ending, not a break.
+                if (frame.event.type === 'state' && frame.event.value === 'closed') remoteClosed = true;
                 break;
             }
             case 'gap':
@@ -105,7 +144,7 @@ export async function connectSession(transport: SessionTransport, options: Conne
             try {
                 for await (const frame of transport.events(last, { signal: controller.signal })) {
                     if (stopped) break;
-                    connected = true;
+                    setStatus('connected');
                     attempt = 0;
                     apply(frame);
                 }
@@ -114,15 +153,34 @@ export async function connectSession(transport: SessionTransport, options: Conne
                 // policy as a later one — an initial connection is what fails most.
                 lastError = e;
             }
-            connected = false;
-            if (stopped || !reconnect) break;
+            if (stopped || remoteClosed || !reconnect) break;
             attempt++;
             if (attempt > reconnect.maxAttempts) break;
+            setStatus('reconnecting');
             await new Promise((r) => setTimeout(r, reconnect.backoffMs(attempt)));
         }
-        buffer.close();
-        // A stream that ended or failed (and was given up on) before any hello is a failed connection, not a hang.
-        if (!hello) rejectHello(lastError ?? new AgentError('protocol_error', `[sigx ai-agent] connectSession: the event stream ended before a hello frame${stopped ? ' (disconnected)' : ''}`));
+        if (remoteClosed && !stopped) {
+            // A clean shutdown: the session said `closed` and the stream ended after
+            // it. Nothing to come back to — end the buffer so subscribers finish.
+            stopped = true;
+            setStatus('closed');
+            buffer.close();
+            return;
+        }
+        if (!hello) {
+            // A stream that ended or failed (and was given up on) before any hello is a failed connection, not a hang.
+            const disconnected = stopped;
+            stopped = true;
+            setStatus('closed');
+            buffer.close();
+            rejectHello(lastError ?? new AgentError('protocol_error', `[sigx ai-agent] connectSession: the event stream ended before a hello frame${disconnected ? ' (disconnected)' : ''}`));
+            return;
+        }
+        if (stopped) return; // disconnect() closed the buffer and settled the status
+        // After a hello the session is known to exist: the client is lost, not
+        // gone. The buffer stays open — subscribers and in-flight turns wait for
+        // `reconnect()` rather than failing over a transport that may come back.
+        setStatus('lost');
     };
     void follow();
     const first = await firstHello;
@@ -130,7 +188,7 @@ export async function connectSession(transport: SessionTransport, options: Conne
     const send = async (payload: WireCommandPayload): Promise<WireReply> => transport.send({ v: V, commandId: newId(), ...payload } as WireCommand);
     const sendOrThrow = async (payload: WireCommandPayload): Promise<void> => {
         const reply = await send(payload);
-        if (reply.kind === 'error') throw new AgentError('protocol_error', `[sigx ai-agent] remote ${payload.type} failed (${reply.code}): ${reply.message}`);
+        if (reply.kind === 'error') throw new RemoteCommandError(payload.type, reply.code, reply.message);
     };
 
     const client: AgentSessionClient = {
@@ -140,11 +198,25 @@ export async function connectSession(transport: SessionTransport, options: Conne
         get ref(): SessionRef {
             return hello?.sessionRef ?? first.sessionRef;
         },
+        get status() {
+            return status;
+        },
         get connected() {
-            return connected;
+            return status === 'connected';
         },
         get cursor() {
             return last;
+        },
+        onStatusChange(listener) {
+            listeners.add(listener);
+            return () => {
+                listeners.delete(listener);
+            };
+        },
+        reconnect() {
+            if (status !== 'lost') return;
+            setStatus('reconnecting');
+            void follow();
         },
         prompt(input: PromptInput, promptOptions?: PromptOptions) {
             const turnId = promptOptions?.turnId ?? newId();
@@ -164,7 +236,7 @@ export async function connectSession(transport: SessionTransport, options: Conne
         subscribe: (from) => buffer.subscribe(from),
         disconnect() {
             stopped = true;
-            connected = false;
+            setStatus('closed');
             controller.abort();
             buffer.close();
         },
@@ -240,7 +312,7 @@ function createClientTurn(sessionId: string, turnId: string, events: AsyncIterab
     void reply.then(
         (r) => {
             if (r.kind === 'error') {
-                const error = r.code === 'busy' ? new SessionBusyError(sessionId, turnId) : new AgentError('protocol_error', `[sigx ai-agent] remote prompt failed (${r.code}): ${r.message}`);
+                const error = r.code === 'busy' ? new SessionBusyError(sessionId, turnId) : new RemoteCommandError('prompt', r.code, r.message);
                 rejectResult(error);
                 finish(error);
             }

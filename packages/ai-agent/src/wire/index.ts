@@ -10,5 +10,5 @@ export type { CoalesceOptions } from './coalesce.js';
 export { coalesceFrames } from './coalesce.js';
 export type { ServeSessionOptions, ServedSession } from './serve.js';
 export { serveSession } from './serve.js';
-export type { SessionTransport, ReconnectOptions, ConnectOptions, AgentSessionClient } from './connect.js';
-export { connectSession } from './connect.js';
+export type { SessionTransport, ReconnectOptions, ConnectOptions, AgentSessionClient, ClientStatus } from './connect.js';
+export { connectSession, RemoteCommandError } from './connect.js';

@@ -16,6 +16,11 @@
     "limit": "6 KB"
   },
   {
+    "name": "@sigx/ai/testing",
+    "path": "packages/ai/dist/testing.prod.js",
+    "limit": "1 KB"
+  },
+  {
     "name": "@sigx/ai-agent",
     "path": "packages/ai-agent/dist/index.prod.js",
     "limit": "10 KB",
@@ -44,6 +49,12 @@
     "path": "packages/ai-agent/dist/app.prod.js",
     "limit": "4 KB",
     "ignore": ["@sigx/ai", "@sigx/reactivity", "@sigx/runtime-core"]
+  },
+  {
+    "name": "@sigx/ai-agent/testing",
+    "path": "packages/ai-agent/dist/testing.prod.js",
+    "limit": "16 KB",
+    "ignore": ["@sigx/ai"]
   },
   {
     "name": "@sigx/ai-agent-acp",

@@ -74,6 +74,12 @@ export interface AgentSessionView {
     readonly error: TranscriptError | undefined;
     /** Following the session: false before mount (and during SSR), false again after unmount. */
     readonly live: boolean;
+    /**
+     * The transport is up. A `connectSession` client reports its `status`;
+     * a local session is connected whenever it is followed (`live`). A lost
+     * connection lands in `error` (recoverable) — `reconnect()` picks it up.
+     */
+    readonly connected: boolean;
     /** What the agent delivers, when the source knows (a `connectSession` client). */
     readonly capabilities: AgentCapabilities | undefined;
     /**
@@ -87,6 +93,8 @@ export interface AgentSessionView {
     cancel(): Promise<void>;
     /** Change a `config` option; fails (into `error`) when the agent has no `config` capability. */
     configure(patch: Readonly<Record<string, string>>): Promise<void>;
+    /** After a lost connection: follow the remote session again from where it stopped. A no-op for a local session or while connected. */
+    reconnect(): void;
 }
 
 export function useAgentSession(source: AgentSessionSource, options: UseAgentSessionOptions = {}): AgentSessionView {
@@ -96,11 +104,15 @@ export function useAgentSession(source: AgentSessionSource, options: UseAgentSes
     }
 
     const transcript = signal(createTranscript(source.id) as AgentTranscript);
-    const status = signal({ live: false });
+    const client = source as Partial<AgentSessionClient>;
+    // A client reports its transport; a local session is "connected" while followed.
+    const hasStatus = typeof client.onStatusChange === 'function';
+    const status = signal({ live: false, connected: hasStatus && client.status === 'connected' });
     const reduce = createReducer(options.extensions ? { extensions: options.extensions } : {});
 
     let iterator: AsyncIterator<AgentEvent> | null = null;
     let stopped = false;
+    let unwatch: (() => void) | undefined;
 
     /** A failure becomes the transcript's error, in the shape an `error` event has. */
     function fail(e: unknown): void {
@@ -150,6 +162,12 @@ export function useAgentSession(source: AgentSessionSource, options: UseAgentSes
                     });
                     options.onEvent?.(event);
                 }
+                // The subscription ended. A session that closed (its `state: closed`
+                // folded first) or a client the app disconnected is a clean end;
+                // anything else stopped following a session that is still open.
+                if (transcript.state !== 'closed' && client.status !== 'closed') {
+                    fail(new AgentError('protocol_error', `[sigx ai-agent] the subscription to session "${source.id}" ended before the session closed`, true));
+                }
             } catch (e) {
                 fail(e);
             } finally {
@@ -166,17 +184,37 @@ export function useAgentSession(source: AgentSessionSource, options: UseAgentSes
         stopped = true;
         const it = iterator;
         iterator = null;
+        unwatch?.();
+        unwatch = undefined;
         untrack(() => {
             status.live = false;
+            status.connected = false;
         });
         // Ends our queue (and only ours). The session stays open.
         if (it) void it.return?.().catch(() => {});
     }
 
+    /** A client's transport status: `connected` follows it; `lost` is an error the user can act on. */
+    function watch(): void {
+        if (!hasStatus) return;
+        unwatch = client.onStatusChange!((value) => {
+            if (stopped) return;
+            untrack(() => {
+                status.connected = value === 'connected';
+            });
+            if (value === 'lost') fail(new AgentError('protocol_error', `[sigx ai-agent] the connection to session "${source.id}" was lost`, true));
+        });
+        untrack(() => {
+            status.connected = client.status === 'connected';
+        });
+    }
+
     // Mount, not setup: a server render must not open a subscription it can
     // never close, and has nothing to stream into the markup anyway.
     instance.onMounted(() => {
-        if (!stopped) follow();
+        if (stopped) return;
+        watch();
+        follow();
     });
     instance.onUnmounted(unfollow);
 
@@ -212,8 +250,11 @@ export function useAgentSession(source: AgentSessionSource, options: UseAgentSes
         get live() {
             return status.live;
         },
+        get connected() {
+            return hasStatus ? status.connected : status.live;
+        },
         get capabilities() {
-            return (source as Partial<AgentSessionClient>).capabilities;
+            return client.capabilities;
         },
         async prompt(input, promptOptions) {
             try {
@@ -251,6 +292,10 @@ export function useAgentSession(source: AgentSessionSource, options: UseAgentSes
             } catch (e) {
                 fail(e);
             }
+        },
+        reconnect() {
+            if (stopped) return;
+            client.reconnect?.();
         }
     };
 }
