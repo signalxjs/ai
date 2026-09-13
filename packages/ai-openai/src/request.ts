@@ -1,7 +1,7 @@
 /** Request translation — our `ModelRequest` → `client.responses.stream` params. */
 
-import type { FunctionTool, ResponseCreateParamsStreaming, ResponseInputItem } from 'openai/resources/responses/responses';
-import type { ModelMessage, ModelRequest, ToolSpec } from '@sigx/ai';
+import type { FunctionTool, ResponseCreateParamsStreaming, ResponseInputContent, ResponseInputItem } from 'openai/resources/responses/responses';
+import type { ModelMessage, ModelRequest, ModelUserPart, ToolSpec } from '@sigx/ai';
 import type { OpenAIProviderOptions } from './options.js';
 
 export function toParams(modelId: string, request: ModelRequest, options: OpenAIProviderOptions): ResponseCreateParamsStreaming {
@@ -53,11 +53,24 @@ function toJson(value: unknown, what: string): string {
     }
 }
 
+/** A user part → a Responses input item; inline data travels as a data URL. */
+function toUserContent(p: ModelUserPart): ResponseInputContent {
+    if (p.type === 'text') return { type: 'input_text', text: p.text };
+    // A part with neither `url` nor `data` is a caller error, not an empty upload.
+    if (p.url === undefined && p.data === undefined) throw new Error(`[sigx ai-openai] ${p.type} part needs data or url`);
+    const location = p.url ?? `data:${p.mediaType};base64,${p.data}`;
+    if (p.type === 'image') return { type: 'input_image', image_url: location, detail: 'auto' };
+    if (p.url !== undefined) return { type: 'input_file', file_url: p.url };
+    return { type: 'input_file', filename: p.filename ?? 'file', file_data: location };
+}
+
 function toInput(messages: readonly ModelMessage[]): ResponseInputItem[] {
     const out: ResponseInputItem[] = [];
     for (const m of messages) {
         if (m.role === 'user') {
-            out.push({ role: 'user', content: typeof m.content === 'string' ? m.content : m.content.map((p) => p.text).join('') });
+            // All text stays a string (the compact form); an attachment needs the content list.
+            const content = typeof m.content === 'string' ? m.content : m.content.every((p) => p.type === 'text') ? m.content.map((p) => (p as { text: string }).text).join('') : m.content.map(toUserContent);
+            out.push({ role: 'user', content });
             continue;
         }
         if (m.role === 'assistant') {

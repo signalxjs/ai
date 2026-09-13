@@ -38,3 +38,10 @@ All notable changes to `@sigx/ai` are documented here. The format follows
   answer that does not parse or validate is one `error` chunk. `generateText`
   returns a typed `output`; `useChat.onFinish` receives it. A turn ending on
   the token limit, a refusal or a deferred approval carries no output.
+- Image and file parts on user messages: `UIImagePart` / `UIFilePart`
+  (`mediaType` plus exactly one of `data` — standard base64 — or `url`, and an
+  optional `filename` on files), passed through by `toModelMessages` as
+  `ModelImagePart` / `ModelFilePart` (an all-text message stays a string),
+  validated by `ChatInput` (media type, base64, http(s) URL, size caps, user
+  messages only), accepted by `useChat.send`. `encodeBase64` / `decodeBase64`
+  for the bytes, `Buffer`-free.

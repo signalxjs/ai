@@ -66,6 +66,31 @@ receives it too). A final answer that does not parse or validate ends the
 turn with an `error` chunk; a turn cut short by the token limit, a refusal, or
 one waiting on the client carries no `output` — check `finishReason`.
 
+## Sending an image or a file
+
+A user message can carry `image` and `file` parts next to its text — plain
+JSON, so they travel through `serverStream` and `ChatInput` unchanged:
+
+```ts
+import { encodeBase64, generateId } from '@sigx/ai';
+
+await chat.send({
+    id: generateId(),
+    role: 'user',
+    parts: [
+        { type: 'text', text: 'What is in this picture?' },
+        { type: 'image', mediaType: 'image/png', data: encodeBase64(bytes) }, // or { url }
+        { type: 'file', mediaType: 'application/pdf', url: 'https://…/report.pdf', filename: 'report.pdf' }
+    ]
+});
+```
+
+Exactly one of `data` (standard base64) or `url` per part. `toModelMessages`
+passes the parts through; each provider translates them (Anthropic: `image` /
+`document` blocks — JPEG, PNG, GIF, WebP images, PDF and plain-text documents;
+OpenAI: `input_image` / `input_file`) and refuses a media type it cannot take
+at request time, which surfaces as one `error` chunk.
+
 ## Install
 
 ```bash
