@@ -18,7 +18,7 @@ afterEach(() => {
     for (const c of containers.splice(0)) c.remove();
 });
 
-function mountChat(stream: (input: { messages: unknown[] }) => AsyncIterable<UIChunk>, extra?: { initialMessages?: any[] }): { chat: Chat; container: HTMLDivElement } {
+function mountChat(stream: (input: { messages: unknown[] }) => AsyncIterable<UIChunk>, extra?: { initialMessages?: any[]; onFinish?: (...args: any[]) => void }): { chat: Chat; container: HTMLDivElement } {
     let chat!: Chat;
     const App = component(() => {
         chat = useChat({ stream: stream as any, ...extra });
@@ -272,6 +272,24 @@ describe('useChat tool approval', () => {
         await chat.deny('c2');
         expect(chat.status).toBe('idle');
         expect(chat.messages[1]!.parts.map((p) => (p.type === 'tool' ? p.state : p.type))).toEqual(['done', 'denied', 'text']);
+    });
+
+    it('onFinish receives the structured output the server asked for', async () => {
+        const model = mockModel({ script: [{ text: '{"ok": true}' }] });
+        const okSchema = {
+            '~standard': {
+                version: 1 as const,
+                vendor: 'test',
+                validate: (value: unknown) => (typeof value === 'object' && value !== null && typeof (value as { ok?: unknown }).ok === 'boolean' ? { value } : { issues: [{ message: 'no' }] }),
+                jsonSchema: { input: () => ({ type: 'object' }), output: () => ({ type: 'object' }) }
+            }
+        };
+        const onFinish = vi.fn();
+        const { chat } = mountChat((input) => chatStream({ model, messages: input.messages as any, output: { schema: okSchema } }), { onFinish });
+        await chat.send('is it ok?');
+        expect(onFinish).toHaveBeenCalledTimes(1);
+        expect(onFinish.mock.calls[0]![1]).toEqual({ output: { ok: true } });
+        expect(chat.messages[1]!.parts).toEqual([{ type: 'text', text: '{"ok": true}' }]);
     });
 
     it('send() while awaiting denies the leftovers so the transcript stays whole', async () => {

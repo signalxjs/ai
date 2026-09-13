@@ -40,8 +40,8 @@ export interface UseChatOptions {
      */
     readonly stream: (input: ChatStreamInput) => AsyncIterable<UIChunk>;
     readonly initialMessages?: readonly UIMessage[];
-    /** Called once per completed turn with the finished assistant message. */
-    readonly onFinish?: (message: UIMessage, info: { readonly usage?: Usage }) => void;
+    /** Called once per completed turn with the finished assistant message (and the structured `output`, when the server asked for one). */
+    readonly onFinish?: (message: UIMessage, info: { readonly usage?: Usage; readonly output?: unknown }) => void;
     readonly onError?: (error: Error) => void;
 }
 
@@ -127,6 +127,7 @@ export function useChat(options: UseChatOptions): Chat {
         const target = untrack(() => messages[state.activeIndex]!);
 
         let usage: Usage | undefined;
+        let output: unknown;
         try {
             const iterable = options.stream({ messages: wire });
             const it = iterable[Symbol.asyncIterator]();
@@ -139,6 +140,7 @@ export function useChat(options: UseChatOptions): Chat {
                 if (chunk.type === 'error') throw new Error(chunk.message);
                 if (chunk.type === 'finish') {
                     usage = chunk.usage;
+                    output = chunk.output;
                     break;
                 }
                 untrack(() => applyChunk(target, chunk));
@@ -160,7 +162,7 @@ export function useChat(options: UseChatOptions): Chat {
                     state.activeIndex = -1;
                 })
             );
-            options.onFinish?.(untrack(() => cloneMessage(target)), usage ? { usage } : {});
+            options.onFinish?.(untrack(() => cloneMessage(target)), { ...(usage ? { usage } : {}), ...(output !== undefined ? { output } : {}) });
         } catch (e) {
             if (id !== seq) return;
             current = null;

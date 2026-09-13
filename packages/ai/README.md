@@ -44,6 +44,28 @@ by itself: a resumed `approved` call goes through `onToolApproval` again with
 `ctx.approvedByClient` set, so a server-side handler (a policy, a role
 check) can veto it — and bare `streamText` with no handler denies it.
 
+## A typed result from a tool-using turn
+
+`streamObject` / `generateObject` produce JSON without tools. For "use tools,
+then answer with an object", give `streamText` (or `generateText`) an
+`output`:
+
+```ts
+const { output } = await generateText({
+    model,
+    messages,
+    tools: [weather],
+    output: { schema: Verdict } // Standard Schema; `jsonSchema` when the library cannot derive one
+});
+output.ok; // typed by the schema
+```
+
+Every model round asks for the JSON format (tools still run); the final
+answer is validated and arrives on `finish.output` (`useChat`'s `onFinish`
+receives it too). A final answer that does not parse or validate ends the
+turn with an `error` chunk; a turn cut short by the token limit, a refusal, or
+one waiting on the client carries no output.
+
 ## Install
 
 ```bash

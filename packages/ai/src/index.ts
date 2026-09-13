@@ -55,6 +55,7 @@ export { defineTool, findTool } from './tool/index.js';
 // Engine
 export type {
     StreamTextOptions,
+    OutputOptions,
     StepInfo,
     ToolApprovalCall,
     ToolApprovalContext,

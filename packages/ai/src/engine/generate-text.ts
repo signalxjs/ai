@@ -1,23 +1,30 @@
 /** `generateText` — `streamText`, drained into one result. */
 
 import { assembleMessage, messageText, type FinishReason, type UIMessage, type Usage } from '../protocol/index.js';
-import { resumedMessage, streamText, type StreamTextOptions } from './stream-text.js';
+import type { StandardSchemaV1 } from '../schema/index.js';
+import { resumedMessage, streamText, type OutputOptions, type StreamTextOptions } from './stream-text.js';
 
-export interface GenerateTextResult {
+export interface GenerateTextResult<O = unknown> {
     readonly text: string;
     readonly reasoning: string;
     readonly message: UIMessage;
     readonly finishReason: FinishReason;
     readonly usage?: Usage;
     readonly toolCalls: readonly { id: string; name: string; input: unknown; output?: unknown; isError?: boolean }[];
+    /** The validated structured result, when the call asked for `output`. */
+    readonly output?: O;
 }
 
 /**
  * `streamText`, drained. Throws on an `error` chunk. A transcript that
  * resumes an assistant message (approved / awaiting tool calls) yields that
  * whole message — its earlier parts plus what this turn added — not just
- * the new chunks.
+ * the new chunks. With `output`, the result's `output` is typed by the schema.
  */
+export function generateText<S extends StandardSchemaV1>(
+    options: StreamTextOptions & { readonly output: OutputOptions & { readonly schema: S } }
+): Promise<GenerateTextResult<StandardSchemaV1.InferOutput<S>> & { readonly output: StandardSchemaV1.InferOutput<S> }>;
+export function generateText(options: StreamTextOptions): Promise<GenerateTextResult>;
 export async function generateText(options: StreamTextOptions): Promise<GenerateTextResult> {
     const resumed = resumedMessage(options.messages);
     const { message, last } = await assembleMessage(
@@ -39,6 +46,7 @@ export async function generateText(options: StreamTextOptions): Promise<Generate
         message,
         finishReason: finish?.reason ?? 'other',
         ...(finish?.usage ? { usage: finish.usage } : {}),
-        toolCalls
+        toolCalls,
+        ...(finish && finish.output !== undefined ? { output: finish.output } : {})
     };
 }

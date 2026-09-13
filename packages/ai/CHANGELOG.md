@@ -32,3 +32,9 @@ All notable changes to `@sigx/ai` are documented here. The format follows
   `useChat` exposes `status: 'awaiting'`, `approvals`, `approve(id)` and
   `deny(id, reason?)`. A client's approval is re-checked by `onToolApproval`
   (`ctx.approvedByClient`), so a server handler can veto it.
+- Structured output inside the tool loop. `streamText({ output: { schema,
+  jsonSchema?, name? } })` asks every model round for the JSON format (tools
+  still run) and validates the final answer onto `finish.output`; a final
+  answer that does not parse or validate is one `error` chunk. `generateText`
+  returns a typed `output`; `useChat.onFinish` receives it. A turn ending on
+  the token limit, a refusal or a deferred approval carries no output.
