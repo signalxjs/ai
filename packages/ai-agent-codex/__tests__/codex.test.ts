@@ -341,9 +341,13 @@ describe('@sigx/ai-agent-codex', () => {
             ['turn', 2, 3],
             ['session', 20, 30]
         ]);
-        // `reasoningOutputTokens` is reported under the well-known `Usage` key
-        // every adapter uses for the reasoning breakdown.
+        // Codex's own spellings are reported under the well-known `Usage`
+        // keys every adapter shares.
         expect(usages.map((u) => u.usage.reasoningTokens)).toEqual([0, 2]);
+        expect(usages.map((u) => [u.usage.cacheReadInputTokens, u.usage.cacheCreationInputTokens])).toEqual([
+            [0, 0],
+            [5, 0]
+        ]);
         expect(result).toMatchObject({ usage: { inputTokens: 2, outputTokens: 1 } });
         for (const e of events) expect(JSON.parse(JSON.stringify(e))).toEqual(e);
     });

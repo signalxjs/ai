@@ -112,9 +112,11 @@ export function toUsage(u: AcpUsage): Usage {
         inputTokens: u.inputTokens,
         outputTokens: u.outputTokens,
         totalTokens: u.totalTokens,
+        // The well-known `Usage` keys, not ACP's own spellings — see `Usage`
+        // in `@sigx/ai`.
         ...(typeof u.thoughtTokens === 'number' ? { reasoningTokens: u.thoughtTokens } : {}),
-        ...(typeof u.cachedReadTokens === 'number' ? { cachedInputTokens: u.cachedReadTokens } : {}),
-        ...(typeof u.cachedWriteTokens === 'number' ? { cacheWriteInputTokens: u.cachedWriteTokens } : {})
+        ...(typeof u.cachedReadTokens === 'number' ? { cacheReadInputTokens: u.cachedReadTokens } : {}),
+        ...(typeof u.cachedWriteTokens === 'number' ? { cacheCreationInputTokens: u.cachedWriteTokens } : {})
     };
 }
 

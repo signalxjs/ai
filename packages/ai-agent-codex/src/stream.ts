@@ -52,11 +52,12 @@ export function toUsage(u: TokenUsageBreakdown): Usage {
         inputTokens: u.inputTokens,
         outputTokens: u.outputTokens,
         totalTokens: u.totalTokens,
-        cachedInputTokens: u.cachedInputTokens,
-        cacheWriteInputTokens: u.cacheWriteInputTokens,
-        // `reasoningTokens`, not Codex's own spelling: the well-known `Usage`
-        // key every adapter reports the reasoning breakdown under (see `Usage`
-        // in `@sigx/ai`).
+        // The well-known `Usage` keys, not Codex's own spellings: every
+        // adapter reports the cache and reasoning breakdowns under the same
+        // names, so a client reads them without knowing the harness (see
+        // `Usage` in `@sigx/ai`).
+        cacheReadInputTokens: u.cachedInputTokens,
+        cacheCreationInputTokens: u.cacheWriteInputTokens,
         reasoningTokens: u.reasoningOutputTokens
     };
 }

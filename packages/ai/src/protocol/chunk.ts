@@ -16,7 +16,7 @@ export type FinishReason = 'stop' | 'length' | 'tool' | 'refusal' | 'error' | 'o
  * | Key | Means |
  * |---|---|
  * | `reasoningTokens` | of `outputTokens`, how many were reasoning/thinking — a BREAKDOWN, never an addition. Anthropic's `output_tokens_details.thinking_tokens`, OpenAI's `output_tokens_details.reasoning_tokens`, ACP's `thoughtTokens`, Codex's `reasoningOutputTokens`. A harness that redacts reasoning text (Claude Code) may stream it as it goes, so it doubles as the one neutral "still thinking" signal. |
- * | `cacheReadInputTokens` / `cacheCreationInputTokens` | prompt-cache reads and writes |
+ * | `cacheReadInputTokens` / `cacheCreationInputTokens` | prompt-cache reads and writes. Anthropic's `cache_read_input_tokens` / `cache_creation_input_tokens`, OpenAI's `input_tokens_details.cached_tokens`, ACP's `cachedReadTokens` / `cachedWriteTokens`, Codex's `cachedInputTokens` / `cacheWriteInputTokens`. |
  * | `totalTokens` | the provider's own total, when it reports one |
  */
 export interface Usage {

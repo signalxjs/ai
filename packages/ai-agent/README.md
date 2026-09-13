@@ -158,7 +158,8 @@ alone cannot tell "still thinking" from "thought and showed nothing":
 ```tsx
 if (part.type === 'reasoning') {
     if (part.text) return <details open={!part.done}>{part.text}</details>;
-    return part.done ? null : <span>Thinking… {view.usage?.reasoningTokens} tokens</span>;
+    const n = view.usage?.reasoningTokens;
+    return part.done ? null : <span>Thinking…{n ? ` ${n} tokens` : ''}</span>;
 }
 ```
 
@@ -173,7 +174,7 @@ produced it:
 |---|---|
 | `inputTokens` / `outputTokens` | the two every harness reports |
 | `reasoningTokens` | of `outputTokens`, how many were reasoning — a BREAKDOWN, never an addition. ACP's `thoughtTokens`, Codex's `reasoningOutputTokens`, Claude Code's `output_tokens_details.thinking_tokens`. |
-| `cacheReadInputTokens` / `cacheCreationInputTokens` | prompt-cache reads and writes |
+| `cacheReadInputTokens` / `cacheCreationInputTokens` | prompt-cache reads and writes. ACP's `cachedReadTokens` / `cachedWriteTokens`, Codex's `cachedInputTokens` / `cacheWriteInputTokens`. |
 | `totalTokens` | the harness's own total, when it reports one |
 
 `usage { scope: 'turn' }` **adds** and `usage { scope: 'session' }`

@@ -123,7 +123,7 @@ describe('acp(): sessions and turns', () => {
         expect(events[2]).toMatchObject({ type: 'part-start', kind: 'reasoning' });
         expect(events[5]).toMatchObject({ type: 'part-start', kind: 'text', messageId: expect.stringMatching(/^a:/) });
         expect(textOf(events)).toBe('hmmHello world');
-        expect(result).toEqual({ turnId: events[0]!.turnId, stopReason: 'end_turn', usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12, cachedInputTokens: 4 } });
+        expect(result).toEqual({ turnId: events[0]!.turnId, stopReason: 'end_turn', usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12, cacheReadInputTokens: 4 } });
         expect(fake.requests.find((r) => r.method === 'session/prompt')?.params).toEqual({ sessionId: 'fake-1', prompt: [{ type: 'text', text: 'hi' }] });
         await session.close();
         const everything = await all;
