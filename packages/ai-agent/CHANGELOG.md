@@ -30,3 +30,12 @@ follow [SemVer](https://semver.org/).
   requests in both directions, cooperative cancel, backpressure), `ndjsonDecoder` /
   `ndjsonEncoder` and the `'message'` framing, `createMcpToolHandler` (client tools
   as an MCP Streamable HTTP server, JSON-only, tools only), `webSocketStreams`.
+- `modelAgent({ model, tools?, system?, maxSteps?, store?, extensions? })` — our
+  own engine as an `Agent`: every tool call through the policy, structured
+  output on `turn.result.output`, resume through a `TranscriptStore` or a ref
+  that carries the transcript, `importTranscript` from `UIMessage[]`.
+- `agentTool(agent, { name, description, input, output?, prompt })` — an agent
+  as a `defineTool` tool, with nested events (`parentCallId`) when hosted by
+  `modelAgent`.
+- `agentConformance` accepts `skip(scenario)` for reasons capabilities cannot
+  express.

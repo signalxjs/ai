@@ -77,3 +77,9 @@ export { createTranscript, createReducer, reduceAgentEvent, toUIMessages, toolSt
 // Stores
 export type { TranscriptStore, EventLogStore } from './store/index.js';
 export { memoryTranscriptStore, memoryEventLog } from './store/index.js';
+
+// Our engine as an agent, and an agent as a tool
+export type { ModelAgentOptions, ModelAgentRefData, AgentToolContext } from './model-agent/index.js';
+export { modelAgent, MODEL_AGENT_CAPABILITIES } from './model-agent/index.js';
+export type { AgentToolOptions, AgentToolResult } from './agent-tool/index.js';
+export { agentTool } from './agent-tool/index.js';
