@@ -32,6 +32,8 @@ export interface FakeAppServerOptions {
     readonly authStatus?: { authMethod: string | null; authToken: string | null; requiresOpenaiAuth: boolean | null };
     readonly models?: readonly { id: string; model: string; displayName: string; hidden: boolean }[];
     readonly threadId?: string;
+    /** Fields merged over the default `thread/start` response (an unusual approval policy or sandbox). */
+    readonly thread?: Partial<Omit<ThreadStartResponse, 'thread'>>;
 }
 
 export interface FakeAppServer {
@@ -80,7 +82,8 @@ export function fakeAppServer(options: FakeAppServerOptions): FakeAppServer {
         model: (params.model as string) ?? 'gpt-5',
         approvalPolicy: (params.approvalPolicy as 'untrusted') ?? 'on-request',
         sandbox: { type: 'workspaceWrite', writableRoots: [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false },
-        reasoningEffort: 'medium'
+        reasoningEffort: 'medium',
+        ...options.thread
     });
     for (const method of ['thread/start', 'thread/resume', 'thread/fork']) {
         peer.onRequest(method, (p: Record<string, unknown>) => {

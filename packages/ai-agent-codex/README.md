@@ -31,7 +31,7 @@ await agent.dispose(); // kills the app-server tree, on Windows too
 | `thread/start` / `thread/resume` / `thread/fork` / `thread/list` | `session()` / `resume: 'local'` / `fork` / `listSessions()` |
 | `turn/start` … `turn/completed` (`completed`, `interrupted`, `failed`) | one turn (`end_turn`, `cancelled`, `error` with `codexErrorInfo` → `context_exceeded`, `rate_limited`, `auth_required`, `provider_error`) |
 | `turn/interrupt` | `cancel()` |
-| `agentMessage`, `reasoning` items and their deltas | text and reasoning parts |
+| `agentMessage`, `plan`, `reasoning` items and their deltas | text and reasoning parts |
 | `commandExecution` + `outputDelta` | `tool-call { name: 'shell', category: 'execute' }`, `coding.terminal`, `coding.terminal-exit` |
 | `fileChange` + `patchUpdated` | `tool-call { name: 'apply_patch', category: 'edit' }`, `coding.diff`, `coding.files-changed` |
 | `mcpToolCall`, `dynamicToolCall`, `webSearch` | `tool-call` / `tool-update` |
@@ -40,7 +40,7 @@ await agent.dispose(); // kills the app-server tree, on Windows too
 | `item/tool/requestUserInput` | `request { kind: 'input' }` |
 | `item/tool/call` | your tool, through the policy, then `AnyTool.run` |
 | `thread/tokenUsage/updated` | `usage { scope: 'turn' }` and `usage { scope: 'session' }` |
-| `model/list`, approval policy, sandbox | `config` events; `configure()` applies on the next turn |
+| `model/list`, approval policy, sandbox | `config` events (a mode we do not model, such as a granular approval policy, is listed as its own value); `configure()` applies on the next turn — `sandbox` becomes that turn's `sandboxPolicy` |
 | everything else | `ext { ns: 'codex' }` |
 
 The contract's turn id is ours (a caller-supplied `turnId` is honoured);

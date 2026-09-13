@@ -176,6 +176,13 @@ export function createTurnMapper(driver: TurnDriver, options: { readonly message
                 }
                 break;
             }
+            case 'plan': {
+                // A proposed plan the model writes out (`item/plan/delta` streams it); the
+                // structured step list Codex tracks is `turn/plan/updated` → `coding.plan`.
+                if (phase === 'started') openPart(item.id, 'text');
+                else closePart(item.id, 'text', item.text);
+                break;
+            }
             case 'reasoning': {
                 if (phase === 'completed') {
                     item.summary.forEach((text, i) => closePart(`${item.id}:s${i}`, 'reasoning', text));
@@ -256,7 +263,8 @@ export function createTurnMapper(driver: TurnDriver, options: { readonly message
                 case CODEX_METHODS.itemCompleted:
                     onItem(params as ItemNotification, 'completed');
                     break;
-                case CODEX_METHODS.agentMessageDelta: {
+                case CODEX_METHODS.agentMessageDelta:
+                case CODEX_METHODS.planDelta: {
                     const p = params as ItemDeltaNotification;
                     delta(p.itemId, 'text', p.delta);
                     break;
@@ -313,7 +321,6 @@ export function createTurnMapper(driver: TurnDriver, options: { readonly message
                 }
                 case CODEX_METHODS.turnStarted:
                 case CODEX_METHODS.mcpProgress:
-                case CODEX_METHODS.planDelta:
                     break;
                 default:
                     emit({ type: 'ext', ns: CODEX_NS, name: method, data: params ?? null });
