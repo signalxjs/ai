@@ -19,6 +19,8 @@ export type {
     UITextPart,
     UIReasoningPart,
     UIToolPart,
+    UIImagePart,
+    UIFilePart,
     UIToolState,
     UIRole,
     UIChunk,
@@ -35,6 +37,9 @@ export type {
     ModelUserMessage,
     ModelAssistantMessage,
     ModelToolMessage,
+    ModelUserPart,
+    ModelImagePart,
+    ModelFilePart,
     ModelTextPart,
     ModelReasoningPart,
     ModelToolCallPart,
@@ -66,5 +71,6 @@ export type {
 } from './engine/index.js';
 export { streamText, generateText, streamObject, generateObject } from './engine/index.js';
 
-// Partial JSON
+// Utilities
 export { parsePartialJson } from './utils/partial-json.js';
+export { encodeBase64, decodeBase64 } from './utils/base64.js';

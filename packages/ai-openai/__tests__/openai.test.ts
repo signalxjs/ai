@@ -122,6 +122,51 @@ describe('@sigx/ai-openai', () => {
         expect((await collect(openai({ client: c2 }).model().stream({ messages: [] }))).at(-1)).toMatchObject({ type: 'finish', reason: 'refusal' });
     });
 
+    it('translates image and file parts into input_image / input_file items, data as data URLs', async () => {
+        const { client, calls } = fakeClient([ev({ type: 'response.completed', response: { id: 'r', status: 'completed', usage: null } })]);
+        await collect(
+            openai({ client })
+                .model()
+                .stream({
+                    messages: [
+                        {
+                            role: 'user',
+                            content: [
+                                { type: 'text', text: 'Compare these.' },
+                                { type: 'image', mediaType: 'image/png', data: 'iVBORw0KGgo=' },
+                                { type: 'image', mediaType: 'image/jpeg', url: 'https://x.test/a.jpg' },
+                                { type: 'file', mediaType: 'application/pdf', data: 'JVBERi0=', filename: 'report.pdf' },
+                                { type: 'file', mediaType: 'application/pdf', url: 'https://x.test/b.pdf' },
+                                { type: 'file', mediaType: 'text/plain', data: 'aGVsbG8=' }
+                            ]
+                        },
+                        { role: 'user', content: [{ type: 'text', text: 'just ' }, { type: 'text', text: 'text' }] }
+                    ]
+                })
+        );
+        expect((calls[0] as { params: { input: unknown[] } }).params.input).toEqual([
+            {
+                role: 'user',
+                content: [
+                    { type: 'input_text', text: 'Compare these.' },
+                    { type: 'input_image', image_url: 'data:image/png;base64,iVBORw0KGgo=', detail: 'auto' },
+                    { type: 'input_image', image_url: 'https://x.test/a.jpg', detail: 'auto' },
+                    { type: 'input_file', filename: 'report.pdf', file_data: 'data:application/pdf;base64,JVBERi0=' },
+                    { type: 'input_file', file_url: 'https://x.test/b.pdf' },
+                    { type: 'input_file', filename: 'file', file_data: 'data:text/plain;base64,aGVsbG8=' }
+                ]
+            },
+            { role: 'user', content: 'just text' }
+        ]);
+    });
+
+    it('refuses an attachment with neither data nor url', async () => {
+        const { client } = fakeClient([]);
+        await expect(collect(openai({ client }).model().stream({ messages: [{ role: 'user', content: [{ type: 'file', mediaType: 'application/pdf' }] }] }))).rejects.toThrow(
+            /\[sigx ai-openai\] file part needs data or url/
+        );
+    });
+
     it('names an unserializable tool payload instead of throwing bare', async () => {
         const { client } = fakeClient([]);
         const model = openai({ client }).model();

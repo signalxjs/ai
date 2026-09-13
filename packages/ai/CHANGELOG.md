@@ -32,3 +32,10 @@ All notable changes to `@sigx/ai` are documented here. The format follows
   `useChat` exposes `status: 'awaiting'`, `approvals`, `approve(id)` and
   `deny(id, reason?)`. A client's approval is re-checked by `onToolApproval`
   (`ctx.approvedByClient`), so a server handler can veto it.
+- Image and file parts on user messages: `UIImagePart` / `UIFilePart`
+  (`mediaType` plus exactly one of `data` — standard base64 — or `url`, and an
+  optional `filename` on files), passed through by `toModelMessages` as
+  `ModelImagePart` / `ModelFilePart` (an all-text message stays a string),
+  validated by `ChatInput` (media type, base64, http(s) URL, size caps, user
+  messages only), accepted by `useChat.send`. `encodeBase64` / `decodeBase64`
+  for the bytes, `Buffer`-free.
