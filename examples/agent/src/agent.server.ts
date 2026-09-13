@@ -180,8 +180,13 @@ const INSTALL: Record<HarnessChoice, string> = {
  * points at a specific executable (a locally built CLI, a shim outside PATH).
  * Every harness is a coding agent — its session options carry a `cwd`.
  */
+/** An env var that is set to nothing (`SIGX_AI_CWD=` in a `.env`) counts as unset. */
+function env(name: string): string | undefined {
+    return process.env[name] || undefined;
+}
+
 async function harness(choice: HarnessChoice): Promise<Agent<CodingSessionOptions>> {
-    const command = process.env.SIGX_AI_AGENT_COMMAND;
+    const command = env('SIGX_AI_AGENT_COMMAND');
     switch (choice) {
         case 'claude-code': {
             const { claudeCode } = await import('@sigx/ai-agent-claude-code');
@@ -203,6 +208,12 @@ async function harness(choice: HarnessChoice): Promise<Agent<CodingSessionOption
 /** Why a harness could not start, in one line an operator can act on. */
 function unavailable(choice: HarnessChoice, error: unknown): string {
     if (error instanceof ExecutableNotFoundError) {
+        const override = env('SIGX_AI_AGENT_COMMAND');
+        // The resolver throws the same error for a name looked up on PATH and
+        // for an explicit path that does not exist — say which one it was.
+        if (override) {
+            return `[agent] SIGX_AI_AGENT=${choice}: SIGX_AI_AGENT_COMMAND="${override}" was not found (${error.message}); falling back to the sigx engine.`;
+        }
         return `[agent] SIGX_AI_AGENT=${choice} needs the "${error.executable}" CLI on PATH — install it (${INSTALL[choice]}) or point SIGX_AI_AGENT_COMMAND at it; falling back to the sigx engine.`;
     }
     return `[agent] SIGX_AI_AGENT=${choice} is unavailable (${error instanceof Error ? error.message : String(error)}); falling back to the sigx engine.`;
@@ -223,7 +234,7 @@ async function openSession(): Promise<{ agent: Agent; session: AgentSession }> {
             agent = await harness(choice);
             // A harness works in a directory (`SIGX_AI_CWD`, default: where the
             // server was started); our own engine does not care.
-            const session = await agent.session({ ...SESSION_OPTIONS, cwd: process.env.SIGX_AI_CWD ?? process.cwd() });
+            const session = await agent.session({ ...SESSION_OPTIONS, cwd: env('SIGX_AI_CWD') ?? process.cwd() });
             return { agent, session };
         } catch (e) {
             // A half-started harness may own a child process — never leave it behind.

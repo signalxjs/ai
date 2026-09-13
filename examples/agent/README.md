@@ -55,7 +55,8 @@ install it, and falls back to our own engine:
 **Nothing in `App.tsx` changes either way** — that is the point of the
 contract. A harness works in a directory: `SIGX_AI_CWD` (default: where you
 started the server) is its session's `cwd`, and `SIGX_AI_AGENT_COMMAND`
-points at a specific executable instead of the PATH lookup.
+points at a specific executable instead of the PATH lookup — when that path
+does not exist, the warning names it instead of asking you to install the CLI.
 
 | `SIGX_AI_AGENT` | Adapter | CLI | Passed through to the child |
 |---|---|---|---|
