@@ -68,6 +68,13 @@ describe('spawnAgentProcess', () => {
         expect((await proc.exited).code).toBe(0);
     });
 
+    it('writing to a child that already exited rejects instead of hanging', async () => {
+        const proc = spawnAgentProcess({ command: node, args: [fixture('stderr-exit.mjs'), '0', 'bye'] });
+        await proc.exited;
+        const writer = proc.writable.getWriter();
+        await expect(writer.write(new TextEncoder().encode('{}\n'))).rejects.toThrow();
+    });
+
     it('a spawn failure rejects `spawned` and settles `exited`', async () => {
         const proc = spawnAgentProcess({ command: 'definitely-not-a-real-binary-xyz', args: [] });
         await expect(proc.spawned).rejects.toMatchObject({ code: 'ENOENT' });

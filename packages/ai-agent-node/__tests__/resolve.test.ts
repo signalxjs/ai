@@ -101,6 +101,13 @@ describe('resolveExecutable', () => {
         await expect(resolveExecutable('script.js', { cwd: root, env: { PATH: '/nowhere' }, platform: 'linux' })).rejects.toBeInstanceOf(ExecutableNotFoundError);
     });
 
+    it('a name with an extension is looked up as-is, never with PATHEXT appended', async () => {
+        await writeFile(join(root, 'bin with space', 'tool.cmd.cmd'), pnpmShim('..\\lib\\tool.mjs'));
+        const env = { Path: join(root, 'bin with space') };
+        await expect(resolveExecutable('tool.cmd', { env, platform: 'win32' })).rejects.toBeInstanceOf(ExecutableNotFoundError);
+        expect((await resolveExecutable('tool.cmd.cmd', { env, platform: 'win32', nodePath: 'NODE' })).kind).toBe('node-script');
+    });
+
     it('tolerates PATH / PATHEXT keys whose value is undefined', async () => {
         const env = { Path: `${join(root, 'bin with space')}`, PATHEXT: undefined } as NodeJS.ProcessEnv;
         expect((await resolveExecutable('native', { env, platform: 'win32' })).kind).toBe('native');

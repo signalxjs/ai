@@ -93,9 +93,13 @@ export async function resolveExecutable(name: string, options: ResolveExecutable
         for (const dir of dirs) {
             const base = join(dir, name);
             if (win) {
+                // Like cmd.exe: a name with an extension is looked up as-is; a bare
+                // name tries every PATHEXT extension, then the bare file.
                 if (extname(name)) candidates.push(base);
-                for (const e of exts) candidates.push(base + e);
-                if (!extname(name)) candidates.push(base);
+                else {
+                    for (const e of exts) candidates.push(base + e);
+                    candidates.push(base);
+                }
             } else candidates.push(base);
         }
     }

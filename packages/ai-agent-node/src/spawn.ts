@@ -173,9 +173,10 @@ export function spawnAgentProcess(options: SpawnAgentProcessOptions): AgentProce
             return new Promise<void>((resolve, reject) => {
                 if (stdinError) return reject(stdinError);
                 if (stdin.destroyed || stdin.writableEnded) return reject(new Error('[sigx ai-agent-node] stdin is closed'));
-                const ok = stdin.write(chunk, (e) => (e ? reject(e) : undefined));
-                if (ok) resolve();
-                else stdin.once('drain', () => resolve());
+                // Settle on the write callback: it reports a failure (EPIPE when the
+                // child died) and, for a buffered chunk, fires once it was flushed —
+                // which is the backpressure the Web Stream needs.
+                stdin.write(chunk, (e) => (e ? reject(e) : resolve()));
             });
         },
         close() {
