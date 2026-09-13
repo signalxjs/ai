@@ -95,11 +95,13 @@ describe('webSocketStreams', () => {
         expect(bad.readyState).toBe(3);
     });
 
-    it('a socket that is already closing or closed never hangs a write', async () => {
+    it('a socket that is already closing or closed never hangs a write, and its readable settles at once', async () => {
         for (const state of [2, 3]) {
             const ws = fakeSocket(state);
-            const writer = webSocketStreams(ws).writable.getWriter();
-            await expect(writer.write(new Uint8Array([1]))).rejects.toThrow(/not open/);
+            const { writable, readable, closed } = webSocketStreams(ws);
+            await expect(writable.getWriter().write(new Uint8Array([1]))).rejects.toThrow(/not open/);
+            expect((await readable.getReader().read()).done).toBe(true);
+            await closed;
         }
     });
 

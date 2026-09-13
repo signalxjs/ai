@@ -80,6 +80,8 @@ export function webSocketStreams(ws: WebSocketLike): WebSocketStreams {
             ws.addEventListener('message', onMessage);
             ws.addEventListener('close', finish);
             ws.addEventListener('error', finish);
+            // Already closing or closed: no close event will ever come — settle now.
+            if (ws.readyState !== CONNECTING && ws.readyState !== OPEN) finish();
         },
         cancel() {
             ws.close();
