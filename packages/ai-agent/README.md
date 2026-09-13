@@ -26,7 +26,7 @@ for await (const event of turn) {
 const { stopReason } = await turn.result; // 'end_turn'
 ```
 
-Three entries today (more land with the following milestones):
+Four entries today (more land with the following milestones):
 
 | Entry | What |
 |---|---|
