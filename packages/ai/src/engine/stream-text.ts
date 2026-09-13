@@ -107,8 +107,10 @@ export interface StreamTextOptions {
      * rounds — after a round's tool results are appended, and when a round
      * answered without tool calls; a non-empty result is appended as user
      * messages and the model is asked again. Every round counts against
-     * `maxSteps`. Nothing is yielded for the injected messages: the caller
-     * owns that part of the transcript.
+     * `maxSteps`, and `steer` is only polled while another round is allowed:
+     * input still queued when the turn ends stays with the caller. Nothing is
+     * yielded for the injected messages: the caller owns that part of the
+     * transcript.
      */
     readonly steer?: () => readonly ModelUserMessage[];
 }
@@ -375,13 +377,14 @@ export async function* streamText(options: StreamTextOptions): AsyncGenerator<UI
                 if (!round.toolCalls.length) {
                     // A steer that arrived while the model answered keeps the
                     // turn going: the answer stays in the conversation and the
-                    // injected input follows it.
-                    const injected = options.steer?.() ?? [];
-                    if (injected.length && step < maxSteps) {
+                    // injected input follows it. Polled only while another
+                    // round is allowed — input the turn cannot use stays with
+                    // the caller instead of being drained and dropped.
+                    const injected = step < maxSteps ? (options.steer?.() ?? []) : [];
+                    if (injected.length) {
                         messages.push(round.assistant, ...injected);
                         continue;
                     }
-                    if (injected.length) finish = 'length';
                     finalRound = round;
                     break;
                 }

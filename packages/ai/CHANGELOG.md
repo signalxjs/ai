@@ -47,9 +47,10 @@ All notable changes to `@sigx/ai` are documented here. The format follows
 - Steering. `streamText({ steer })` takes a `() => readonly ModelUserMessage[]` the
   engine polls between model rounds — after a round's tool results, and when a
   round answered without tool calls; a non-empty result is appended and the
-  model is asked again. Rounds count against `maxSteps` (a steer on the last
-  round ends the turn with `finish { reason: 'length' }`); nothing is yielded
-  for the injected messages. `generateText` passes it through.
+  model is asked again. Rounds count against `maxSteps`, and `steer` is only
+  polled while another round is allowed, so input still queued when the turn
+  ends stays with the caller; nothing is yielded for the injected messages.
+  `generateText` passes it through.
 - Image and file parts on user messages: `UIImagePart` / `UIFilePart`
   (`mediaType` plus exactly one of `data` — standard base64 — or `url`, and an
   optional `filename` on files), passed through by `toModelMessages` as

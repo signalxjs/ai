@@ -54,11 +54,35 @@ describe('streamText steer', () => {
         expect(model.rounds).toBe(1);
     });
 
-    it('steer rounds count against maxSteps — the limit ends the turn with finish length', async () => {
+    it('steer rounds count against maxSteps; on the last round steer is not polled, so queued input is never dropped', async () => {
         const model = mockModel({ respond: (_req, round) => ({ text: `r${round}` }) });
-        const chunks = await collect(streamText({ model, messages: [userMessage('go')], maxSteps: 2, steer: () => [user('more')] }));
+        const queued = [user('more')];
+        let polls = 0;
+        const chunks = await collect(
+            streamText({
+                model,
+                messages: [userMessage('go')],
+                maxSteps: 2,
+                steer: () => {
+                    polls++;
+                    return queued.splice(0);
+                }
+            })
+        );
         expect(model.rounds).toBe(2);
-        expect(chunks[chunks.length - 1]).toMatchObject({ type: 'finish', reason: 'length' });
+        expect(chunks[chunks.length - 1]).toMatchObject({ type: 'finish', reason: 'stop' });
+        // Polled once (after round 1, which could still continue); the drained
+        // message ran round 2; nothing was polled — or lost — on the last round.
+        expect(polls).toBe(1);
+        expect(model.requests[1]!.messages[2]).toEqual(user('more'));
+    });
+
+    it('input queued after the last allowed round stays with the caller', async () => {
+        const model = mockModel({ script: [{ text: 'only' }] });
+        const queued = [user('late')];
+        await collect(streamText({ model, messages: [userMessage('go')], maxSteps: 1, steer: () => queued.splice(0) }));
+        expect(model.rounds).toBe(1);
+        expect(queued).toEqual([user('late')]);
     });
 
     it('several messages in one drain land in order', async () => {

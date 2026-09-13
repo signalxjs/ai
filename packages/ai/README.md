@@ -60,10 +60,12 @@ const stream = streamText({ model, messages, tools, steer: () => queued.splice(0
 queued.push({ role: 'user', content: 'Also check the staging cluster.' });
 ```
 
-Every round counts against `maxSteps` (a steer that lands on the last round
-ends the turn with `finish { reason: 'length' }`). No chunk is yielded for
-the injected messages — the caller owns that part of the transcript. This is
-the seam an agent session's `prompt()`-while-running uses.
+Every round counts against `maxSteps`, and `steer` is only polled while
+another round is allowed — so a drain like `queued.splice(0)` is safe: input
+still queued when the turn ends is never consumed, and the caller can carry
+it into the next turn. No chunk is yielded for the injected messages — the
+caller owns that part of the transcript. This is the seam an agent session's
+`prompt()`-while-running uses.
 
 ## A typed result from a tool-using turn
 
