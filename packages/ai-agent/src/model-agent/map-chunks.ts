@@ -5,7 +5,7 @@
  * turn on `finish` or `error` — exactly one `turn-end`.
  */
 
-import type { AnyTool, FinishReason, UIChunk } from '@sigx/ai';
+import type { AnyTool, FinishReason, UIChunk, Usage } from '@sigx/ai';
 import type { StopReason } from '../protocol/index.js';
 import type { TurnDriver } from '../session/index.js';
 
@@ -14,10 +14,17 @@ export interface ChunkMapper {
     apply(chunk: UIChunk): void;
 }
 
+export interface ChunkMapperOptions {
+    readonly messageId: string;
+    readonly tools?: readonly AnyTool[];
+    /** The turn's cost from its usage; `undefined` means unknown. */
+    readonly pricing?: (usage: Usage) => number | undefined;
+}
+
 /** The engine's own message for calls it refused to run at the step limit. */
 const STEP_LIMIT = /was not run: step limit/;
 
-export function createChunkMapper(driver: TurnDriver, options: { readonly messageId: string; readonly tools?: readonly AnyTool[] }): ChunkMapper {
+export function createChunkMapper(driver: TurnDriver, options: ChunkMapperOptions): ChunkMapper {
     const { messageId } = options;
     let partSeq = 0;
     let open: { partId: string; kind: 'text' | 'reasoning' } | undefined;
@@ -104,10 +111,13 @@ export function createChunkMapper(driver: TurnDriver, options: { readonly messag
                 case 'finish': {
                     closePart();
                     settleOpenCalls();
-                    if (chunk.usage) driver.emit({ type: 'usage', scope: 'turn', usage: chunk.usage });
+                    const costUsd = chunk.usage ? options.pricing?.(chunk.usage) : undefined;
+                    const cost = costUsd !== undefined ? { costUsd } : {};
+                    if (chunk.usage) driver.emit({ type: 'usage', scope: 'turn', usage: chunk.usage, ...cost });
                     driver.end({
                         stopReason: toStopReason(chunk.reason, hitStepLimit),
                         ...(chunk.usage ? { usage: chunk.usage } : {}),
+                        ...cost,
                         ...(chunk.output !== undefined ? { output: chunk.output } : {})
                     });
                     break;

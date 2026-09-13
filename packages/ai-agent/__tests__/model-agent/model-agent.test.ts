@@ -195,4 +195,95 @@ describe('modelAgent', () => {
         expect(replayed).toEqual(fromRef);
         expect(toUIMessages(replayed).map((m) => m.role)).toEqual(['user', 'assistant']);
     });
+
+    it('a session grant survives resume — from the ref and from a store', async () => {
+        const grantOnce = async (session: Awaited<ReturnType<ReturnType<typeof modelAgent>['session']>>) => {
+            const turn = session.prompt('go');
+            for await (const e of turn) if (e.type === 'request') await session.respond(e.requestId, { type: 'permission', outcome: 'allow', scope: 'session' });
+            await turn.result;
+        };
+        const respond: MockModelOptions['respond'] = (_req, round) => (round % 2 === 0 ? { toolCalls: [{ name: 'echo', input: { n: round }, id: `c${round}` }] } : { text: 'ok' });
+
+        const { agent } = agentWith({ respond });
+        const s1 = await agent.session();
+        await grantOnce(s1);
+        const ref = s1.ref;
+        await s1.close();
+        const s2 = await agent.session({ resume: ref });
+        const { events } = await drain(s2.prompt('again'));
+        expect(events.filter((e) => e.type === 'request')).toHaveLength(0);
+        expect(events.find((e) => e.type === 'request-resolved')).toMatchObject({ outcome: 'allow', by: 'policy', ruleId: 'grant' });
+        expect(events.find((e) => e.type === 'tool-update' && e.status === 'completed')).toBeDefined();
+
+        const store = memoryTranscriptStore();
+        const stored = agentWith({ respond }, { store });
+        const s3 = await stored.agent.session();
+        await grantOnce(s3);
+        const storedRef = s3.ref;
+        await s3.close();
+        const s4 = await stored.agent.session({ resume: storedRef });
+        const r4 = await drain(s4.prompt('again'));
+        expect(r4.events.filter((e) => e.type === 'request')).toHaveLength(0);
+        expect(r4.events.find((e) => e.type === 'request-resolved')).toMatchObject({ by: 'policy', ruleId: 'grant' });
+    });
+
+    it('fork: a new session seeded with a copy of the transcript, epoch reset, grants dropped', async () => {
+        const { agent, model } = agentWith({ script: [{ text: 'one' }, { text: 'two' }, { text: 'three' }] });
+        expect(MODEL_AGENT_CAPABILITIES.fork).toBe(true);
+        const original = await agent.session();
+        await original.prompt('a').result;
+        const ref = original.ref;
+        const forked = await agent.session({ resume: ref, fork: true });
+        expect(forked.id).not.toBe(original.id);
+        const { events } = await drain(forked.prompt('b'));
+        expect(events[0]!.epoch).toBe(1);
+        expect(events[0]!.sessionId).toBe(forked.id);
+        expect(textOf(events)).toBe('two');
+        // The fork carries the original conversation…
+        expect(model.requests[1]!.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+        const forkedTranscript = (forked.ref.data as { transcript: { sessionId: string; grants: string[] } }).transcript;
+        expect(forkedTranscript.sessionId).toBe(forked.id);
+        expect(forkedTranscript.grants).toEqual([]);
+        // …and the original still runs on its own.
+        expect(textOf((await drain(original.prompt('c'))).events)).toBe('three');
+        expect(toUIMessages((original.ref.data as { transcript: Parameters<typeof toUIMessages>[0] }).transcript)).toHaveLength(4);
+
+        const store = memoryTranscriptStore();
+        const stored = agentWith({ script: [{ text: 'one' }, { text: 'two' }] }, { store });
+        const s1 = await stored.agent.session();
+        await s1.prompt('a').result;
+        await s1.close();
+        const s2 = await stored.agent.session({ resume: s1.ref, fork: true });
+        await s2.prompt('b').result;
+        await s2.close();
+        expect(store.size).toBe(2);
+        expect(await store.load(s1.id)).toMatchObject({ messages: expect.any(Array) });
+        expect((await store.load(s1.id))!.messages).toHaveLength(2);
+        expect((await store.load(s2.id))!.messages).toHaveLength(4);
+    });
+
+    it('pricing turns usage into costUsd on the usage event, the result and the transcript', async () => {
+        const { agent } = agentWith({ script: [{ text: 'hi', usage: { inputTokens: 10, outputTokens: 5 } }] }, { pricing: (u) => (u.outputTokens ?? 0) * 0.001 });
+        const session = await agent.session();
+        const all = collect(session.subscribe());
+        const { events, result } = await drain(session.prompt('go'));
+        expect(events.find((e) => e.type === 'usage')).toMatchObject({ scope: 'turn', costUsd: 0.005 });
+        expect(result.costUsd).toBe(0.005);
+        await session.prompt('again').result;
+        await session.close();
+        const t = createTranscript(session.id);
+        for (const e of await all) reduceAgentEvent(t, e);
+        expect(t.costUsd).toBeCloseTo(0.01);
+        // Without pricing there is no cost.
+        const plain = agentWith({ script: [{ text: 'hi', usage: { outputTokens: 5 } }] });
+        expect((await (await plain.agent.session()).prompt('go').result).costUsd).toBeUndefined();
+    });
+
+    it('prompt parts outside promptParts are refused before the turn starts', async () => {
+        const { agent } = agentWith({ script: [{ text: 'hi' }] });
+        const session = await agent.session();
+        // Everything is accepted by our engine…
+        expect((await session.prompt([{ type: 'text', text: 'see' }, { type: 'image', mediaType: 'image/png', data: 'AA==' }]).result).stopReason).toBe('end_turn');
+        expect(MODEL_AGENT_CAPABILITIES.promptParts).toBe('text+image+file');
+    });
 });

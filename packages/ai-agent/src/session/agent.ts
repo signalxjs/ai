@@ -41,8 +41,6 @@ export interface SessionOptions {
     /** With `resume`: continue as a new session instead of the same one (needs the `fork` capability). */
     readonly fork?: boolean;
     readonly signal?: AbortSignal;
-    /** Attach native payloads to events as `raw` (debugging, recording). */
-    readonly raw?: boolean;
 }
 
 export interface OutputSpec {

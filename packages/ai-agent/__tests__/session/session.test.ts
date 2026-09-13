@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createEventLog, createSessionCore, SessionBusyError, allowAll, type AgentEvent } from '@sigx/ai-agent';
+import { createEventLog, createSessionCore, SessionBusyError, allowAll, type AgentEvent, type TurnDriver } from '@sigx/ai-agent';
 import { collect, drain, types, tick, trackAbortListeners } from '../helpers';
 
 function core(extra: Partial<Parameters<typeof createSessionCore>[0]> = {}) {
@@ -140,6 +140,34 @@ describe('createSessionCore', () => {
         expect(log.closed).toBe(true);
         const after = c.startTurn('x', undefined, async (d) => d.end({ stopReason: 'end_turn' }));
         await expect(after.result).rejects.toThrow(/closed/);
+    });
+
+    it('promptParts gates image, file and resource parts before the turn starts', async () => {
+        const image = { type: 'image' as const, mediaType: 'image/png', data: 'AA==' };
+        const file = { type: 'file' as const, mediaType: 'text/plain', data: 'aGk=', filename: 'a.txt' };
+        const resource = { type: 'resource' as const, uri: 'file:///a.txt' };
+        const run = async (d: TurnDriver) => d.end({ stopReason: 'end_turn' });
+
+        const { core: text, log } = core({ promptParts: 'text' });
+        const all = collect(log.subscribe());
+        const refused = text.startTurn([{ type: 'text', text: 'see' }, image], { turnId: 'img' }, run);
+        expect(refused.id).toBe('img');
+        await expect(refused.result).rejects.toMatchObject({ code: 'protocol_error', message: expect.stringContaining('promptParts "text"') });
+        expect((await text.startTurn('plain', undefined, run).result).stopReason).toBe('end_turn');
+        await text.close();
+        // The refused prompt left no trace in the log.
+        expect((await all).filter((e) => e.type === 'turn-start')).toHaveLength(1);
+
+        const { core: withImage } = core({ promptParts: 'text+image' });
+        expect((await withImage.startTurn([image], undefined, run).result).stopReason).toBe('end_turn');
+        await expect(withImage.startTurn([file], undefined, run).result).rejects.toThrow(/file part/);
+        await expect(withImage.startTurn([resource], undefined, run).result).rejects.toThrow(/resource part/);
+
+        const { core: everything } = core({ promptParts: 'text+image+file' });
+        expect((await everything.startTurn([image, file, resource], undefined, run).result).stopReason).toBe('end_turn');
+        // The default accepts everything, so adapters that do not pass it are unchanged.
+        const { core: dflt } = core();
+        expect((await dflt.startTurn([image, file, resource], undefined, run).result).stopReason).toBe('end_turn');
     });
 
     it('the session signal cancels turns', async () => {
