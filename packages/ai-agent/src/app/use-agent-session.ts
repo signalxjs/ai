@@ -1,0 +1,247 @@
+/**
+ * `useAgentSession` — a reactive transcript driven by an agent session.
+ *
+ * The transcript is ONE reactive proxy (`signal(createTranscript(id))`) and
+ * `reduceAgentEvent` folds into it IN PLACE, so a `part-delta` is
+ * `part.text += delta` — a single property write, observed by the one text
+ * node that reads it. The message list, the other parts and the composer
+ * never re-render. That is the whole reason the reducer mutates.
+ *
+ * The source is an `AgentSession` — in-process, or an `AgentSessionClient`
+ * from `connectSession`, which is one. Nothing here knows which: the session
+ * contract is the seam.
+ *
+ * SSR-safe: the subscription starts on MOUNT, so a server render folds
+ * nothing and opens no queue. Unmount unsubscribes — and does NOT close the
+ * session, which usually outlives the component (another tab, another
+ * device, the server).
+ *
+ * Subscribing from `{ epoch: 0, seq: 0 }` by default makes a late joiner
+ * replay the session from its start: a second tab reaches the same transcript
+ * as the first, which is what `(epoch, seq)` is for.
+ */
+
+import { signal, untrack } from '@sigx/reactivity';
+import { getCurrentInstance } from '@sigx/runtime-core';
+import type { Usage } from '@sigx/ai';
+import type { AgentCapabilities, AgentEvent, ConfigOption, Decision, PromptInput, SessionState } from '../protocol/index.js';
+import { AgentError } from '../protocol/index.js';
+import type { AgentSession, EventCursor, PromptOptions, TurnResult } from '../session/index.js';
+import type { AgentMessage, AgentTranscript, OpenRequest, ReducerExtension, TranscriptError, TurnState } from '../state/index.js';
+import { createReducer, createTranscript } from '../state/index.js';
+import type { AgentSessionClient } from '../wire/index.js';
+
+/**
+ * Where the events come from. An `AgentSessionClient` already satisfies
+ * `AgentSession`; naming both says what the composable is for — the same view
+ * over a local session and a remote one.
+ */
+export type AgentSessionSource = AgentSession | AgentSessionClient;
+
+export interface UseAgentSessionOptions {
+    /** Reducer plugins for `ext` namespaces — e.g. `[codingExtension()]`. */
+    readonly extensions?: readonly ReducerExtension[];
+    /**
+     * Where to start folding. Default `{ epoch: 0, seq: 0 }` — everything the
+     * session can still replay, so a late joiner catches up. `'live'` starts
+     * at the next event and leaves the transcript empty.
+     */
+    readonly from?: EventCursor | 'live';
+    /** Every event, after it has been folded. */
+    readonly onEvent?: (event: AgentEvent) => void;
+    /** One completed turn, as `prompt()` resolves it. */
+    readonly onTurnEnd?: (result: TurnResult) => void;
+    /** A failed action or a broken subscription. The same failure lands in `error`. */
+    readonly onError?: (error: Error) => void;
+}
+
+export interface AgentSessionView {
+    readonly sessionId: string;
+    /** The folded session — reactive; read it in a view. */
+    readonly transcript: AgentTranscript;
+    /** `transcript.messages`, for the common case. */
+    readonly messages: readonly AgentMessage[];
+    readonly state: SessionState;
+    /** The running or most recent turn. */
+    readonly turn: TurnState | undefined;
+    /** Unresolved requests, oldest first — answer one with `respond()`. */
+    readonly requests: readonly OpenRequest[];
+    readonly usage: Usage | undefined;
+    readonly costUsd: number | undefined;
+    readonly config: readonly ConfigOption[];
+    readonly error: TranscriptError | undefined;
+    /** Following the session: false before mount (and during SSR), false again after unmount. */
+    readonly live: boolean;
+    /** What the agent delivers, when the source knows (a `connectSession` client). */
+    readonly capabilities: AgentCapabilities | undefined;
+    /**
+     * Run a turn. Resolves with its result — or `undefined` when it could not
+     * run (a busy session, a broken transport), which lands in `error` and
+     * `onError` instead of rejecting, so a click handler needs no `catch`.
+     */
+    prompt(input: PromptInput, options?: PromptOptions): Promise<TurnResult | undefined>;
+    /** Answer an open `request`. A late answer resolves without effect. */
+    respond(requestId: string, decision: Decision): Promise<void>;
+    cancel(): Promise<void>;
+    /** Change a `config` option; fails (into `error`) when the agent has no `config` capability. */
+    configure(patch: Readonly<Record<string, string>>): Promise<void>;
+}
+
+export function useAgentSession(source: AgentSessionSource, options: UseAgentSessionOptions = {}): AgentSessionView {
+    const instance = getCurrentInstance();
+    if (!instance) {
+        throw new Error('[sigx ai-agent] useAgentSession() must be called inside component setup.');
+    }
+
+    const transcript = signal(createTranscript(source.id) as AgentTranscript);
+    const status = signal({ live: false });
+    const reduce = createReducer(options.extensions ? { extensions: options.extensions } : {});
+
+    let iterator: AsyncIterator<AgentEvent> | null = null;
+    let stopped = false;
+
+    /** A failure becomes the transcript's error, in the shape an `error` event has. */
+    function fail(e: unknown): Error {
+        const error = e instanceof Error ? e : new Error(String(e));
+        untrack(() => {
+            transcript.error = {
+                code: error instanceof AgentError ? error.code : 'protocol_error',
+                message: error.message,
+                recoverable: error instanceof AgentError ? error.recoverable : false
+            };
+        });
+        options.onError?.(error);
+        return error;
+    }
+
+    function follow(): void {
+        const from = options.from === 'live' ? undefined : (options.from ?? { epoch: 0, seq: 0 });
+        let events: AsyncIterable<AgentEvent>;
+        try {
+            events = source.subscribe(from);
+        } catch (e) {
+            fail(e);
+            return;
+        }
+        const it = events[Symbol.asyncIterator]();
+        iterator = it;
+        untrack(() => {
+            status.live = true;
+        });
+        void (async () => {
+            try {
+                for (;;) {
+                    const next = await it.next();
+                    // Unmounted mid-await: never write state again.
+                    if (stopped) return;
+                    if (next.done) break;
+                    const event = next.value;
+                    // One in-place fold per event — the fine-grained write the
+                    // whole design exists for. `untrack` so a caller that reads
+                    // the view inside an effect never records these as reads.
+                    untrack(() => {
+                        reduce(transcript, event);
+                    });
+                    options.onEvent?.(event);
+                }
+            } catch (e) {
+                if (!stopped) fail(e);
+            } finally {
+                if (!stopped) {
+                    untrack(() => {
+                        status.live = false;
+                    });
+                }
+            }
+        })();
+    }
+
+    function unfollow(): void {
+        stopped = true;
+        const it = iterator;
+        iterator = null;
+        untrack(() => {
+            status.live = false;
+        });
+        // Ends our queue (and only ours). The session stays open.
+        if (it) void it.return?.().catch(() => {});
+    }
+
+    // Mount, not setup: a server render must not open a subscription it can
+    // never close, and has nothing to stream into the markup anyway.
+    instance.onMounted(() => {
+        if (!stopped) follow();
+    });
+    instance.onUnmounted(unfollow);
+
+    return {
+        sessionId: source.id,
+        get transcript() {
+            return transcript;
+        },
+        get messages() {
+            return transcript.messages;
+        },
+        get state() {
+            return transcript.state;
+        },
+        get turn() {
+            return transcript.turn;
+        },
+        get requests() {
+            return Object.values(transcript.requests).sort((a, b) => a.seq - b.seq);
+        },
+        get usage() {
+            return transcript.usage;
+        },
+        get costUsd() {
+            return transcript.costUsd;
+        },
+        get config() {
+            return transcript.config;
+        },
+        get error() {
+            return transcript.error;
+        },
+        get live() {
+            return status.live;
+        },
+        get capabilities() {
+            return (source as Partial<AgentSessionClient>).capabilities;
+        },
+        async prompt(input, promptOptions) {
+            try {
+                // The subscription is what renders the turn; `result` is only
+                // its outcome, so nothing here iterates the turn twice.
+                const result = await source.prompt(input, promptOptions).result;
+                options.onTurnEnd?.(result);
+                return result;
+            } catch (e) {
+                fail(e);
+                return undefined;
+            }
+        },
+        async respond(requestId, decision) {
+            try {
+                await source.respond(requestId, decision);
+            } catch (e) {
+                fail(e);
+            }
+        },
+        async cancel() {
+            try {
+                await source.cancel();
+            } catch (e) {
+                fail(e);
+            }
+        },
+        async configure(patch) {
+            try {
+                if (!source.configure) throw new AgentError('protocol_error', `[sigx ai-agent] session "${source.id}" does not support configure()`);
+                await source.configure(patch);
+            } catch (e) {
+                fail(e);
+            }
+        }
+    };
+}

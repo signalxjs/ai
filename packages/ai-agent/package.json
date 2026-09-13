@@ -35,6 +35,12 @@
             "development": "./dist/wire.js",
             "production": "./dist/wire.prod.js",
             "import": "./dist/wire.js"
+        },
+        "./app": {
+            "types": "./dist/app/index.d.ts",
+            "development": "./dist/app.js",
+            "production": "./dist/app.prod.js",
+            "import": "./dist/app.js"
         }
     },
     "files": [
@@ -74,7 +80,11 @@
     "devDependencies": {
         "@modelcontextprotocol/sdk": "^1.30.0",
         "@sigx/ai": "workspace:*",
+        "@sigx/reactivity": "catalog:",
+        "@sigx/runtime-core": "catalog:",
+        "@sigx/runtime-dom": "catalog:",
         "@sigx/vite": "catalog:",
+        "sigx": "catalog:",
         "@types/node": "^25.9.1",
         "typescript": "^6.0.3",
         "vite": "^8.0.3"
@@ -83,6 +93,8 @@
         "access": "public"
     },
     "peerDependencies": {
-        "@sigx/ai": "^0.1.0"
+        "@sigx/ai": "^0.1.0",
+        "@sigx/reactivity": "^0.15.0",
+        "@sigx/runtime-core": "^0.15.0"
     }
 }

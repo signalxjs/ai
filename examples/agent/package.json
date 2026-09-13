@@ -1,0 +1,38 @@
+{
+    "name": "agent-example",
+    "private": true,
+    "type": "module",
+    "description": "An @sigx/ai-agent session in a real SignalX app — serveSession on the server, connectSession + useAgentSession in the browser, permission prompts, cancel, usage, and a second tab that joins the same session",
+    "scripts": {
+        "dev": "node --env-file-if-exists=.env dev-server.mjs",
+        "build": "vite build --app",
+        "start": "cross-env NODE_ENV=production node --env-file-if-exists=.env --conditions=production server.mjs",
+        "smoke": "node smoke.mjs",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@anthropic-ai/claude-agent-sdk": "0.3.270",
+        "@anthropic-ai/sdk": "^0.125.0",
+        "@sigx/ai": "workspace:*",
+        "@sigx/ai-agent": "workspace:*",
+        "@sigx/ai-agent-claude-code": "workspace:*",
+        "@sigx/ai-anthropic": "workspace:*",
+        "@sigx/ai-openai": "workspace:*",
+        "@sigx/reactivity": "catalog:",
+        "@sigx/runtime-core": "catalog:",
+        "@sigx/runtime-dom": "catalog:",
+        "@sigx/serialize": "catalog:",
+        "@sigx/server": "catalog:",
+        "@sigx/server-renderer": "catalog:",
+        "openai": "^7.15.0",
+        "sigx": "catalog:",
+        "zod": "^4.6.2"
+    },
+    "devDependencies": {
+        "@sigx/vite": "catalog:",
+        "@types/node": "^25.9.1",
+        "cross-env": "^10.1.0",
+        "typescript": "^6.0.3",
+        "vite": "^8.0.3"
+    }
+}

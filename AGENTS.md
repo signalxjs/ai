@@ -160,8 +160,11 @@ Provider tests run against RECORDED fixtures — no network, no key. A live
 smoke test per provider is env-gated (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`)
 and skips with a printed reason otherwise.
 
-To run the example: `pnpm build` first (it resolves the packages from
-`dist/` through the workspace link), then `pnpm --filter chat-example dev`.
+To run an example: `pnpm build` first (they resolve the packages from
+`dist/` through the workspace link), then `pnpm --filter chat-example dev` or
+`pnpm --filter agent-example dev`. The agent example also has an end-to-end
+check that needs no browser — `pnpm --filter agent-example smoke` (CI runs it
+on every OS in the matrix).
 
 ## Packages
 
@@ -192,9 +195,15 @@ To run the example: `pnpm build` first (it resolves the packages from
   `./testing` also ships `recordAgent` / `replayAgent`. `./wire` serves a
   session in one place and uses it from another over any transport
   (`serveSession` / `connectSession`, a versioned envelope, replay for late
-  joiners and reconnects). Later milestones add `./app`. Zero
+  joiners and reconnects). `./app` is `useAgentSession(source, options?)` —
+  the session as reactive state on `@sigx/runtime-core` (NEVER the `sigx`
+  umbrella): the transcript folded in place so a delta writes one part's
+  `text`, subscription on mount (SSR-safe) and unsubscribe on unmount without
+  closing the session, late join by replay from `{ epoch: 0, seq: 0 }`, and
+  the same reducer `extensions`. Zero
   runtime dependencies; edge-safe (`node:`-free, no `process` / `Buffer`,
-  enforced by `__tests__/package/edge-safety.test.ts`). Peers on `@sigx/ai`.
+  enforced by `__tests__/package/edge-safety.test.ts`). Peers on `@sigx/ai` —
+  plus `@sigx/reactivity` and `@sigx/runtime-core`, which only `./app` uses.
   Node-only building blocks live in `@sigx/ai-agent-node`; adapters are
   `@sigx/ai-agent-<harness>` (named by harness, not vendor).
 - `packages/ai-agent-node` → `@sigx/ai-agent-node` — **experimental**, the
@@ -229,12 +238,22 @@ To run the example: `pnpm build` first (it resolves the packages from
   endpoint in `src/ai.server.ts`, `useChat` transcript, provider picked by
   env (`AI_PROVIDER`), `mockModel` when no key is set so it runs out of the
   box. Not published.
+- `examples/agent` → `agent-example` — an SSR sigx app around ONE agent
+  session: `src/agent.server.ts` opens it (agent picked by env `AI_AGENT` —
+  `modelAgent` on `mockModel` by default, the Claude Code adapter when
+  available), serves it with `serveSession`, and exposes a `serverFn` command
+  endpoint plus a `serverStream` frame stream; `src/App.tsx` is
+  `connectSession` + `useAgentSession` with tool cards, permission prompts,
+  cancel and usage. A second tab joins the SAME session as a late observer.
+  `smoke.mjs` is the whole thing without a browser. Not published.
 
 Path aliases: `tsconfig.json` and `vitest.config.ts` map `@sigx/ai` (and
 its subpaths) and the provider packages to `packages/*/src`, so tests and
 typecheck run against source, not dist. A new entry or package is added to
-BOTH maps (plus `examples/chat/tsconfig.json`), to `.size-limit.json`, to the
-root `build`/`lint` scripts, and to `PACKAGES` in `scripts/publish.js` and
+BOTH maps (plus `examples/chat/tsconfig.json` and
+`examples/agent/tsconfig.json`), to `.size-limit.json`, to the root
+`build`/`lint`/`typecheck` scripts, to `ENTRIES` in `scripts/verify-pack.js`,
+and — for a new package — to `PACKAGES` in `scripts/publish.js` and
 `scripts/verify-pack.js`.
 
 Source layout (`packages/ai/src`):
@@ -261,9 +280,12 @@ Source layout (`packages/ai-agent/src`) follows the same folder-per-concern
 rule with its own one-way order:
 `utils ← protocol ← policy ← session ← state ← store ← model-agent | agent-tool`;
 `coding/`, `harness/`, `wire/`, `app/` and `testing/` sit on top of what they
-need and nothing below imports them. The core (`.`) is domain-neutral — coding
-concepts (cwd, diffs, terminals, plans) live only in `./coding`. Tests mirror
-`src/` the same way; `__tests__/package/` holds package-level checks.
+need and nothing below imports them (`app/` type-imports `wire/` for
+`AgentSessionClient` — types only, so `./app` still bundles neither). The core
+(`.`) is domain-neutral — coding concepts (cwd, diffs, terminals, plans) live
+only in `./coding`. `app/` is the only entry that touches
+`@sigx/reactivity` / `@sigx/runtime-core`. Tests mirror `src/` the same way;
+`__tests__/package/` holds package-level checks.
 
 A provider package (`packages/ai-<vendor>/src`) is small enough for one file
 per concern, no folders: `options.ts` (the `<Vendor>ProviderOptions`

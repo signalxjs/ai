@@ -58,6 +58,13 @@ jobs:
       - name: Test scripts
         run: pnpm test:scripts
 
+      # The agent example, end to end: boots its server and runs one mock
+      # turn (permission request included) plus a late join. Catches the
+      # wiring vitest cannot — the SSR document, the serverFn/serverStream
+      # endpoints, and the built `dist/` the example resolves.
+      - name: Agent example smoke
+        run: pnpm --filter agent-example smoke
+
   verify-pack:
     runs-on: ubuntu-latest
     steps:

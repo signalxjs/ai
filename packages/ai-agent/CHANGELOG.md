@@ -52,3 +52,13 @@ follow [SemVer](https://semver.org/).
   per-principal `authorize`, replay from the buffer, an `EventLogStore`, or a
   `gap`), `connectSession` (an `AgentSessionClient` that reconnects from its
   last cursor) and `coalesceFrames`.
+- `@sigx/ai-agent/app`: `useAgentSession(source, options?)` — an `AgentSession`
+  (local or a `connectSession` client) as reactive state on `@sigx/runtime-core`:
+  `transcript`, `messages`, `state`, `turn`, `requests`, `usage`, `costUsd`,
+  `config`, `error`, `live`, `capabilities`, and the actions `prompt`,
+  `respond`, `cancel`, `configure`. Folds in place (a `part-delta` writes one
+  part's `text`), subscribes on mount (SSR-safe), unsubscribes on unmount
+  without closing the session, replays from `{ epoch: 0, seq: 0 }` so a late
+  joiner catches up, and takes the same `extensions` the headless reducer does.
+  Peers on `@sigx/reactivity` and `@sigx/runtime-core`; the other entries do
+  not.

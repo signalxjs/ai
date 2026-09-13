@@ -1,0 +1,43 @@
+{
+    "compilerOptions": {
+        "target": "ES2023",
+        "lib": ["ES2023", "DOM", "DOM.Iterable"],
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "types": ["vite/client", "node"],
+        "strict": true,
+        "noEmit": true,
+        "skipLibCheck": true,
+        "verbatimModuleSyntax": true,
+        "isolatedModules": true,
+        "jsx": "react-jsx",
+        "jsxImportSource": "sigx",
+        // `@sigx/ai*` resolve from SOURCE, as the root config does, so a
+        // clean checkout typechecks before anything is built: the packages'
+        // own `exports` point at `dist/`, and CI typechecks BEFORE it builds.
+        "paths": {
+            "@sigx/ai": ["../../packages/ai/src/index.ts"],
+            "@sigx/ai/server": ["../../packages/ai/src/server/index.ts"],
+            "@sigx/ai/app": ["../../packages/ai/src/app/index.ts"],
+            "@sigx/ai/testing": ["../../packages/ai/src/testing/index.ts"],
+            "@sigx/ai-agent": ["../../packages/ai-agent/src/index.ts"],
+            "@sigx/ai-agent/testing": ["../../packages/ai-agent/src/testing/index.ts"],
+            "@sigx/ai-agent/coding": ["../../packages/ai-agent/src/coding/index.ts"],
+            "@sigx/ai-agent/harness": ["../../packages/ai-agent/src/harness/index.ts"],
+            "@sigx/ai-agent/wire": ["../../packages/ai-agent/src/wire/index.ts"],
+            "@sigx/ai-agent/app": ["../../packages/ai-agent/src/app/index.ts"],
+            "@sigx/ai-agent-node": ["../../packages/ai-agent-node/src/index.ts"],
+            "@sigx/ai-agent-claude-code": ["../../packages/ai-agent-claude-code/src/index.ts"],
+            "@sigx/ai-anthropic": ["../../packages/ai-anthropic/src/index.ts"],
+            "@sigx/ai-openai": ["../../packages/ai-openai/src/index.ts"]
+        }
+    },
+    // `env.d.ts` from the package sources declares `__DEV__`, the
+    // compile-time flag the bundler replaces — needed because `paths` above
+    // compiles those sources as part of this program.
+    "include": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "../../packages/ai/src/env.d.ts"
+    ]
+}
