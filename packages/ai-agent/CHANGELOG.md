@@ -34,3 +34,7 @@ follow [SemVer](https://semver.org/).
   `allowCategories` / `denyOutside`.
 - `@sigx/ai-agent/testing`: `recordAgent` / `replayAgent` / `serializeFixture`
   — versioned, deterministic fixtures for any adapter.
+- `@sigx/ai-agent/harness`: `createJsonRpcPeer` (JSON-RPC 2.0 over Web Streams,
+  requests in both directions, cooperative cancel, backpressure), `ndjsonDecoder` /
+  `ndjsonEncoder` and the `'message'` framing, `createMcpToolHandler` (client tools
+  as an MCP Streamable HTTP server, JSON-only, tools only), `webSocketStreams`.

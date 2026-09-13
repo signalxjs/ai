@@ -32,6 +32,7 @@ Three entries today (more land with the following milestones):
 |---|---|
 | `@sigx/ai-agent` | the contract (`Agent`, `AgentSession`, `AgentTurn`), the event union, capabilities, the policy engine (`resolveRequest`, `allowAll`, `allowReadOnly`, `firstMatch`, …), the session helpers adapters build on (`createEventLog`, `createTurn`, `createSessionCore`), the transcript reducer (`reduceAgentEvent`, `createReducer`) with its bridges to `@sigx/ai` (`toUIMessages`, `fromUIMessages`, `toChatStream`), and the store seams (`TranscriptStore`, `EventLogStore`) |
 | `@sigx/ai-agent/coding` | the coding vocabulary on top of the neutral core: categories (`read`, `edit`, `execute`, …), typed `coding.diff` / `terminal` / `plan` / `files-changed` events with the `codingExtension` reducer plugin, `CodingSessionOptions`, and the path-aware policies `allowCategories` / `denyOutside(cwd)` |
+| `@sigx/ai-agent/harness` | the protocol kit: `createJsonRpcPeer` (JSON-RPC 2.0 over Web Streams, both directions), NDJSON framing, `createMcpToolHandler` (client tools as an MCP server, Streamable HTTP), `webSocketStreams` |
 | `@sigx/ai-agent/testing` | `mockAgent` — a scripted, deterministic agent — `agentConformance`, the suite every adapter must pass, and `recordAgent` / `replayAgent` for deterministic fixtures |
 
 ## Coding agents
@@ -105,6 +106,28 @@ await writeFile('fixtures/edit.json', serializeFixture(recorder.fixture));
 
 // later, in a test:
 const agent = replayAgent(JSON.parse(await readFile('fixtures/edit.json', 'utf8')));
+```
+
+## Protocol kit
+
+Protocol-based adapters (ACP, Codex app-server) are mappings, not transport
+code: `createJsonRpcPeer` speaks JSON-RPC 2.0 over any pair of Web Streams —
+a child process's stdio, a WebSocket (`webSocketStreams`), an in-memory
+`TransformStream` in tests — with requests in both directions, cooperative
+cancellation and backpressure. `createMcpToolHandler(tools, { name, version,
+auth })` exposes `defineTool` tools to a harness over MCP's Streamable HTTP
+transport (JSON-only, tools only, bearer-authenticated); serve it with any
+`(Request) => Promise<Response>` host — on Node, `@sigx/ai-agent-node`'s
+`listenMcp`.
+
+```ts
+import { createJsonRpcPeer, createMcpToolHandler } from '@sigx/ai-agent/harness';
+
+const peer = createJsonRpcPeer({ readable, writable });        // e.g. a spawned agent's stdout / stdin
+peer.onRequest('session/request_permission', async (params, ctx) => decide(params, ctx.signal));
+const init = await peer.request('initialize', { protocolVersion: 1 });
+
+const handler = createMcpToolHandler([weather], { name: 'my-app', version: '1.0.0', auth: (r) => r.headers.get('authorization') === `Bearer ${token}` });
 ```
 
 ## Install

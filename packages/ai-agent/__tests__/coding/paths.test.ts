@@ -14,6 +14,11 @@ describe('pure path normaliser', () => {
         expect(normalizePath('c:/Users/andy/repo/')).toEqual({ root: 'C:', segments: ['users', 'andy', 'repo'], windows: true, absolute: true });
         expect(normalizePath('\\\\Server\\Share\\Dir\\file.txt')).toEqual({ root: '\\\\server\\share', segments: ['dir', 'file.txt'], windows: true, absolute: true });
         expect(normalizePath('//server/share/dir')).toEqual({ root: '\\\\server\\share', segments: ['dir'], windows: true, absolute: true });
+        // The share itself, with or without a trailing separator, is a root.
+        expect(normalizePath('\\\\server\\share')).toEqual({ root: '\\\\server\\share', segments: [], windows: true, absolute: true });
+        expect(normalizePath('//server/share/')).toEqual({ root: '\\\\server\\share', segments: [], windows: true, absolute: true });
+        expect(isWithin('\\\\server\\share\\x', '\\\\server\\share')).toBe(true);
+        expect(isWithin('\\\\server\\share', '\\\\server\\share')).toBe(true);
         expect(normalizePath('/home/andy/Repo/../repo/src')).toEqual({ root: '', segments: ['home', 'andy', 'repo', 'src'], windows: false, absolute: true });
         expect(normalizePath('src/../lib')).toEqual({ root: '', segments: ['lib'], windows: false, absolute: false });
         expect(normalizePath('../../lib/../x')).toEqual({ root: '', segments: ['..', '..', 'x'], windows: false, absolute: false });

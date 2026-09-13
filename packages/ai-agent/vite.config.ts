@@ -8,6 +8,7 @@ import type { ConfigEnv, UserConfig } from 'vite';
 const base = defineLibConfig({
     entry: {
         index: 'src/index.ts',
+        harness: 'src/harness/index.ts',
         testing: 'src/testing/index.ts',
         coding: 'src/coding/index.ts'
     },

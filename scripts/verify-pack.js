@@ -45,6 +45,7 @@ const ENTRIES = [
     '@sigx/ai-agent',
     '@sigx/ai-agent/testing',
     '@sigx/ai-agent/coding',
+    '@sigx/ai-agent/harness',
     '@sigx/ai-anthropic',
     '@sigx/ai-openai',
 ];
