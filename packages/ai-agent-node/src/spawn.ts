@@ -126,11 +126,10 @@ export function spawnAgentProcess(options: SpawnAgentProcessOptions): AgentProce
     spawned.catch(() => {});
 
     const exited = new Promise<ProcessExit>((resolve) => {
-        child.once('exit', (code, signal) => {
-            unregisterChild(child);
-            // stderr may still be flushing; give it a tick.
-            setTimeout(() => resolve({ code, signal, stderrTail: tail }), 0);
-        });
+        child.once('exit', () => unregisterChild(child));
+        // `close` fires once the stdio streams have drained too, so the stderr
+        // tail is complete (`exit` can precede the last stderr chunk).
+        child.once('close', (code, signal) => resolve({ code, signal, stderrTail: tail }));
         child.once('error', () => {
             if (child.pid === undefined) resolve({ code: null, signal: null, stderrTail: spawnError ? spawnError.message : tail });
         });

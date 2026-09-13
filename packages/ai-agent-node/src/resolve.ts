@@ -11,7 +11,7 @@
 
 import { access, readFile, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { dirname, extname, posix, resolve, sep, win32 } from 'node:path';
+import { dirname, extname, isAbsolute, posix, resolve, sep, win32 } from 'node:path';
 import { envKey } from './env.js';
 
 export type ExecutableKind = 'native' | 'node-script' | 'cmd-shim';
@@ -88,10 +88,11 @@ export async function resolveExecutable(name: string, options: ResolveExecutable
     const candidates: string[] = [];
     const searched: string[] = [];
     if (hasSeparator) {
-        const base = p.isAbsolute(name) ? name : p.resolve(options.cwd ?? process.cwd(), name);
+        // A path names a real file on THIS machine: resolve it with the host's rules.
+        const base = isAbsolute(name) || win32.isAbsolute(name) ? name : resolve(options.cwd ?? process.cwd(), name);
         candidates.push(base);
         if (win && !p.extname(base)) for (const e of exts) candidates.push(base + e);
-        searched.push(p.dirname(base));
+        searched.push(dirname(base));
     } else {
         const pathKey = envKey(env, 'PATH', platform);
         // The delimiter follows the `platform` option, not the host (tests and adapters resolve for another OS).
