@@ -27,6 +27,8 @@ export interface ServeSessionOptions {
     readonly coalesce?: CoalesceOptions | false;
     /** Replies remembered for idempotent retries. Default 256. */
     readonly commandCacheSize?: number;
+    /** Live events buffered while a store replay fills a gap; beyond it the stream fails. Default 10 000. */
+    readonly tailBufferSize?: number;
 }
 
 export interface ServedSession {
@@ -121,7 +123,7 @@ export function serveSession(session: AgentSession, options: ServeSessionOptions
             } catch (e) {
                 if (!(e instanceof AgentError) || e.code !== 'protocol_error') throw e;
                 // The buffer moved on: subscribe to the live tail now (nothing is
-                // missed) and drain it into our own unbounded queue while the store
+                // missed) and drain it into our own bounded queue while the store
                 // fills the middle — a long replay must not overflow the session's
                 // per-subscriber backlog.
                 const liveIterator = session.subscribe()[Symbol.asyncIterator]();
@@ -131,7 +133,9 @@ export function serveSession(session: AgentSession, options: ServeSessionOptions
                     released = true;
                     void liveIterator.return?.();
                 };
-                const live = createQueue<AgentEvent>({ onClose: release });
+                // Bounded like the session's own subscriber queues: a stalled store
+                // replay must fail the stream, not grow memory without limit.
+                const live = createQueue<AgentEvent>({ onClose: release, maxSize: options.tailBufferSize ?? 10_000 });
                 void (async () => {
                     try {
                         for (;;) {

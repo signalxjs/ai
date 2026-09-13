@@ -189,6 +189,52 @@ describe('serveSession / connectSession', () => {
         remote.disconnect();
     });
 
+    it('a stream that ends before any hello fails the connection instead of hanging', async () => {
+        const empty: SessionTransport = { send: () => Promise.reject(new Error('unused')), events: () => (async function* () {})() };
+        await expect(connectSession(empty, { reconnect: false })).rejects.toThrow(/ended before a hello/);
+        let attempts = 0;
+        const flaky: SessionTransport = {
+            send: () => Promise.reject(new Error('unused')),
+            events: () =>
+                (async function* () {
+                    attempts++;
+                })()
+        };
+        await expect(connectSession(flaky, { reconnect: { maxAttempts: 2, backoffMs: () => 1 } })).rejects.toThrow(/ended before a hello/);
+        expect(attempts).toBe(3);
+    });
+
+    it('a stalled store replay cannot grow the live tail without limit: the stream fails', async () => {
+        const agent = mockAgent({ script: [[{ text: 'a b c d e f g h i j k l m n o p' }]] });
+        const real = await agent.session();
+        const session: AgentSession = {
+            ...real,
+            get ref() {
+                return real.ref;
+            },
+            subscribe: (from?: Cursor) => {
+                if (from && from.epoch > 0) throw new AgentError('protocol_error', 'evicted');
+                return real.subscribe(from);
+            }
+        };
+        // A store whose replay yields one old event, then only after the live tail has overflowed.
+        let releaseStore!: () => void;
+        const gate = new Promise<void>((r) => (releaseStore = r));
+        const stalled: EventLogStore = {
+            append: async () => {},
+            async *read() {
+                await gate;
+            }
+        };
+        const served = serveSession(session, { agentId: 'mock', capabilities: agent.capabilities, eventLog: stalled, tailBufferSize: 5 });
+        const streaming = collect(served.events({ epoch: 1, seq: 1 }));
+        await tick();
+        await real.prompt('go').result; // far more than 5 live events while the replay stalls
+        releaseStore();
+        await expect(streaming).rejects.toThrow(/overflow/);
+        await served.close();
+    });
+
     it('a broken stream with reconnect: false ends the client', async () => {
         const { served } = await serve([[{ text: 'x' }]]);
         const transport: SessionTransport = {

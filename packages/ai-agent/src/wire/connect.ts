@@ -121,6 +121,8 @@ export async function connectSession(transport: SessionTransport, options: Conne
             await new Promise((r) => setTimeout(r, reconnect.backoffMs(attempt)));
         }
         buffer.close();
+        // A stream that ended (or was given up on) before any hello is a failed connection, not a hang.
+        if (!hello) rejectHello(new AgentError('protocol_error', `[sigx ai-agent] connectSession: the event stream ended before a hello frame${stopped ? ' (disconnected)' : ''}`));
     };
     void follow();
     const first = await firstHello;
