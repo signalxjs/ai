@@ -44,7 +44,7 @@ All notable changes to `@sigx/ai` are documented here. The format follows
   answer that does not parse or validate is one `error` chunk. `generateText`
   returns a typed `output`; `useChat.onFinish` receives it. A turn ending on
   the token limit, a refusal or a deferred approval carries no output.
-- Steering. `streamText({ steer })` takes a `() => ModelUserMessage[]` the
+- Steering. `streamText({ steer })` takes a `() => readonly ModelUserMessage[]` the
   engine polls between model rounds — after a round's tool results, and when a
   round answered without tool calls; a non-empty result is appended and the
   model is asked again. Rounds count against `maxSteps` (a steer on the last

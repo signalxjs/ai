@@ -52,6 +52,8 @@ tool results, and when a round answered without tool calls — and, when it
 returns anything, appends the messages and asks the model again:
 
 ```ts
+import { streamText, type ModelUserMessage } from '@sigx/ai';
+
 const queued: ModelUserMessage[] = [];
 const stream = streamText({ model, messages, tools, steer: () => queued.splice(0) });
 // later, while the turn runs:
