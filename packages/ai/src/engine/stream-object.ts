@@ -6,7 +6,8 @@ import { jsonSchemaOf, validateWith, type JsonSchema, type StandardSchemaV1 } fr
 import { parsePartialJson } from '../utils/partial-json.js';
 import { streamText, type StreamTextOptions } from './stream-text.js';
 
-export interface StreamObjectOptions<S extends StandardSchemaV1> extends Omit<StreamTextOptions, 'tools' | 'maxSteps'> {
+// One round, no tools: `steer` has nothing to inject into.
+export interface StreamObjectOptions<S extends StandardSchemaV1> extends Omit<StreamTextOptions, 'tools' | 'maxSteps' | 'steer'> {
     readonly schema: S;
     /** Explicit JSON Schema when the library cannot derive one. */
     readonly jsonSchema?: JsonSchema;
