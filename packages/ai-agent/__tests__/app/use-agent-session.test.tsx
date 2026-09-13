@@ -367,6 +367,74 @@ describe('useAgentSession', () => {
         expect(codingState(m.view.transcript)?.diffs.map((d) => d.path)).toEqual(['src/a.ts']);
     });
 
+    it('a lost connection lands in error and connected; reconnect() picks the turn back up', async () => {
+        const agent = mockAgent({ script: [[{ text: 'back from the dead', delayMs: 2 }]] });
+        const session = await agent.session();
+        const served = serveSession(session, { agentId: agent.id, capabilities: agent.capabilities });
+        let down = false;
+        const transport: SessionTransport = {
+            send: (c) => served.handleCommand(c),
+            events: (from, o) =>
+                (async function* () {
+                    if (down) throw new Error('still down');
+                    for await (const f of served.events(from, o)) {
+                        yield f;
+                        if (f.kind === 'event' && f.event.type === 'user-message' && !from) {
+                            down = true;
+                            throw new Error('gone');
+                        }
+                    }
+                })()
+        };
+        const remote = await connectSession(transport, { reconnect: { maxAttempts: 1, backoffMs: () => 1 } });
+        closers.push(async () => {
+            remote.disconnect();
+            await served.close();
+            await agent.dispose();
+        });
+        const ends: unknown[] = [];
+        const errors: Error[] = [];
+        const m = mount(remote, { onTurnEnd: (r) => ends.push(r), onError: (e) => errors.push(e) });
+        await tick();
+        expect(m.view.connected).toBe(true);
+
+        const done = m.view.prompt('go');
+        while (remote.status !== 'lost') await tick(1);
+        await tick();
+        expect(m.view.connected).toBe(false);
+        expect(m.view.live).toBe(true); // still following: the buffer is open, waiting for a reconnect
+        expect(m.view.error).toMatchObject({ code: 'protocol_error', recoverable: true });
+        expect(m.view.error?.message).toMatch(/lost/);
+        expect(errors).toHaveLength(1);
+        expect(ends).toEqual([]);
+
+        down = false;
+        m.view.reconnect();
+        const result = await done;
+        await tick(5);
+        expect(result?.stopReason).toBe('end_turn');
+        expect(ends).toHaveLength(1);
+        expect(m.view.connected).toBe(true);
+        expect(m.container.querySelector('.assistant .t')?.textContent).toBe('back from the dead');
+    });
+
+    it('a session that closes cleanly ends the subscription without an error', async () => {
+        const session = await openSession([[{ text: 'bye' }]]);
+        const errors: Error[] = [];
+        const m = mount(session, { onError: (e) => errors.push(e) });
+        await tick();
+        await m.view.prompt('hi');
+        expect(m.view.connected).toBe(true);
+
+        await session.close();
+        await tick();
+        expect(m.view.live).toBe(false);
+        expect(m.view.connected).toBe(false);
+        expect(m.view.state).toBe('closed');
+        expect(m.view.error).toBeUndefined();
+        expect(errors).toEqual([]);
+    });
+
     it('drives a remote session from connectSession the same way', async () => {
         const agent = mockAgent({ script: [[{ tool: { name: 'search', output: 'found' } }, { text: 'over the wire' }]] });
         const session = await agent.session();
