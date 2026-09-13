@@ -86,9 +86,27 @@ follow [SemVer](https://semver.org/).
   connection lands in `error` as a recoverable `protocol_error` (and
   `onError`), and a subscription that ends while the session is still open is
   reported the same way. A clean close stays silent.
+- Sub-agents in the contract: `agent-start { agentId, callId?, kind?, title?,
+  description?, model?, depth?, background? }` and `agent-update { agentId,
+  status: AgentStatus, summary?, usage? (cumulative), costUsd?, output?, error? }`
+  join the event union — a spawn is always a call, and a sub-agent's events
+  nest under the spawning call's `parentCallId`. The capabilities `subagents:
+  'none' | 'observe' | 'control'` and `defineAgents`, `SessionOptions.agents`
+  (`AgentDefinition`), and `cancel(target?: CancelTarget)` — `{ agentId }`
+  cancels one sub-agent (`subagents: 'control'`).
+- `createSessionCore` owns steering and sub-agent control: `ctx.onSteer(handler)`
+  receives steering input (queued until registered), `core.steer(input)` returns
+  a handle to the RUNNING turn, `core.attach(downstream)` forwards `respond()`
+  and addressed `cancel()` to a delegate session (both only with `subagents:
+  'control'`), and `ctx.resolve(request, { parentCallId })` stamps a request a
+  sub-agent raised.
 
 ### Changed
 
+- With the `steer` capability, `prompt()` while a turn runs now injects into
+  the running turn instead of starting a concurrent second turn: the returned
+  turn has the running turn's `id` and `result` and iterates its events from
+  the steer on. Without `steer`, it still rejects with `SessionBusyError`.
 - `connectSession` reconnect defaults: 10 attempts with exponential backoff
   from 250 ms capped at 10 s (was 5 attempts at `100 * n` ms, ~1.5 s in all).
   Exhausted attempts — or `reconnect: false` after a break — leave the client

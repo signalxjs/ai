@@ -23,6 +23,14 @@ export interface AgentCapabilities {
     /** `fromUIMessages` transcripts can seed a session. */
     readonly importTranscript: boolean;
     readonly listSessions: boolean;
+    /**
+     * `none`: no sub-agent events; `observe`: `agent-start` / `agent-update` plus the
+     * sub-agent's events nested under `parentCallId`; `control`: also `cancel({ agentId })`
+     * and `respond()` to a request raised at any depth.
+     */
+    readonly subagents: 'none' | 'observe' | 'control';
+    /** `SessionOptions.agents` definitions become spawnable sub-agents. */
+    readonly defineAgents: boolean;
 }
 
 /** Nothing beyond a text prompt. */
@@ -37,7 +45,9 @@ export const NO_CAPABILITIES: AgentCapabilities = {
     tools: 'none',
     permissions: 'none',
     importTranscript: false,
-    listSessions: false
+    listSessions: false,
+    subagents: 'none',
+    defineAgents: false
 };
 
 /** `NO_CAPABILITIES` with `patch` applied — the way an adapter states its set. */

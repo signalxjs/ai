@@ -9,6 +9,11 @@
  *
  * Domain-neutral by design: a tool is a name, an input and a status; what it
  * touched is an `ext` event in a namespace (`coding.diff`, `agent.handoff`).
+ *
+ * Sub-agents: a spawn is always a call. `agent-start` binds an `agentId` to
+ * the `tool-call` that spawned it, and every event produced inside the
+ * sub-agent carries that call as `parentCallId`. An `agent-start` emitted
+ * inside the spawning call therefore carries `parentCallId === callId`.
  */
 
 import type { Usage } from '@sigx/ai';
@@ -19,6 +24,8 @@ import type { JsonSchema } from '@sigx/ai';
 
 export type StopReason = 'end_turn' | 'max_tokens' | 'max_turns' | 'refusal' | 'cancelled' | 'error';
 export type ToolStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled' | 'denied';
+/** A sub-agent's lifecycle; `completed`, `failed` and `cancelled` are terminal. */
+export type AgentStatus = 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
 export type SessionState = 'idle' | 'running' | 'awaiting' | 'closed' | 'error';
 /** Who settled a request. */
 export type ResolvedBy = 'policy' | 'client' | 'timeout' | 'cancel';
@@ -69,6 +76,32 @@ export type AgentEventPayload =
           readonly output?: unknown;
           readonly error?: string;
           readonly content?: readonly ContentBlock[];
+      }
+    | {
+          readonly type: 'agent-start';
+          /** The sub-agent: a harness task or thread id, or the delegate session id. Unique within the session. */
+          readonly agentId: string;
+          /** The `tool-call` that spawned it. Absent only for an ambient task the harness started on its own. */
+          readonly callId?: string;
+          /** Harness-defined: a Claude Code agent type, a Codex role, an `agentTool` name. */
+          readonly kind?: string;
+          readonly title?: string;
+          readonly description?: string;
+          readonly model?: string;
+          /** The harness's own nesting depth; the reducer derives depth from `callId` when it can. */
+          readonly depth?: number;
+          readonly background?: boolean;
+      }
+    | {
+          readonly type: 'agent-update';
+          readonly agentId: string;
+          readonly status: AgentStatus;
+          readonly summary?: string;
+          /** Cumulative for this agent — replaces, never adds. */
+          readonly usage?: Usage;
+          readonly costUsd?: number;
+          readonly output?: unknown;
+          readonly error?: ErrorInfo;
       }
     | {
           readonly type: 'request';
@@ -132,6 +165,8 @@ const EVENT_TYPES: ReadonlySet<string> = new Set<AgentEventType>([
     'part-end',
     'tool-call',
     'tool-update',
+    'agent-start',
+    'agent-update',
     'request',
     'request-resolved',
     'config',

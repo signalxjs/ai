@@ -37,6 +37,46 @@ Six entries today (more land with the following milestones):
 | `@sigx/ai-agent/app` | `useAgentSession(source)` — the session as reactive state on `@sigx/runtime-core`: transcript, open requests, usage, config, and the `prompt` / `respond` / `cancel` / `configure` actions |
 | `@sigx/ai-agent/testing` | `mockAgent` — a scripted, deterministic agent — `agentConformance`, the suite every adapter must pass, and `recordAgent` / `replayAgent` for deterministic fixtures |
 
+## Sub-agents and steering
+
+A sub-agent is observed and controlled through the same contract as the
+session that spawned it. **A spawn is always a call**: the `tool-call` that
+started the sub-agent is the anchor, `agent-start` binds an `agentId` to it,
+and every event the sub-agent produces carries that call as `parentCallId`.
+
+```
+tool-call     { callId: 'c1', name: 'delegate' }
+agent-start   { agentId: 'a1', callId: 'c1', kind: 'reviewer', title?, description?, model?, depth?, background? }   parentCallId: 'c1'
+agent-update  { agentId: 'a1', status: 'running' | 'paused' | 'completed' | 'failed' | 'cancelled', summary?, usage?, costUsd?, output?, error? }
+part-start … tool-call … request …                                                                                  parentCallId: 'c1'
+```
+
+`agent-update.usage` is cumulative for that agent (it replaces, never adds).
+Exactly one `agent-start` per `agentId`; every started agent reaches a
+terminal status before the session closes. `callId` is absent only for an
+ambient task a harness started on its own — such an agent has status and usage
+but no message attribution.
+
+Two capabilities say what an adapter really delivers:
+
+- `subagents`: `'none'` (no agent events), `'observe'` (the events above),
+  `'control'` (also `session.cancel({ agentId })`, and `session.respond()`
+  answers a `request` raised at any depth).
+- `defineAgents`: `session({ agents: { reviewer: { description, prompt?, tools?, model?, maxTurns? } } })`
+  makes those definitions spawnable by name.
+
+`cancel(target?)` takes one verb for both: no target (or the session's own
+id) cancels the running turn; `{ agentId }` cancels one sub-agent and is
+refused with `protocol_error` unless `subagents` is `'control'`.
+
+**Steering.** With the `steer` capability, `prompt()` while a turn runs does
+not start a second turn — the input is injected into the RUNNING turn. The
+returned turn has the running turn's `id` and `result`, and iterating it
+yields that turn's events from the steer on (`turnId` and `output` in the
+options are ignored). The adapter emits a `user-message` inside the running
+turn for the injected input. Without `steer`, a prompt during a turn still
+rejects with `SessionBusyError`.
+
 ## Remote sessions: `serveSession` / `connectSession`
 
 The library defines the envelope (commands with a `commandId`, one reply each,
@@ -282,6 +322,17 @@ Capabilities are enforced where the helpers can: `createSessionCore({ promptPart
 fails a prompt that carries a part beyond the declared level before any event
 is emitted (`mockAgent` and `modelAgent` pass theirs), and `mockAgent` treats
 `cancel()` as a no-op without the `cancel` capability.
+
+`createSessionCore` also owns steering and sub-agent control, so an adapter
+only maps: pass `steer` and `subagents` from your capabilities; in the turn's
+`run`, call `ctx.onSteer(parts => …)` to receive steering input (input that
+arrived earlier is delivered on registration) — inject it natively and
+`driver.emit` the `user-message`; call `ctx.resolve(request, { parentCallId })`
+for a request a sub-agent raised; and `core.attach({ respond, cancel })` a
+delegate session you opened so `respond()` and `cancel({ agentId })` reach it
+(detach with the returned function). Both forward only with `subagents:
+'control'`: on any other core an unknown `respond()` id stays a no-op and
+`cancel({ agentId })` rejects with `protocol_error`.
 
 ```ts
 import { agentConformance } from '@sigx/ai-agent/testing';
