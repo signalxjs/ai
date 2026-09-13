@@ -178,6 +178,18 @@ describe('reduceAgentEvent', () => {
         // A call-less agent inside a sub-agent still finds its parent through the event's parentCallId.
         reduceAgentEvent(t, ev({ type: 'agent-start', turnId: 't1', parentCallId: 'c2', agentId: 'amb' }));
         expect(t.agents.amb).toMatchObject({ depth: 2, parentAgentId: 'a2' });
+        // A call-bound ROOT agent: the chain is conclusive (the spawning call sits in
+        // no other call), so the harness's own depth does not count either.
+        reduceAgentEvent(t, ev({ type: 'tool-call', turnId: 't1', callId: 'c4', name: 'delegate' }));
+        reduceAgentEvent(t, ev({ type: 'agent-start', turnId: 't1', parentCallId: 'c4', agentId: 'a4', callId: 'c4', depth: 5 }));
+        expect(t.agents.a4).toMatchObject({ depth: 0 });
+        expect(t.agents.a4).not.toHaveProperty('parentAgentId');
+        // The chain is INconclusive when the spawning call sits in a call no agent-start
+        // claimed (a nested tool that is not an agent): then the harness's depth stands.
+        reduceAgentEvent(t, ev({ type: 'tool-call', turnId: 't1', callId: 'c5', name: 'plain' }));
+        reduceAgentEvent(t, ev({ type: 'tool-call', turnId: 't1', parentCallId: 'c5', callId: 'c6', name: 'delegate' }));
+        reduceAgentEvent(t, ev({ type: 'agent-start', turnId: 't1', parentCallId: 'c6', agentId: 'a6', callId: 'c6', depth: 3 }));
+        expect(t.agents.a6).toMatchObject({ depth: 3 });
     });
 
     it('agents replay from any snapshot', () => {

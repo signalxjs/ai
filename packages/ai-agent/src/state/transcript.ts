@@ -72,8 +72,9 @@ export interface ToolPartState {
  * that started the agent, and the messages produced inside it are the ones
  * whose `parentCallId` is that call. `depth` and `parentAgentId` come from
  * the call chain (the message that made the spawning call was itself inside
- * some call, or not); a call-less ambient agent is a root and keeps the
- * harness's own `depth`.
+ * some call, or not); the harness's own `depth` counts only when the chain
+ * cannot say — a call-less ambient agent, or a spawn inside a call no
+ * `agent-start` claimed.
  */
 export interface AgentState {
     readonly agentId: string;

@@ -123,11 +123,17 @@ export function createReducer(options: CreateReducerOptions = {}): AgentReducer 
                 // in; for an ambient one, the call the event itself sits in.
                 const within = spawn ? spawn.message.parentCallId : e.parentCallId;
                 const parent = within !== undefined ? spawnedAgent(t, within) : undefined;
+                // Depth comes from the call chain whenever the chain is conclusive: a
+                // parent agent gives parent + 1, and a spawning call that sits in no
+                // other call gives 0. The harness's own `depth` only counts when the
+                // chain cannot say — an ambient agent, or a spawn inside a call no
+                // agent claimed.
+                const depth = parent ? parent.depth + 1 : spawn && within === undefined ? 0 : (e.depth ?? 0);
                 t.agents[e.agentId] = {
                     agentId: e.agentId,
                     ...(e.callId !== undefined ? { callId: e.callId } : {}),
                     ...(parent ? { parentAgentId: parent.agentId } : {}),
-                    depth: parent ? parent.depth + 1 : (e.depth ?? 0),
+                    depth,
                     ...(e.turnId !== undefined ? { turnId: e.turnId } : {}),
                     seq: e.seq,
                     ...(e.kind !== undefined ? { kind: e.kind } : {}),
