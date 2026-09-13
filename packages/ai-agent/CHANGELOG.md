@@ -26,3 +26,7 @@ follow [SemVer](https://semver.org/).
 - `@sigx/ai-agent/testing`: `agentConformance`, `CONFORMANCE_SCENARIOS`,
   `CONFORMANCE_TOOLS` and the invariant checks `checkEventInvariants`,
   `checkReplayEquality`, `checkResultMatchesTurnEnd`.
+- `@sigx/ai-agent/harness`: `createJsonRpcPeer` (JSON-RPC 2.0 over Web Streams,
+  requests in both directions, cooperative cancel, backpressure), `ndjsonDecoder` /
+  `ndjsonEncoder` and the `'message'` framing, `createMcpToolHandler` (client tools
+  as an MCP Streamable HTTP server, JSON-only, tools only), `webSocketStreams`.
