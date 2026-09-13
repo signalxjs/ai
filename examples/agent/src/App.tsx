@@ -17,6 +17,98 @@ import { connectSession, type AgentSessionClient } from '@sigx/ai-agent/wire';
 import { useAgentSession, type AgentMessage, type AgentPart, type OpenRequest } from '@sigx/ai-agent/app';
 import { agentCommand, agentEvents } from './agent.server';
 
+type Answers = Record<string, string | string[]>;
+
+/** One answerable field, read off the request's `schema` — a picker, a multi-picker, or free text. */
+interface Field {
+    readonly id: string;
+    readonly title: string;
+    readonly description?: string;
+    readonly multi: boolean;
+    readonly choices: readonly string[];
+    /** The schema leaves the value open, so an answer off the list is legal ("Other"). */
+    readonly freeText: boolean;
+}
+
+type Schema = Record<string, unknown>;
+const asSchema = (v: unknown): Schema | undefined => (typeof v === 'object' && v !== null ? (v as Schema) : undefined);
+
+/**
+ * `schema` → fields. One property per question: an array is a multi-select, an
+ * `enum` (plain, or under an `anyOf` branch) lists the choices, and a branch
+ * that leaves the string open means free text is allowed too.
+ */
+function fieldsOf(request: OpenRequest): Field[] {
+    const properties = asSchema(asSchema(request.schema)?.properties);
+    if (!properties) return [{ id: 'answer', title: 'Answer', multi: false, choices: [], freeText: true }];
+    return Object.entries(properties).map(([id, raw]) => {
+        const prop = asSchema(raw) ?? {};
+        const multi = prop.type === 'array';
+        const value = (multi ? asSchema(prop.items) : prop) ?? {};
+        const branches = (Array.isArray(value.anyOf) ? value.anyOf : []).map(asSchema);
+        const closed = Array.isArray(value.enum) ? (value.enum as unknown[]) : undefined;
+        const choices = (closed ?? branches.find((b) => Array.isArray(b?.enum))?.enum ?? []) as string[];
+        return {
+            id,
+            title: typeof prop.title === 'string' ? prop.title : id,
+            ...(typeof prop.description === 'string' ? { description: prop.description } : {}),
+            multi,
+            choices: choices.map(String),
+            freeText: !closed && (choices.length === 0 || branches.some((b) => b?.type === 'string' && b.enum === undefined))
+        };
+    });
+}
+
+/** The form's values, in the shape `respond({ type: 'input', answers })` wants. */
+function readAnswers(form: HTMLFormElement, fields: readonly Field[]): Answers {
+    const data = new FormData(form);
+    const answers: Answers = {};
+    for (const f of fields) {
+        const other = String(data.get(`${f.id}:other`) ?? '').trim();
+        if (f.multi) answers[f.id] = [...data.getAll(f.id).map(String), ...(other ? [other] : [])];
+        else {
+            const picked = other || String(data.get(f.id) ?? '');
+            if (picked) answers[f.id] = picked;
+        }
+    }
+    return answers;
+}
+
+/**
+ * An input request as a real form: radios for a single choice, checkboxes for
+ * a multi-select, and a free-text box wherever the schema leaves the value
+ * open. Submitting answers every question in one `respond`.
+ */
+const Ask = component<{ request: OpenRequest; onAnswer: (requestId: string, answers: Answers) => void }>((ctx) => {
+    return () => {
+        const request = ctx.props.request;
+        const fields = fieldsOf(request);
+        return (
+            <form
+                class="ask"
+                onSubmit={(e: Event) => {
+                    e.preventDefault();
+                    ctx.props.onAnswer(request.requestId, readAnswers(e.currentTarget as HTMLFormElement, fields));
+                }}
+            >
+                {fields.map((f) => (
+                    <fieldset class="question">
+                        <legend>{f.title}</legend>
+                        {f.description && <p class="question-text">{f.description}</p>}
+                        {f.choices.map((choice) => (
+                            <label>
+                                <input type={f.multi ? 'checkbox' : 'radio'} name={f.id} value={choice} /> {choice}
+                            </label>
+                        ))}
+                        {f.freeText && <input type="text" name={`${f.id}:other`} aria-label={`Other — ${f.title}`} placeholder={f.choices.length ? 'Other…' : 'Your answer…'} />}
+                    </fieldset>
+                ))}
+                <button type="submit">Answer</button>
+            </form>
+        );
+    };
+});
+
 /** The transport: two functions over the build-swapped server stubs. */
 function connect(): Promise<AgentSessionClient> {
     return connectSession(
@@ -30,7 +122,13 @@ function connect(): Promise<AgentSessionClient> {
     );
 }
 
-const Part = component<{ part: AgentPart; requests: readonly OpenRequest[]; onDecide: (requestId: string, allow: boolean) => void }>((ctx) => {
+interface AskProps {
+    readonly requests: readonly OpenRequest[];
+    readonly onDecide: (requestId: string, allow: boolean) => void;
+    readonly onAnswer: (requestId: string, answers: Answers) => void;
+}
+
+const Part = component<{ part: AgentPart } & AskProps>((ctx) => {
     return () => {
         const p = ctx.props.part;
         if (p.type === 'text') return <span class="text">{p.text}</span>;
@@ -38,7 +136,9 @@ const Part = component<{ part: AgentPart; requests: readonly OpenRequest[]; onDe
         if (p.type === 'image' || p.type === 'file') return <code class="attachment">{p.type === 'file' && p.filename ? p.filename : p.mediaType}</code>;
         if (p.type !== 'tool') return null;
         // A tool card: name, input, status — and, while the call waits on the
-        // operator, the permission prompt in place on the card.
+        // operator, the prompt in place on the card: Allow/Deny for a
+        // permission, the answer form for a question (Claude Code's
+        // `AskUserQuestion` arrives as an input request ON its tool call).
         const open = p.requestId ? ctx.props.requests.find((r) => r.requestId === p.requestId) : undefined;
         return (
             <div class={`tool ${p.status}`}>
@@ -48,7 +148,8 @@ const Part = component<{ part: AgentPart; requests: readonly OpenRequest[]; onDe
                 <span class="tool-status">{p.status}</span>
                 {p.output !== undefined && <pre class="tool-output">{JSON.stringify(p.output, null, 2)}</pre>}
                 {p.error && <span class="tool-error">{p.error}</span>}
-                {open && (
+                {open?.kind === 'input' && <Ask request={open} onAnswer={ctx.props.onAnswer} />}
+                {open && open.kind !== 'input' && (
                     <p class="ask">
                         Allow <code>{open.toolName ?? p.name}</code>?{' '}
                         <button type="button" onClick={() => ctx.props.onDecide(open.requestId, true)}>
@@ -64,11 +165,11 @@ const Part = component<{ part: AgentPart; requests: readonly OpenRequest[]; onDe
     };
 });
 
-const Message = component<{ message: AgentMessage; requests: readonly OpenRequest[]; onDecide: (requestId: string, allow: boolean) => void }>((ctx) => {
+const Message = component<{ message: AgentMessage } & AskProps>((ctx) => {
     return () => (
         <div class={`msg ${ctx.props.message.role}`}>
             {ctx.props.message.parts.map((part) => (
-                <Part part={part} requests={ctx.props.requests} onDecide={ctx.props.onDecide} />
+                <Part part={part} requests={ctx.props.requests} onDecide={ctx.props.onDecide} onAnswer={ctx.props.onAnswer} />
             ))}
         </div>
     );
@@ -110,8 +211,12 @@ const Session = component<{ session: AgentSessionClient }>((ctx) => {
         }
     }
 
-    /** An `input` question has no tool call of its own; tool permissions render on their card. */
-    const questions = () => view.requests.filter((r) => r.callId === undefined);
+    function answer(requestId: string, answers: Answers): void {
+        void view.respond(requestId, { type: 'input', answers });
+    }
+
+    /** Questions with no tool call of their own; the rest render on their card. */
+    const questions = () => view.requests.filter((r) => r.kind === 'input' && r.callId === undefined);
 
     const tokens = () => {
         const u = view.usage;
@@ -134,15 +239,10 @@ const Session = component<{ session: AgentSessionClient }>((ctx) => {
                     <p class="hint">Ask about the incidents: the read-only tool runs unasked, the destructive one stops and asks you. Then open this page in a second tab — it replays everything and follows along.</p>
                 )}
                 {view.messages.map((m) => (
-                    <Message message={m} requests={view.requests} onDecide={decide} />
+                    <Message message={m} requests={view.requests} onDecide={decide} onAnswer={answer} />
                 ))}
                 {questions().map((r) => (
-                    <p class="ask">
-                        {r.message ?? 'The agent is asking for input.'}{' '}
-                        <button type="button" onClick={() => void view.respond(r.requestId, { type: 'input', answers: 'ok' })}>
-                            Answer “ok”
-                        </button>
-                    </p>
+                    <Ask request={r} onAnswer={answer} />
                 ))}
                 {view.error && <p class="error">{view.error.message}</p>}
             </section>

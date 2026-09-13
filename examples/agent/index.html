@@ -29,6 +29,13 @@
             .tool-error { color: crimson; font-size: 0.82em; }
             .ask { margin: 0.5rem 0 0; font-size: 0.9em; }
             .ask code { font-family: ui-monospace, monospace; }
+            /* An input request: one fieldset per question, answered in one go. */
+            form.ask { display: block; padding-bottom: 0; }
+            .question { margin: 0 0 0.5rem; padding: 0.4rem 0.7rem; border: 1px solid GrayText; border-radius: 0.4rem; }
+            .question legend { font-weight: 600; padding: 0 0.3rem; }
+            .question-text { margin: 0 0 0.4rem; opacity: 0.75; }
+            .question label { display: block; padding: 0.1rem 0; cursor: pointer; }
+            .question input[type='text'] { width: 100%; box-sizing: border-box; margin-top: 0.3rem; font: inherit; padding: 0.35rem 0.5rem; border-radius: 0.35rem; border: 1px solid GrayText; background: Field; color: FieldText; }
             .attachment { font-family: ui-monospace, monospace; font-size: 0.8em; }
             form { display: flex; gap: 0.5rem; padding-bottom: 1rem; }
             textarea { flex: 1; resize: none; font: inherit; padding: 0.6rem; border-radius: 0.5rem; border: 1px solid GrayText; background: Field; color: FieldText; }

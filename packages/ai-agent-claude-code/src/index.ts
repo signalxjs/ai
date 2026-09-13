@@ -4,5 +4,7 @@ export type { ClaudeCodeOptions, ClaudeCodeSessionOptions, QueryFn, ListSessions
 export { claudeCode, CLAUDE_CODE_CAPABILITIES, DEFAULT_TOOL_SERVER, spawnForSdk } from './provider.js';
 export { CLAUDE_CODE_NS, assistantErrorCode } from './stream.js';
 export { splitToolName, primaryArg, toolAnnotations, toUserMessage, toOutputFormat, toQueryOptions, childEnv, PERMISSION_MODES } from './request.js';
+export { ASK_USER_QUESTION, questionId, parseQuestions, questionsSchema, questionOptions, questionsMessage, toAskAnswers } from './questions.js';
+export type { AskQuestion } from './questions.js';
 export { startToolServer, bearerToken, sameToken } from './tools.js';
 export type { ToolServer } from './tools.js';
