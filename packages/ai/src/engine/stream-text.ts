@@ -268,7 +268,12 @@ type ToolOutcome =
     | { readonly call: { id: string; name: string }; readonly output: unknown; readonly isError: boolean; readonly denied?: true; readonly fromTranscript?: true }
     | { readonly call: { id: string; name: string }; readonly deferred: true };
 
-/** The `responseFormat` every round of a turn with `output` asks for. */
+/**
+ * The `responseFormat` every round of a turn with `output` asks for. The
+ * model's JSON is the INPUT of `schema.validate` (transforms and defaults
+ * turn it into the output type), so the schema's input side is what the
+ * model is told to produce — the same as `generateObject`.
+ */
 function toResponseFormat(output: OutputOptions): NonNullable<ModelRequest['responseFormat']> {
     const schema = output.jsonSchema ?? jsonSchemaOf(output.schema);
     if (!schema) {

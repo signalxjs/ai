@@ -15,7 +15,7 @@ export interface Usage {
 /**
  * One chunk of a streaming assistant turn. A turn is:
  *
- *   start → (text | reasoning | tool-call | tool-approval-request | tool-result)* → finish
+ *   start → (text | reasoning | reasoning-end | tool-call | tool-approval-request | tool-result)* → finish
  *
  * `error` may appear anywhere and ends the turn. `finish` carries the
  * reason and, when the provider reports it, the usage for the whole turn

@@ -62,11 +62,16 @@ describe('streamText output', () => {
         expect(chunks.at(-1)).toEqual({ type: 'error', message: expect.stringMatching(/no parseable JSON/) });
     });
 
-    it('a partial JSON document is repaired before validation', async () => {
+    it('a completed answer that is not quite well-formed JSON is repaired before validation', async () => {
+        const model = mockModel({ script: [{ text: '{"ok": true' }] });
+        const chunks = await collect(streamText({ model, messages: [userMessage('x')], output: { schema: okSchema } }));
+        expect(chunks.at(-1)).toEqual({ type: 'finish', reason: 'stop', output: { ok: true } });
+    });
+
+    it('a turn cut short by the token limit carries no output and is not validated', async () => {
         const model = mockModel({ script: [{ text: '{"ok": true', finishReason: 'length' }] });
         const chunks = await collect(streamText({ model, messages: [userMessage('x')], output: { schema: okSchema } }));
-        // The model ran out of tokens: the turn reports `length` and no output —
-        // a truncated document is never presented as the answer.
+        // A truncated document is never presented as the answer.
         expect(chunks.at(-1)).toEqual({ type: 'finish', reason: 'length' });
     });
 
@@ -105,10 +110,13 @@ describe('streamText output', () => {
             respond: (_req, round) => (round === 0 ? { toolCalls: [{ name: 'weather', input: { city: 'Rome' }, id: 'c1' }] } : { text: '{"ok": true}' })
         });
         const r = await generateText({ model, messages: [userMessage('x')], tools: [weather], output: { schema: okSchema } });
-        const ok: boolean = r.output.ok; // typed through the schema
+        const ok: boolean | undefined = r.output?.ok; // typed through the schema; present iff finishReason is 'stop'
         expect(ok).toBe(true);
         expect(r.text).toBe('{"ok": true}');
         expect(r.toolCalls).toHaveLength(1);
+        const refused = await generateText({ model: mockModel({ script: [{ text: 'no', finishReason: 'refusal' }] }), messages: [userMessage('x')], output: { schema: okSchema } });
+        expect(refused.finishReason).toBe('refusal');
+        expect(refused.output).toBeUndefined();
         const plain = await generateText({ model: mockModel({ script: [{ text: 'hi' }] }), messages: [userMessage('x')] });
         expect(plain.output).toBeUndefined();
         await expect(generateText({ model: mockModel({ script: [{ text: 'nope' }] }), messages: [userMessage('x')], output: { schema: okSchema } })).rejects.toThrow(/no parseable JSON/);
