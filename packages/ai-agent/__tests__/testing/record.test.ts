@@ -58,9 +58,11 @@ describe('recordAgent / replayAgent', () => {
         await live.close();
         const fixture = recorder.fixture;
 
-        // A different prompt.
+        // A different prompt, or a different caller-supplied turnId.
         const s1 = await replayAgent(fixture).session();
         await expect(s1.prompt('something else').result).rejects.toBeInstanceOf(ReplayMismatchError);
+        const s1b = await replayAgent(fixture).session();
+        await expect(s1b.prompt('go', { turnId: 'not-the-recorded-one' }).result).rejects.toBeInstanceOf(ReplayMismatchError);
 
         // A different decision.
         const s2 = await replayAgent(fixture).session();

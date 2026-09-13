@@ -298,8 +298,12 @@ export function replayAgent(fixture: AgentFixture, options: ReplayAgentOptions =
                 prompt(input, promptOptions) {
                     const expected = nextCommand();
                     const schema = outputSchema(promptOptions);
-                    const actual: FixtureCommand = { kind: 'prompt', turnId: expected?.kind === 'prompt' ? expected.turnId : (promptOptions?.turnId ?? ''), input: toPromptParts(input), ...(schema ? { output: schema } : {}) };
-                    if (!expected || !sameCommand(expected, actual)) return failedTurn(actual.turnId || 'replay', new ReplayMismatchError(expected, actual));
+                    // A caller-supplied turnId must be the recorded one; otherwise the recorded id is used.
+                    const turnId = promptOptions?.turnId ?? (expected?.kind === 'prompt' ? expected.turnId : '');
+                    const actual: FixtureCommand = { kind: 'prompt', turnId, input: toPromptParts(input), ...(schema ? { output: schema } : {}) };
+                    if (!expected || !sameCommand(expected, actual) || (expected.kind === 'prompt' && expected.turnId !== turnId)) {
+                        return failedTurn(turnId || 'replay', new ReplayMismatchError(expected, actual));
+                    }
                     cursor++;
                     const turn: AgentTurn = core.startTurn(input, { ...promptOptions, turnId: actual.turnId }, async (driver) => {
                         for (;;) {

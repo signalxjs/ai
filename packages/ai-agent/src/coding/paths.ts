@@ -13,7 +13,8 @@ export interface NormalizedPath {
     readonly absolute: boolean;
 }
 
-const DRIVE = /^[A-Za-z]:(?=[\\/]|$)/;
+/** A drive prefix, with or without a separator after it (`C:\x`, `C:x`); a POSIX name like `a:b` is read as a drive too — an accepted ambiguity. */
+const DRIVE = /^[A-Za-z]:/;
 const UNC = /^(?:\\\\|\/\/)([^\\/]+)[\\/]([^\\/]+)/;
 
 /** Windows when it has a drive letter, a UNC prefix, or any backslash. */
@@ -64,6 +65,10 @@ export function resolveFrom(base: string, child: string): NormalizedPath {
     const c = normalizePath(child);
     const b = normalizePath(base);
     if (c.absolute) return c.windows && !c.root ? { ...c, root: b.root } : c;
+    // A drive-relative path (`D:folder`) depends on that drive's current
+    // directory, which we cannot know; on another drive it stays unresolved
+    // (not absolute), so a containment check conservatively fails.
+    if (c.root && c.root !== b.root) return c;
     const segments = [...b.segments];
     for (const seg of c.segments) {
         if (seg === '..') {

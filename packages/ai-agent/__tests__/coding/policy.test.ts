@@ -33,6 +33,8 @@ describe('coding policies', () => {
         expect(await win(perm('Edit', { file_path: 'C:\\Users\\andy\\Other' }), ctx)).toMatchObject({ outcome: 'deny' });
         expect(await win(perm('Edit', { file_path: 'src\\..\\..\\Other' }), ctx)).toMatchObject({ outcome: 'deny' });
         expect(await win(perm('Edit', { file_path: 'D:\\Users\\andy\\My Repo\\a' }), ctx)).toMatchObject({ outcome: 'deny' });
+        expect(await win(perm('Edit', { file_path: 'D:src\\a.ts' }), ctx)).toMatchObject({ outcome: 'deny' });
+        expect(await win(perm('Edit', { file_path: 'C:src\\a.ts' }), ctx)).toBeUndefined();
 
         const unc = denyOutside('\\\\server\\share\\repo');
         expect(await unc(perm('Read', { path: '//server/share/repo/a' }), ctx)).toBeUndefined();

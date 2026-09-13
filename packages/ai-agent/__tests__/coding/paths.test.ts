@@ -43,5 +43,10 @@ describe('pure path normaliser', () => {
         expect(resolveFrom('C:\\repo', 'D:\\x').root).toBe('D:');
         // Rooted on the current drive inherits the base's drive.
         expect(resolveFrom('C:\\repo', '\\other')).toEqual({ root: 'C:', segments: ['other'], windows: true, absolute: true });
+        // Drive-relative: on the base's drive it joins; on another drive it stays unresolved, so containment fails.
+        expect(resolveFrom('C:\\repo', 'C:src')).toEqual({ root: 'C:', segments: ['repo', 'src'], windows: true, absolute: true });
+        const other = resolveFrom('C:\\repo', 'D:folder');
+        expect(other).toEqual({ root: 'D:', segments: ['folder'], windows: true, absolute: false });
+        expect(isWithin(other, 'C:\\repo')).toBe(false);
     });
 });
