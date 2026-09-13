@@ -42,14 +42,15 @@ export function webSocketStreams(ws: WebSocketLike): WebSocketStreams {
             // Frames are enqueued strictly in arrival order: a Blob frame is read
             // asynchronously, so everything queues behind the previous frame's read.
             let chain: Promise<void> = Promise.resolve();
-            const toBytes = async (data: unknown): Promise<Uint8Array | undefined> => {
+            const toBytes = async (data: unknown): Promise<Uint8Array> => {
                 if (typeof data === 'string') return encoder.encode(data);
                 if (data instanceof ArrayBuffer) return new Uint8Array(data);
                 if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
                 if (data && typeof (data as { arrayBuffer?: unknown }).arrayBuffer === 'function') {
                     return new Uint8Array(await (data as { arrayBuffer(): Promise<ArrayBuffer> }).arrayBuffer());
                 }
-                return undefined;
+                // Dropping a frame would desync the protocol; failing fast is the honest outcome.
+                throw new Error(`[sigx ai-agent] unsupported WebSocket frame type: ${data === null ? 'null' : typeof data}`);
             };
             const onMessage = (event: { data: unknown }) => {
                 if (done) return;
@@ -58,7 +59,7 @@ export function webSocketStreams(ws: WebSocketLike): WebSocketStreams {
                     if (done) return;
                     try {
                         const bytes = await toBytes(data);
-                        if (bytes && !done) controller.enqueue(bytes);
+                        if (!done) controller.enqueue(bytes);
                     } catch (e) {
                         // A failed read cannot be skipped (framing would drift): the stream fails.
                         fail(e instanceof Error ? e : new Error(String(e)));

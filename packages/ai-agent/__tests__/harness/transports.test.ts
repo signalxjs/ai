@@ -98,6 +98,16 @@ describe('webSocketStreams', () => {
         expect(bad.readyState).toBe(3);
     });
 
+    it('an unsupported frame type fails the readable instead of being dropped', async () => {
+        const ws = fakeSocket();
+        const { readable, closed } = webSocketStreams(ws);
+        const reader = readable.getReader();
+        ws.receive(42);
+        await expect(reader.read()).rejects.toThrow(/unsupported WebSocket frame type: number/);
+        await closed;
+        expect(ws.readyState).toBe(3);
+    });
+
     it('a socket that is already closing or closed never hangs a write, and its readable settles at once', async () => {
         for (const state of [2, 3]) {
             const ws = fakeSocket(state);
