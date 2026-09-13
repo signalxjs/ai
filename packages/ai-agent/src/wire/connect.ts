@@ -143,7 +143,7 @@ export async function connectSession(transport: SessionTransport, options: Conne
                 return failed(turnId, new AgentError('protocol_error', '[sigx ai-agent] a remote prompt needs a JSON Schema for output; a Standard Schema cannot cross the wire'));
             }
             const reply = send({ type: 'prompt', turnId, input: toPromptParts(input), ...(output ? { output } : {}) });
-            return createClientTurn(turnId, buffer.subscribe(from), reply);
+            return createClientTurn(first.sessionId, turnId, buffer.subscribe(from), reply);
         },
         respond: (requestId: string, decision: Decision) => sendOrThrow({ type: 'respond', requestId, decision }),
         cancel: () => sendOrThrow({ type: 'cancel' }),
@@ -166,8 +166,13 @@ export async function connectSession(transport: SessionTransport, options: Conne
     return client;
 }
 
-/** A turn assembled from the local buffer, filtered by `turnId`; `result` settles from `turn-end` or the command's error reply. */
-function createClientTurn(turnId: string, events: AsyncIterable<AgentEvent>, reply: Promise<WireReply>): AgentTurn {
+/**
+ * A turn assembled from the local buffer, filtered by `turnId`. One collector
+ * drains the subscription into `own` (so `result` settles whether or not
+ * anyone iterates); each iterator walks `own` by its own index and waits for
+ * growth, so several consumers can iterate, and late ones see everything once.
+ */
+function createClientTurn(sessionId: string, turnId: string, events: AsyncIterable<AgentEvent>, reply: Promise<WireReply>): AgentTurn {
     let resolveResult!: (r: TurnResult) => void;
     let rejectResult!: (e: unknown) => void;
     const result = new Promise<TurnResult>((resolve, reject) => {
@@ -179,24 +184,27 @@ function createClientTurn(turnId: string, events: AsyncIterable<AgentEvent>, rep
     const own: AgentEvent[] = [];
     let done = false;
     let failure: unknown;
-    const waiters: { resolve: (r: IteratorResult<AgentEvent>) => void; reject: (e: unknown) => void }[] = [];
-    let consumed = 0;
+    let wakers: (() => void)[] = [];
+    const wake = () => {
+        for (const w of wakers.splice(0)) w();
+    };
+    const changed = () =>
+        new Promise<void>((resolve) => {
+            wakers.push(resolve);
+        });
 
     const finish = (e?: unknown) => {
         if (done) return;
         done = true;
         failure = e;
         void iterator.return?.();
-        for (const w of waiters.splice(0)) {
-            if (e === undefined) w.resolve({ value: undefined as never, done: true });
-            else w.reject(e);
-        }
+        wake();
     };
 
     void reply.then(
         (r) => {
             if (r.kind === 'error') {
-                const error = r.code === 'busy' ? new SessionBusyError('remote', turnId) : new AgentError(r.code === 'closed' ? 'protocol_error' : 'protocol_error', `[sigx ai-agent] remote prompt failed (${r.code}): ${r.message}`);
+                const error = r.code === 'busy' ? new SessionBusyError(sessionId, turnId) : new AgentError('protocol_error', `[sigx ai-agent] remote prompt failed (${r.code}): ${r.message}`);
                 rejectResult(error);
                 finish(error);
             }
@@ -215,8 +223,7 @@ function createClientTurn(turnId: string, events: AsyncIterable<AgentEvent>, rep
                 const e = next.value;
                 if (e.turnId !== turnId) continue;
                 own.push(e);
-                const w = waiters.shift();
-                if (w) w.resolve({ value: e, done: false });
+                wake();
                 if (e.type === 'turn-end') {
                     const { type: _t, sessionId: _s, epoch: _e, seq: _q, turnId: _i, parentCallId: _p, raw: _r, ...payload } = e;
                     resolveResult({ turnId, ...payload });
@@ -240,21 +247,23 @@ function createClientTurn(turnId: string, events: AsyncIterable<AgentEvent>, rep
         result,
         [Symbol.asyncIterator]() {
             let i = 0;
+            let stopped = false;
             return {
-                next: (): Promise<IteratorResult<AgentEvent>> => {
-                    if (i < own.length) return Promise.resolve({ value: own[i++]!, done: false });
-                    if (done) return failure === undefined ? Promise.resolve({ value: undefined as never, done: true }) : Promise.reject(failure);
-                    return new Promise((resolve, reject) => {
-                        waiters.push({
-                            resolve: (r) => {
-                                if (!r.done) i = ++consumed;
-                                resolve(r);
-                            },
-                            reject
-                        });
-                    });
+                next: async (): Promise<IteratorResult<AgentEvent>> => {
+                    for (;;) {
+                        if (stopped) return { value: undefined as never, done: true };
+                        if (i < own.length) return { value: own[i++]!, done: false };
+                        if (done) {
+                            if (failure !== undefined) throw failure;
+                            return { value: undefined as never, done: true };
+                        }
+                        await changed();
+                    }
                 },
-                return: (): Promise<IteratorResult<AgentEvent>> => Promise.resolve({ value: undefined as never, done: true }),
+                return: (): Promise<IteratorResult<AgentEvent>> => {
+                    stopped = true;
+                    return Promise.resolve({ value: undefined as never, done: true });
+                },
                 [Symbol.asyncIterator]() {
                     return this;
                 }

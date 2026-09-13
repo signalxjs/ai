@@ -46,15 +46,22 @@ export function serveSession(session: AgentSession, options: ServeSessionOptions
     let head: Cursor = { epoch: 0, seq: 0 };
     let serving = true;
 
-    // Track the head (and feed the store) from everything the session has buffered.
+    // Track the head (and feed the store) from everything the session has
+    // buffered. Serving ends with this subscription: when it drops, `hello.head`
+    // and `gap.resumeAt` would go stale, so commands are refused from then on.
+    const tracking = session.subscribe({ epoch: 0, seq: 0 })[Symbol.asyncIterator]();
     const tracker = (async () => {
         try {
-            for await (const e of session.subscribe({ epoch: 0, seq: 0 })) {
-                head = { epoch: e.epoch, seq: e.seq };
-                if (options.eventLog) await options.eventLog.append(e);
+            for (;;) {
+                const next = await tracking.next();
+                if (next.done) break;
+                head = { epoch: next.value.epoch, seq: next.value.seq };
+                if (options.eventLog) await options.eventLog.append(next.value);
             }
-        } catch {
-            // The session closed or the subscription was dropped; serving ends with it.
+        } catch (e) {
+            if (__DEV__) console.warn(`[sigx ai-agent] serveSession("${session.id}") stopped tracking events: ${e instanceof Error ? e.message : String(e)}`);
+        } finally {
+            serving = false;
         }
     })();
 
@@ -151,8 +158,9 @@ export function serveSession(session: AgentSession, options: ServeSessionOptions
             return head;
         },
         async handleCommand(command, principal) {
-            if (!serving) return { v: V, kind: 'error', commandId: (command as { commandId?: string }).commandId ?? '', code: 'closed', message: `session "${session.id}" is no longer served` };
-            if (!isWireCommand(command)) return { v: V, kind: 'error', commandId: (command as { commandId?: string })?.commandId ?? '', code: 'invalid', message: 'not a wire command' };
+            const commandId = (command as { commandId?: string } | null | undefined)?.commandId ?? '';
+            if (!serving) return { v: V, kind: 'error', commandId, code: 'closed', message: `session "${session.id}" is no longer served` };
+            if (!isWireCommand(command)) return { v: V, kind: 'error', commandId, code: 'invalid', message: 'not a wire command' };
             if (options.authorize && !(await options.authorize(command, principal))) {
                 return { v: V, kind: 'error', commandId: command.commandId, code: 'unauthorized', message: `command "${command.type}" is not allowed` };
             }
@@ -168,7 +176,8 @@ export function serveSession(session: AgentSession, options: ServeSessionOptions
         },
         async close() {
             serving = false;
-            await Promise.race([tracker, Promise.resolve()]);
+            await tracking.return?.();
+            await tracker;
         }
     };
 }

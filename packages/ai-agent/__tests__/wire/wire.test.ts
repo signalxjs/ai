@@ -89,6 +89,41 @@ describe('serveSession / connectSession', () => {
         remote.disconnect();
     });
 
+    it('a turn iterated after its result settled, or twice, yields every event exactly once', async () => {
+        const { served } = await serve([[{ text: 'one two three' }]]);
+        const remote = await connectSession(inMemory(served));
+        const turn = remote.prompt('go');
+        await turn.result;
+        const late = await collect(turn);
+        const again = await collect(turn);
+        expect(seqs(late)).toEqual(seqs(again));
+        expect(new Set(seqs(late)).size).toBe(late.length);
+        expect(late[0]!.type).toBe('turn-start');
+        expect(late.at(-1)!.type).toBe('turn-end');
+        // Two concurrent iterators see the same events.
+        const turn2 = remote.prompt('again');
+        const [a, b] = await Promise.all([collect(turn2), collect(turn2)]);
+        expect(seqs(a)).toEqual(seqs(b));
+        // The busy error names the real session.
+        const busy = await serve([[{ text: 'slow slow', delayMs: 10 }]]);
+        const r2 = await connectSession(inMemory(busy.served));
+        const first = r2.prompt('a');
+        const err = await r2.prompt('b').result.catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(SessionBusyError);
+        expect((err as SessionBusyError).sessionId).toBe(busy.session.id);
+        await first.result;
+        remote.disconnect();
+        r2.disconnect();
+    });
+
+    it('closing the served session stops tracking; a closed server answers every command with a wire error', async () => {
+        const { session, served } = await serve([[{ text: 'x' }]]);
+        await served.close();
+        expect(await served.handleCommand(null as unknown as WireCommand)).toMatchObject({ kind: 'error', code: 'closed', commandId: '' });
+        expect(await served.handleCommand({ v: 1, commandId: 'c', type: 'cancel' })).toMatchObject({ kind: 'error', code: 'closed' });
+        await session.close();
+    });
+
     it('a broken stream with reconnect: false ends the client', async () => {
         const { served } = await serve([[{ text: 'x' }]]);
         const transport: SessionTransport = {
