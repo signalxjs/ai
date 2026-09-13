@@ -26,12 +26,35 @@ const { stopReason } = await turn.result; // 'end_turn'
 console.log(text); // 'Hello from the agent.'
 ```
 
-Two entries today (more land with the following milestones):
+Three entries today (more land with the following milestones):
 
 | Entry | What |
 |---|---|
 | `@sigx/ai-agent` | the contract (`Agent`, `AgentSession`, `AgentTurn`), the event union, capabilities, the policy engine (`resolveRequest`, `allowAll`, `allowReadOnly`, `firstMatch`, …), and the session helpers adapters build on (`createEventLog`, `createTurn`, `createSessionCore`) |
+| `@sigx/ai-agent/harness` | the protocol kit: `createJsonRpcPeer` (JSON-RPC 2.0 over Web Streams, both directions), NDJSON framing, `createMcpToolHandler` (client tools as an MCP server, Streamable HTTP), `webSocketStreams` |
 | `@sigx/ai-agent/testing` | `mockAgent` — a scripted, deterministic agent |
+
+## Protocol kit
+
+Protocol-based adapters (ACP, Codex app-server) are mappings, not transport
+code: `createJsonRpcPeer` speaks JSON-RPC 2.0 over any pair of Web Streams —
+a child process's stdio, a WebSocket (`webSocketStreams`), an in-memory
+`TransformStream` in tests — with requests in both directions, cooperative
+cancellation and backpressure. `createMcpToolHandler(tools, { name, version,
+auth })` exposes `defineTool` tools to a harness over MCP's Streamable HTTP
+transport (JSON-only, tools only, bearer-authenticated); serve it with any
+`(Request) => Promise<Response>` host — on Node, `@sigx/ai-agent-node`'s
+`listenMcp`.
+
+```ts
+import { createJsonRpcPeer, createMcpToolHandler } from '@sigx/ai-agent/harness';
+
+const peer = createJsonRpcPeer({ readable, writable });        // e.g. a spawned agent's stdout / stdin
+peer.onRequest('session/request_permission', async (params, ctx) => decide(params, ctx.signal));
+const init = await peer.request('initialize', { protocolVersion: 1 });
+
+const handler = createMcpToolHandler([weather], { name: 'my-app', version: '1.0.0', auth: (r) => r.headers.get('authorization') === `Bearer ${token}` });
+```
 
 ## Install
 

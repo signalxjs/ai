@@ -12,6 +12,12 @@
             "production": "./dist/index.prod.js",
             "import": "./dist/index.js"
         },
+        "./harness": {
+            "types": "./dist/harness/index.d.ts",
+            "development": "./dist/harness.js",
+            "production": "./dist/harness.prod.js",
+            "import": "./dist/harness.js"
+        },
         "./testing": {
             "types": "./dist/testing/index.d.ts",
             "development": "./dist/testing.js",
@@ -54,6 +60,7 @@
         "url": "https://github.com/signalxjs/ai/issues"
     },
     "devDependencies": {
+        "@modelcontextprotocol/sdk": "^1.30.0",
         "@sigx/ai": "workspace:*",
         "@sigx/vite": "catalog:",
         "@types/node": "^25.9.1",
