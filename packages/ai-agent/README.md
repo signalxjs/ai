@@ -303,8 +303,9 @@ arrived earlier is delivered on registration) — inject it natively and
 `driver.emit` the `user-message`; call `ctx.resolve(request, { parentCallId })`
 for a request a sub-agent raised; and `core.attach({ respond, cancel })` a
 delegate session you opened so `respond()` and `cancel({ agentId })` reach it
-(detach with the returned function). `cancel({ agentId })` on a core whose
-`subagents` is not `'control'` rejects with `protocol_error`.
+(detach with the returned function). Both forward only with `subagents:
+'control'`: on any other core an unknown `respond()` id stays a no-op and
+`cancel({ agentId })` rejects with `protocol_error`.
 
 ```ts
 import { agentConformance } from '@sigx/ai-agent/testing';

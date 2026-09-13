@@ -119,8 +119,8 @@ describe('createSessionCore', () => {
     });
 
     describe('attach', () => {
-        it('respond() answers its own request first and forwards unknown ids to attachments', async () => {
-            const { core: c } = core();
+        it('respond() answers its own request first and forwards unknown ids to attachments with subagents: control', async () => {
+            const { core: c } = core({ subagents: 'control' });
             const forwarded: string[] = [];
             const detach = c.attach({ respond: async (requestId) => void forwarded.push(requestId) });
             const turn = c.startTurn('hi', undefined, async (d, ctx) => {
@@ -136,6 +136,13 @@ describe('createSessionCore', () => {
             detach();
             await c.respond('after-detach', { type: 'cancel' });
             expect(forwarded).toEqual(['child-req']);
+
+            // Without `control`, an unknown id is a no-op even with an attachment.
+            const { core: observe } = core({ subagents: 'observe' });
+            const notForwarded: string[] = [];
+            observe.attach({ respond: async (requestId) => void notForwarded.push(requestId) });
+            await expect(observe.respond('child-req', { type: 'cancel' })).resolves.toBeUndefined();
+            expect(notForwarded).toEqual([]);
         });
 
         it('cancel({ agentId }) forwards to attachments with subagents: control, and is refused otherwise', async () => {

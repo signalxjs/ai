@@ -87,8 +87,9 @@ follow [SemVer](https://semver.org/).
 - `createSessionCore` owns steering and sub-agent control: `ctx.onSteer(handler)`
   receives steering input (queued until registered), `core.steer(input)` returns
   a handle to the RUNNING turn, `core.attach(downstream)` forwards `respond()`
-  and addressed `cancel()` to a delegate session, and `ctx.resolve(request,
-  { parentCallId })` stamps a request a sub-agent raised.
+  and addressed `cancel()` to a delegate session (both only with `subagents:
+  'control'`), and `ctx.resolve(request, { parentCallId })` stamps a request a
+  sub-agent raised.
 
 ### Changed
 

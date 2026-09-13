@@ -250,6 +250,9 @@ export function createSessionCore(options: SessionCoreOptions): SessionCore {
                 own.resolve(decision);
                 return;
             }
+            // Answering at depth is what `subagents: 'control'` promises; an
+            // unknown id on any other session stays a no-op.
+            if (options.subagents !== 'control') return;
             for (const a of attached) await a.respond?.(requestId, decision);
         },
         async cancel(target) {
