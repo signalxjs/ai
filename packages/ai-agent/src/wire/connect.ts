@@ -219,11 +219,12 @@ export async function connectSession(transport: SessionTransport, options: Conne
             void follow();
         },
         prompt(input: PromptInput, promptOptions?: PromptOptions) {
-            // Always a fresh id: whether this prompt starts a turn or steers the
-            // running one is the server's call (it has the truth about `busy`), and
-            // the ack names the turn it went into — the handle retargets to it.
-            // Reusing an id this client believes is running would collide with a
-            // turn that ended in the meantime.
+            // A fresh id unless the caller supplied one. Whether this prompt starts a
+            // turn or steers the running one is the server's call (it has the truth
+            // about `busy`), and the ack names the turn it went into — the handle
+            // retargets to it, caller-supplied id or not. The client never reuses an
+            // id it believes is running: that would collide with a turn that ended
+            // in the meantime.
             const turnId = promptOptions?.turnId ?? newId();
             const from = last;
             const output = promptOptions?.output ? { schema: promptOptions.output.schema as Record<string, unknown>, ...(promptOptions.output.name !== undefined ? { name: promptOptions.output.name } : {}) } : undefined;
@@ -418,11 +419,27 @@ function createClientTurn(sessionId: string, turnId: string, sent: readonly Prom
     };
 }
 
-/** The parts a steer sent, as the adapter echoes them on its `user-message` (plain JSON both ways). */
+/**
+ * The parts a steer sent, as the adapter echoes them on its `user-message`.
+ * Structural equality: both sides are plain JSON, but an adapter may rebuild
+ * the parts in its own key order, and a `data` / `url` round-trip must not
+ * make a boundary invisible.
+ */
 function sameParts(a: readonly PromptPart[], b: readonly PromptPart[]): boolean {
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) if (JSON.stringify(a[i]) !== JSON.stringify(b[i])) return false;
-    return true;
+    return a.length === b.length && a.every((part, i) => canonical(part) === canonical(b[i]));
+}
+
+function canonical(value: unknown): string {
+    if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+    if (typeof value === 'object' && value !== null) {
+        const o = value as Record<string, unknown>;
+        return `{${Object.keys(o)
+            .filter((k) => o[k] !== undefined)
+            .sort()
+            .map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`)
+            .join(',')}}`;
+    }
+    return JSON.stringify(value) ?? 'null';
 }
 
 function failed(turnId: string, error: Error): AgentTurn {
