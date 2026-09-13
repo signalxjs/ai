@@ -17,7 +17,7 @@ describe('coding extension events and reducer', () => {
 
     it('accumulates diffs (tagged), bounded terminal output, the latest plan and changed files', () => {
         seq = 0;
-        const reduce = createReducer({ extensions: [codingExtension({ maxTerminalBytes: 8 })] });
+        const reduce = createReducer({ extensions: [codingExtension({ maxTerminalChars: 8 })] });
         const t = createTranscript('s');
         const events: AgentEvent[] = [
             ev({ ...codingEvent('diff', { path: 'a.ts', oldText: '1', newText: '2' }, { parentCallId: 'c1' }), turnId: 't1' }),

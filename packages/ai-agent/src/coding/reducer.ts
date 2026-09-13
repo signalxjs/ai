@@ -15,7 +15,7 @@ export interface CodingDiffRecord extends CodingDiff {
 }
 
 export interface CodingTerminalState {
-    /** Interleaved stdout/stderr as it arrived, trimmed from the front past `maxTerminalBytes`. */
+    /** Interleaved stdout/stderr as it arrived, trimmed from the front past `maxTerminalChars`. */
     output: string;
     truncated: boolean;
     exitCode?: number | null;
@@ -30,12 +30,12 @@ export interface CodingState {
 }
 
 export interface CodingExtensionOptions {
-    /** Characters kept per terminal. Default 65 536. */
-    readonly maxTerminalBytes?: number;
+    /** Characters (UTF-16 code units) kept per terminal. Default 65 536. */
+    readonly maxTerminalChars?: number;
 }
 
 export function codingExtension(options: CodingExtensionOptions = {}): ReducerExtension {
-    const max = options.maxTerminalBytes ?? 65_536;
+    const max = options.maxTerminalChars ?? 65_536;
     return {
         ns: CODING_NS,
         reduce(t, e) {
