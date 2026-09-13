@@ -70,6 +70,16 @@ describe('modelAgent agent definitions (defineAgents)', () => {
         expect(toolMsg.content).toEqual([{ type: 'tool-result', toolCallId: 'r1', toolName: 'reviewer', output: 'looks fine' }]);
     });
 
+    it('arguments beyond { task } fail the call before any sub-agent starts — the validator matches the JSON Schema', async () => {
+        const { events, result } = await run(
+            (req) => (isDelegate(req) ? { text: 'never' } : afterTools(req) ? { text: 'Done.' } : { toolCalls: [{ name: 'reviewer', input: { task: 'x', extra: true }, id: 'r1' }] }),
+            { policy: allowAll, agents: { reviewer: { description: 'x', prompt: REVIEW_PROMPT } } }
+        );
+        expect(result.stopReason).toBe('end_turn');
+        expect(events.find((e) => e.type === 'tool-update' && e.callId === 'r1' && e.status === 'failed')).toMatchObject({ error: expect.stringContaining('Invalid arguments') });
+        expect(events.find((e) => e.type === 'agent-start')).toBeUndefined();
+    });
+
     it('maxTurns bounds the delegate’s model rounds', async () => {
         const { model, events } = await run(
             (req) => (isDelegate(req) ? { toolCalls: [{ name: 'lookup', input: {} }] } : afterTools(req) ? { text: 'Done.' } : { toolCalls: [{ name: 'reviewer', input: { task: 'loop' }, id: 'r1' }] }),
@@ -127,6 +137,7 @@ describe('modelAgent agent definitions (defineAgents)', () => {
         expect(await failing({ 'bad name': { description: 'x' } })).toMatchObject({ name: 'AgentError', code: 'protocol_error', message: expect.stringContaining('bad name') });
         expect(await failing({ echo: { description: 'x' } })).toMatchObject({ code: 'protocol_error', message: expect.stringContaining('echo') });
         expect(await failing({ reviewer: { description: 'x', tools: ['nope'] } })).toMatchObject({ code: 'protocol_error', message: expect.stringContaining('nope') });
+        expect(await failing({ reviewer: { description: 'x', tools: ['echo', 'echo'] } })).toMatchObject({ code: 'protocol_error', message: expect.stringContaining('twice') });
         expect(await failing({ reviewer: { description: 'x' } })).toBeUndefined();
         expect(new AgentError('protocol_error', 'x')).toBeInstanceOf(Error);
         await agent.dispose();

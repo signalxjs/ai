@@ -30,10 +30,11 @@ interface Task {
     readonly task: string;
 }
 
-const isTask = (v: unknown): v is Task => typeof v === 'object' && v !== null && typeof (v as { task?: unknown }).task === 'string';
+/** Exactly `{ task: string }` — the same shape `TASK_JSON` promises the provider. */
+const isTask = (v: unknown): v is Task => typeof v === 'object' && v !== null && typeof (v as { task?: unknown }).task === 'string' && Object.keys(v).length === 1;
 
 const taskSchema: StandardSchemaV1<Task, Task> = {
-    '~standard': { version: 1, vendor: 'sigx-ai-agent', validate: (v) => (isTask(v) ? { value: v } : { issues: [{ message: 'expected { task: string }' }] }) }
+    '~standard': { version: 1, vendor: 'sigx-ai-agent', validate: (v) => (isTask(v) ? { value: v } : { issues: [{ message: 'expected { task: string } and nothing else' }] }) }
 };
 
 export interface DefinitionHost {
@@ -49,7 +50,8 @@ export interface DefinitionHost {
  * before the model ever sees the roster.
  */
 export function definitionTools(definitions: Readonly<Record<string, AgentDefinition>>, tools: readonly AnyTool[], session: SessionOptions, host: DefinitionHost): AnyTool[] {
-    const taken = new Set(tools.map((t) => t.name));
+    const byName = new Map(tools.map((t) => [t.name, t] as const));
+    const taken = new Set(byName.keys());
     const out: AnyTool[] = [];
     for (const [name, definition] of Object.entries(definitions)) {
         if (!TOOL_NAME.test(name)) throw new AgentError('protocol_error', `[sigx ai-agent] agent definition "${name}" is not a valid tool name — letters, digits, "_" and "-", up to 64 characters`);
@@ -57,10 +59,12 @@ export function definitionTools(definitions: Readonly<Record<string, AgentDefini
         taken.add(name);
         let own: readonly AnyTool[] = tools;
         if (definition.tools) {
-            const byName = new Map(tools.map((t) => [t.name, t] as const));
+            const seen = new Set<string>();
             own = definition.tools.map((toolName) => {
                 const tool = byName.get(toolName);
                 if (!tool) throw new AgentError('protocol_error', `[sigx ai-agent] agent definition "${name}" names a tool the session does not have: "${toolName}"`);
+                if (seen.has(toolName)) throw new AgentError('protocol_error', `[sigx ai-agent] agent definition "${name}" names the tool "${toolName}" twice`);
+                seen.add(toolName);
                 return tool;
             });
         }
