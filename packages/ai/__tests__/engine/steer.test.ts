@@ -2,8 +2,8 @@
  * `streamText({ steer })` — input injected into the running tool loop
  * between model rounds, without a chunk of its own.
  */
-import { describe, it, expect } from 'vitest';
-import { streamText, generateText, defineTool, userMessage, type ModelUserMessage, type UIChunk } from '@sigx/ai';
+import { describe, it, expect, expectTypeOf } from 'vitest';
+import { streamText, generateText, defineTool, userMessage, type ModelUserMessage, type StreamObjectOptions, type UIChunk } from '@sigx/ai';
 import { mockModel } from '@sigx/ai/testing';
 import { citySchema, collect } from '../helpers';
 
@@ -65,6 +65,10 @@ describe('streamText steer', () => {
         const model = mockModel({ respond: (_req, round) => ({ text: round === 0 ? 'a' : 'b' }) });
         await collect(streamText({ model, messages: [userMessage('go')], steer: queue([user('one'), user('two')]) }));
         expect(model.requests[1]!.messages.slice(2)).toEqual([user('one'), user('two')]);
+    });
+
+    it('streamObject / generateObject options do not take steer — one round, nothing to inject into', () => {
+        expectTypeOf<StreamObjectOptions<typeof citySchema>>().not.toHaveProperty('steer');
     });
 
     it('generateText passes steer through', async () => {
