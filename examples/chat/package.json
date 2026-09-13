@@ -4,9 +4,9 @@
     "type": "module",
     "description": "AI chat in a real SignalX app — a serverStream endpoint streaming UIChunks to useChat, tools, a provider picked by env, the scripted mock when no key is set",
     "scripts": {
-        "dev": "node dev-server.mjs",
+        "dev": "node --env-file-if-exists=.env dev-server.mjs",
         "build": "vite build --app",
-        "start": "cross-env NODE_ENV=production node --conditions=production server.mjs",
+        "start": "cross-env NODE_ENV=production node --env-file-if-exists=.env --conditions=production server.mjs",
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {
