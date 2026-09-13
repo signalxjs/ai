@@ -5,7 +5,7 @@
  * implementations live here and never ship. The client build swaps it for a
  * typed stub; `useChat` calls `chat(input)` and reads the NDJSON stream.
  *
- * The provider is picked by env: `AI_PROVIDER=anthropic|openai|mock`, or
+ * The provider is picked by env: `SIGX_AI_PROVIDER=anthropic|openai|mock`, or
  * whichever key is set, or the scripted mock — so `pnpm dev` works with no
  * key at all.
  */
@@ -65,20 +65,34 @@ const sendEmail = defineTool({
 // ── Model ───────────────────────────────────────────────────────────────────
 
 /**
+ * One env var, VALIDATED against the values we actually understand: an
+ * unrecognised one warns and falls back, so a typo — or a variable the
+ * surrounding tooling happens to set — is visible instead of silently
+ * ignored while the banner echoes it back.
+ */
+function pick<T extends string>(name: string, allowed: readonly T[], fallback: T): T {
+    const value = process.env[name];
+    if (!value) return fallback;
+    if ((allowed as readonly string[]).includes(value)) return value as T;
+    console.warn(`[chat] ${name}=${value} is not one of ${allowed.join(' | ')} — using ${fallback}.`);
+    return fallback;
+}
+
+/**
  * A model per REQUEST. The real providers are one shared client (stateless
  * per call); the mock records every request it sees, so sharing one across
  * users would grow without bound and answer from process history — a fresh
  * one per turn keeps it deterministic.
  */
 function modelFactory(): () => LanguageModel {
-    const wanted = process.env.AI_PROVIDER ?? (process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.OPENAI_API_KEY ? 'openai' : 'mock');
+    const wanted = pick('SIGX_AI_PROVIDER', ['anthropic', 'openai', 'mock'] as const, process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.OPENAI_API_KEY ? 'openai' : 'mock');
     switch (wanted) {
         case 'anthropic': {
-            const model = anthropic().model(process.env.AI_MODEL ?? 'claude-opus-5');
+            const model = anthropic().model(process.env.SIGX_AI_MODEL ?? 'claude-opus-5');
             return () => model;
         }
         case 'openai': {
-            const model = openai().model(process.env.AI_MODEL ?? 'gpt-5');
+            const model = openai().model(process.env.SIGX_AI_MODEL ?? 'gpt-5');
             return () => model;
         }
         default:
