@@ -12,26 +12,63 @@ may do; capabilities say what an adapter really delivers. Zero dependencies,
 no `node:` imports — Node, workerd and the browser alike.
 
 ```ts
-import { allowReadOnly } from '@sigx/ai-agent';
-import { mockAgent } from '@sigx/ai-agent/testing';
+import { modelAgent, allowReadOnly } from '@sigx/ai-agent';
+import { anthropic } from '@sigx/ai-anthropic';
 
-const agent = mockAgent({ script: [[{ text: 'Hello from the agent.' }]] });
+// Our own engine as an agent — any LanguageModel, any runtime, no process.
+const agent = modelAgent({ model: anthropic().model(), tools: [search, lookup] });
 const session = await agent.session({ interactive: false, policy: allowReadOnly });
-const turn = session.prompt('Say hello');
+const turn = session.prompt('Summarise the open incidents.');
 let text = '';
 for await (const event of turn) {
     if (event.type === 'part-delta') text += event.delta;
 }
 const { stopReason } = await turn.result; // 'end_turn'
-console.log(text); // 'Hello from the agent.'
 ```
 
 Two entries today (more land with the following milestones):
 
 | Entry | What |
 |---|---|
-| `@sigx/ai-agent` | the contract (`Agent`, `AgentSession`, `AgentTurn`), the event union, capabilities, the policy engine (`resolveRequest`, `allowAll`, `allowReadOnly`, `firstMatch`, …), the session helpers adapters build on (`createEventLog`, `createTurn`, `createSessionCore`), the transcript reducer (`reduceAgentEvent`, `createReducer`) with its bridges to `@sigx/ai` (`toUIMessages`, `fromUIMessages`, `toChatStream`), and the store seams (`TranscriptStore`, `EventLogStore`) |
+| `@sigx/ai-agent` | the contract (`Agent`, `AgentSession`, `AgentTurn`), the event union, capabilities, the policy engine (`resolveRequest`, `allowAll`, `allowReadOnly`, `firstMatch`, …), the session helpers adapters build on (`createEventLog`, `createTurn`, `createSessionCore`), the transcript reducer (`reduceAgentEvent`, `createReducer`) with its bridges to `@sigx/ai` (`toUIMessages`, `fromUIMessages`, `toChatStream`), the store seams (`TranscriptStore`, `EventLogStore`), `modelAgent` (our engine as an agent) and `agentTool` (an agent as a tool) |
 | `@sigx/ai-agent/testing` | `mockAgent` — a scripted, deterministic agent — and `agentConformance`, the suite every adapter must pass |
+
+## Our engine as an agent: `modelAgent`
+
+`modelAgent({ model, tools?, system?, maxSteps?, store? })` runs each prompt
+as one `streamText` turn over the session transcript. Every client tool call
+goes through the session's policy (`permissions: 'every-call'`); a `'ask'`
+becomes a `request` event an interactive client answers with
+`session.respond()`, and a headless session denies it. Structured output is
+`prompt(input, { output: { schema } })` → `turn.result.output`. The transcript
+is the resumable state: with a `TranscriptStore` the `SessionRef` names it,
+without one the ref carries it.
+
+**U1 — an edge chat agent** (workerd, Bun, Deno — no Node globals):
+
+```ts
+const agent = modelAgent({ model, tools, store: myKvTranscriptStore });
+const session = await agent.session(ref ? { resume: ref } : {});
+const turn = session.prompt(userInput);
+for await (const chunk of toChatStream(turn)) send(chunk); // plain useChat on the client
+persist(session.ref);
+```
+
+**U2 — a headless job** (CI, cron) returning a typed result:
+
+```ts
+const session = await agent.session({ interactive: false, policy: firstMatch(denyOutside(cwd), allowReadOnly) });
+const { stopReason, output } = await session.prompt('Review the diff.', { output: { schema: Verdict } }).result;
+```
+
+## An agent as a tool: `agentTool`
+
+`agentTool(delegate, { name, description, input, output?, prompt })` returns
+a `defineTool` tool that opens a headless session on `delegate`, prompts it
+with `prompt(input)` and returns its structured output (or its final text).
+Inside a `modelAgent` turn the delegate's events are forwarded with
+`parentCallId` set to the calling tool call, so a UI can show the nested work;
+`ctx.signal` cancels the delegate.
 
 ## Rendering a transcript
 
