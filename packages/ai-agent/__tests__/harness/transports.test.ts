@@ -55,8 +55,12 @@ describe('webSocketStreams', () => {
         expect(removed.sort()).toEqual(['close', 'error', 'message']);
     });
 
-    it('waits for open before writing; a closed socket rejects writes', async () => {
+    it('waits for open before writing (and drops the wait listeners); a closed socket rejects writes', async () => {
         const ws = fakeSocket(0);
+        const removed: string[] = [];
+        (ws as { removeEventListener?: (type: string) => void }).removeEventListener = (type) => {
+            removed.push(type);
+        };
         const { writable } = webSocketStreams(ws);
         const writer = writable.getWriter();
         const p = writer.write(new Uint8Array([1]));
@@ -65,8 +69,17 @@ describe('webSocketStreams', () => {
         ws.open();
         await p;
         expect(ws.sent).toHaveLength(1);
+        expect(removed).toEqual(['open', 'close', 'error']);
         ws.close();
         await expect(writer.write(new Uint8Array([2]))).rejects.toThrow(/not open/);
+    });
+
+    it('a socket that is already closing or closed never hangs a write', async () => {
+        for (const state of [2, 3]) {
+            const ws = fakeSocket(state);
+            const writer = webSocketStreams(ws).writable.getWriter();
+            await expect(writer.write(new Uint8Array([1]))).rejects.toThrow(/not open/);
+        }
     });
 
     it('drives a JSON-RPC peer with message framing', async () => {

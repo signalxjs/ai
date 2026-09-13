@@ -182,6 +182,22 @@ describe('createJsonRpcPeer', () => {
         await a.close();
     });
 
+    it('a message without jsonrpc 2.0 is answered -32600 when request-shaped, reported otherwise', async () => {
+        const raw = rawPeer();
+        raw.peer.onRequest('echo', (p) => p);
+        await raw.write('{"id":5,"method":"echo"}\n');
+        await raw.write('{"method":"echo"}\n');
+        await raw.write('{"jsonrpc":"1.0","id":6,"result":1}\n');
+        await raw.write('{"jsonrpc":"2.0","id":7,"method":"echo","params":1}\n');
+        await tick(5);
+        expect(raw.outLines.map((l) => JSON.parse(l))).toEqual([
+            { jsonrpc: '2.0', id: 5, error: { code: JSON_RPC.INVALID_REQUEST, message: 'Not a JSON-RPC 2.0 message' } },
+            { jsonrpc: '2.0', id: 7, result: 1 }
+        ]);
+        expect(raw.errors.map((e) => e.code)).toEqual([JSON_RPC.INVALID_REQUEST, JSON_RPC.INVALID_REQUEST]);
+        await raw.close();
+    });
+
     it('timeoutMs rejects with REQUEST_CANCELLED and cancels the peer request', async () => {
         const { a, b } = pair();
         const cancels: unknown[] = [];

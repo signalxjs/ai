@@ -25,6 +25,7 @@ export interface WebSocketStreams {
     readonly closed: Promise<void>;
 }
 
+const CONNECTING = 0;
 const OPEN = 1;
 
 export function webSocketStreams(ws: WebSocketLike): WebSocketStreams {
@@ -72,14 +73,22 @@ export function webSocketStreams(ws: WebSocketLike): WebSocketStreams {
         }
     });
 
+    // Resolves once the socket is open — or at once when it is open already, or
+    // closing/closed (no event will ever fire; the write then reports "not open").
     const ready =
-        ws.readyState === OPEN
-            ? Promise.resolve()
-            : new Promise<void>((resolve) => {
-                  ws.addEventListener('open', () => resolve());
-                  ws.addEventListener('close', () => resolve());
-                  ws.addEventListener('error', () => resolve());
-              });
+        ws.readyState === CONNECTING
+            ? new Promise<void>((resolve) => {
+                  const settle = () => {
+                      ws.removeEventListener?.('open', settle);
+                      ws.removeEventListener?.('close', settle);
+                      ws.removeEventListener?.('error', settle);
+                      resolve();
+                  };
+                  ws.addEventListener('open', settle);
+                  ws.addEventListener('close', settle);
+                  ws.addEventListener('error', settle);
+              })
+            : Promise.resolve();
 
     const writable = new WritableStream<Uint8Array>({
         async write(chunk) {

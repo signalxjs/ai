@@ -203,7 +203,13 @@ export function createJsonRpcPeer(options: JsonRpcPeerOptions): JsonRpcPeer {
             protocolError(JSON_RPC.INVALID_REQUEST, 'Not a JSON-RPC message', line);
             return;
         }
-        const m = message as { id?: unknown; method?: unknown; params?: unknown; result?: unknown; error?: unknown };
+        const m = message as { jsonrpc?: unknown; id?: unknown; method?: unknown; params?: unknown; result?: unknown; error?: unknown };
+        if (m.jsonrpc !== '2.0') {
+            // Not JSON-RPC 2.0: answer a request-shaped message so its sender never waits; report the rest.
+            if (typeof m.method === 'string' && isId(m.id)) void respond(m.id, { error: { code: JSON_RPC.INVALID_REQUEST, message: 'Not a JSON-RPC 2.0 message' } });
+            else protocolError(JSON_RPC.INVALID_REQUEST, 'Not a JSON-RPC 2.0 message', line);
+            return;
+        }
         if (typeof m.method === 'string') {
             if (isId(m.id)) {
                 void handleRequest(m.id, m.method, m.params);

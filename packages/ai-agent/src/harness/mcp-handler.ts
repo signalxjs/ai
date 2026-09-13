@@ -20,7 +20,7 @@ export interface McpToolHandlerOptions {
     readonly name: string;
     readonly version: string;
     readonly instructions?: string;
-    /** `false` → 401 with `WWW-Authenticate: Bearer`. */
+    /** Per-request check (typically the bearer token); returning `false` → 401 with `WWW-Authenticate: Bearer`. */
     readonly auth?: (request: Request) => boolean | Promise<boolean>;
     /** When set, a request with an `Origin` outside this list → 403. */
     readonly allowedOrigins?: readonly string[];
