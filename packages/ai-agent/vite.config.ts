@@ -8,7 +8,8 @@ import type { ConfigEnv, UserConfig } from 'vite';
 const base = defineLibConfig({
     entry: {
         index: 'src/index.ts',
-        testing: 'src/testing/index.ts'
+        testing: 'src/testing/index.ts',
+        coding: 'src/coding/index.ts'
     },
     external: [/@sigx\/.*/, /^node:/],
     root: import.meta.url

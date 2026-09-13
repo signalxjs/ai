@@ -22,6 +22,12 @@
     "ignore": ["@sigx/ai"]
   },
   {
+    "name": "@sigx/ai-agent/coding",
+    "path": "packages/ai-agent/dist/coding.prod.js",
+    "limit": "4 KB",
+    "ignore": ["@sigx/ai"]
+  },
+  {
     "name": "@sigx/ai-anthropic",
     "path": "packages/ai-anthropic/dist/index.prod.js",
     "limit": "4 KB",
