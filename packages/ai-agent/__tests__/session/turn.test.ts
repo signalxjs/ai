@@ -131,7 +131,7 @@ describe('createTurn', () => {
         expect(events.every((e) => e.parentCallId === 'call_9')).toBe(true);
         expect(driver.ended).toBe(true);
         const dropped = driver.emit({ type: 'part-delta', partId: 'p', delta: 'late' });
-        expect(dropped.seq).toBe(-1);
+        expect(dropped).toMatchObject({ seq: -1, turnId: turn.id, parentCallId: 'call_9' });
         expect(log.seq).toBe(2);
     });
 

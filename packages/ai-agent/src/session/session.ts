@@ -123,18 +123,25 @@ export function createSessionCore(options: SessionCoreOptions): SessionCore {
                                 },
                                 awaitClient: (requestId, signal) =>
                                     new Promise<Decision>((resolve, reject) => {
+                                        // Settle once, and drop the abort listener either way — a
+                                        // session answers many requests over its life.
+                                        const onAbort = () => entry.reject(abortError(signal));
+                                        const done = () => {
+                                            pending.delete(requestId);
+                                            signal.removeEventListener('abort', onAbort);
+                                        };
                                         const entry = {
                                             resolve: (d: Decision) => {
-                                                pending.delete(requestId);
+                                                done();
                                                 resolve(d);
                                             },
                                             reject: (e: unknown) => {
-                                                pending.delete(requestId);
+                                                done();
                                                 reject(e);
                                             }
                                         };
                                         pending.set(requestId, entry);
-                                        signal.addEventListener('abort', () => entry.reject(abortError(signal)), { once: true });
+                                        signal.addEventListener('abort', onAbort, { once: true });
                                     })
                             }).finally(() => {
                                 openRequests--;

@@ -132,9 +132,20 @@ export async function resolveRequest(request: PolicyRequest, ctx: ResolveContext
         ...(ctx.turnId !== undefined ? { turnId: ctx.turnId } : {})
     });
 
+    // One abort listener for the whole wait: it settles the race AND aborts the
+    // client wait, and is removed however the race ends (a long-lived session
+    // answers many requests; listeners must not pile up on its signal).
     const controller = new AbortController();
-    const onAbort = () => controller.abort();
-    ctx.signal.addEventListener('abort', onAbort, { once: true });
+    let resolveCancelled!: (v: { kind: 'cancel' }) => void;
+    const cancelled = new Promise<{ kind: 'cancel' }>((resolve) => {
+        resolveCancelled = resolve;
+    });
+    const onAbort = () => {
+        controller.abort();
+        resolveCancelled({ kind: 'cancel' });
+    };
+    if (ctx.signal.aborted) onAbort();
+    else ctx.signal.addEventListener('abort', onAbort, { once: true });
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
         const client = ctx.awaitClient(requestId, controller.signal).then((decision) => ({ kind: 'client' as const, decision }));
@@ -144,10 +155,6 @@ export async function resolveRequest(request: PolicyRequest, ctx: ResolveContext
                       timer = setTimeout(() => resolve({ kind: 'timeout' }), ctx.timeoutMs);
                   })
                 : null;
-        const cancelled = new Promise<{ kind: 'cancel' }>((resolve) => {
-            if (ctx.signal.aborted) resolve({ kind: 'cancel' });
-            else ctx.signal.addEventListener('abort', () => resolve({ kind: 'cancel' }), { once: true });
-        });
         const winner = await Promise.race([client, cancelled, ...(timeout ? [timeout] : [])]).catch(() => ({ kind: 'cancel' as const }));
         controller.abort();
         if (winner.kind === 'client') return settle(winner.decision, 'client');

@@ -71,15 +71,18 @@ export function createTurn(options: CreateTurnOptions): ManagedTurn {
     });
 
     const emit = (event: UnstampedEvent): AgentEvent => {
-        if (ended) {
-            if (__DEV__) console.warn(`[sigx ai-agent] event "${event.type}" emitted after turn "${turnId}" ended; dropped`);
-            return { ...event, sessionId: log.sessionId, epoch: log.epoch, seq: -1, turnId };
-        }
-        const stamped = log.append({
+        const contextual: UnstampedEvent = {
             ...event,
             turnId,
             ...(options.parentCallId !== undefined && event.parentCallId === undefined ? { parentCallId: options.parentCallId } : {})
-        });
+        };
+        if (ended) {
+            // Dropped, but returned in the same shape a live event would have —
+            // `seq: -1` is the tell.
+            if (__DEV__) console.warn(`[sigx ai-agent] event "${event.type}" emitted after turn "${turnId}" ended; dropped`);
+            return { ...contextual, sessionId: log.sessionId, epoch: log.epoch, seq: -1 };
+        }
+        const stamped = log.append(contextual);
         buffer.push(stamped);
         return stamped;
     };

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createEventLog, createSessionCore, SessionBusyError, allowAll, type AgentEvent } from '@sigx/ai-agent';
-import { collect, drain, types, tick } from '../helpers';
+import { collect, drain, types, tick, trackAbortListeners } from '../helpers';
 
 function core(extra: Partial<Parameters<typeof createSessionCore>[0]> = {}) {
     const log = createEventLog({ sessionId: 's' });
@@ -68,6 +68,22 @@ describe('createSessionCore', () => {
         expect(types(seen)).toEqual(['turn-start', 'request', 'request-resolved', 'ext', 'turn-end']);
         expect(seen[3]).toMatchObject({ data: { outcome: 'allow' } });
         expect(c.state).toBe('idle');
+    });
+
+    it('an answered request leaves no abort listener on the turn signal', async () => {
+        const { core: c } = core();
+        let leaked = -1;
+        const turn = c.startTurn('hi', undefined, async (d, ctx) => {
+            const listeners = trackAbortListeners(d.signal);
+            await ctx.resolve({ kind: 'permission', toolName: 'rm', source: 'client' });
+            await ctx.resolve({ kind: 'permission', toolName: 'rm', source: 'client' });
+            leaked = listeners();
+            d.end({ stopReason: 'end_turn' });
+        });
+        for await (const e of turn) {
+            if (e.type === 'request') await c.respond(e.requestId, { type: 'permission', outcome: 'allow', scope: 'once' });
+        }
+        expect(leaked).toBe(0);
     });
 
     it('a policy answers without a request; a late respond is a no-op', async () => {

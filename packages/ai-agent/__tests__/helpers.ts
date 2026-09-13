@@ -25,6 +25,22 @@ export function textOf(events: readonly AgentEvent[]): string {
         .join('');
 }
 
+/** Count net `abort` listeners added to `signal` from now on (happy-dom's signals are not Node EventTargets). */
+export function trackAbortListeners(signal: AbortSignal): () => number {
+    let count = 0;
+    const add = signal.addEventListener.bind(signal);
+    const remove = signal.removeEventListener.bind(signal);
+    signal.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) => {
+        if (type === 'abort') count++;
+        add(type, listener, options);
+    }) as typeof signal.addEventListener;
+    signal.removeEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions) => {
+        if (type === 'abort') count--;
+        remove(type, listener, options);
+    }) as typeof signal.removeEventListener;
+    return () => count;
+}
+
 export function tick(ms = 0): Promise<void> {
     return new Promise((r) => setTimeout(r, ms));
 }

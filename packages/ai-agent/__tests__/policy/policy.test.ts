@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { resolveRequest, createGrants, allowAll, denyAll, type Decision, type ResolveContext, type UnstampedEvent, type PolicyRequest } from '@sigx/ai-agent';
-import { tick } from '../helpers';
+import { tick, trackAbortListeners } from '../helpers';
 
 function harness(overrides: Partial<ResolveContext> = {}) {
     const events: UnstampedEvent[] = [];
@@ -103,6 +103,19 @@ describe('resolveRequest', () => {
         h.respond('req_1', { type: 'input', answers: { region: 'eu' } });
         expect(await p).toMatchObject({ decision: { type: 'input', answers: { region: 'eu' } } });
         expect(h.events[1]).toMatchObject({ outcome: 'input', answers: { region: 'eu' } });
+    });
+
+    it('leaves no abort listener behind, however the wait ends', async () => {
+        const ctrl = new AbortController();
+        const listeners = trackAbortListeners(ctrl.signal);
+        const answered = harness({ signal: ctrl.signal });
+        const p = resolveRequest(perm, answered.ctx);
+        await tick();
+        answered.respond('req_1', { type: 'permission', outcome: 'allow', scope: 'once' });
+        await p;
+        expect(listeners()).toBe(0);
+        await resolveRequest(perm, harness({ signal: ctrl.signal, timeoutMs: 1 }).ctx);
+        expect(listeners()).toBe(0);
     });
 
     it('reuses a request id the harness supplied', async () => {
