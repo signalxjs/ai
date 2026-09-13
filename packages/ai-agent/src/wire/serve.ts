@@ -12,6 +12,7 @@ import type { AgentCapabilities, AgentEvent } from '../protocol/index.js';
 import { AgentError, SessionBusyError } from '../protocol/index.js';
 import type { AgentSession } from '../session/index.js';
 import type { EventLogStore } from '../store/index.js';
+import { createQueue } from '../utils/queue.js';
 import { coalesceFrames, type CoalesceOptions } from './coalesce.js';
 import { cursorBefore, isWireCommand, WIRE_PROTOCOL_VERSION, type Cursor, type WireCommand, type WireErrorCode, type WireFrame, type WireReply } from './envelope.js';
 
@@ -116,8 +117,28 @@ export function serveSession(session: AgentSession, options: ServeSessionOptions
                 source = session.subscribe(from);
             } catch (e) {
                 if (!(e instanceof AgentError) || e.code !== 'protocol_error') throw e;
-                // The buffer moved on: the live tail first (nothing is missed), then the store fills the middle.
-                const live = session.subscribe();
+                // The buffer moved on: subscribe to the live tail first (nothing is
+                // missed) and drain it into our own unbounded queue while the store
+                // fills the middle — a long replay must not overflow the session's
+                // per-subscriber backlog.
+                const liveIterator = session.subscribe()[Symbol.asyncIterator]();
+                const live = createQueue<AgentEvent>({
+                    onClose: () => {
+                        void liveIterator.return?.();
+                    }
+                });
+                void (async () => {
+                    try {
+                        for (;;) {
+                            const next = await liveIterator.next();
+                            if (next.done) break;
+                            live.push(next.value);
+                        }
+                        live.end();
+                    } catch (e) {
+                        live.fail(e);
+                    }
+                })();
                 if (options.eventLog) {
                     for await (const e of options.eventLog.read(session.id, from)) {
                         if (signal?.aborted) return;

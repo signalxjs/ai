@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { allowAll, memoryEventLog, createTranscript, reduceAgentEvent, SessionBusyError, AgentError, type AgentEvent, type AgentSession } from '@sigx/ai-agent';
+import { allowAll, memoryEventLog, createTranscript, reduceAgentEvent, SessionBusyError, AgentError, type AgentEvent, type AgentSession, type EventLogStore } from '@sigx/ai-agent';
 import { serveSession, connectSession, type ServedSession, type SessionTransport, type WireCommand, type WireCommandPayload, type WireFrame, type Cursor } from '@sigx/ai-agent/wire';
 import { mockAgent, MOCK_CAPABILITIES, type MockStep } from '@sigx/ai-agent/testing';
 import { collect, drain, textOf, tick } from '../helpers';
@@ -214,7 +214,7 @@ describe('serveSession / connectSession', () => {
     });
 
     it('a cursor the buffer no longer holds: gap without a store, replay through an EventLogStore with one', async () => {
-        const evicting = async (eventLog?: ReturnType<typeof memoryEventLog>) => {
+        const evicting = async (eventLog?: EventLogStore) => {
             const agent = mockAgent({ script: [[{ text: 'one two three four five' }]] });
             const real = await agent.session();
             let evictOnce = true;
@@ -250,6 +250,26 @@ describe('serveSession / connectSession', () => {
         expect(eventFrames[0]!.seq).toBe(3);
         expect(eventFrames.map((f) => f.seq)).toEqual(eventFrames.map((_, i) => i + 3));
         expect(eventFrames.at(-1)!.seq).toBe(stored.served.head.seq);
+
+        // A slow store replay while the session keeps emitting: the live tail is
+        // buffered, not dropped, and the join is gapless.
+        const slowLog = memoryEventLog();
+        const slow = await evicting({
+            append: (e) => slowLog.append(e),
+            async *read(id, from) {
+                for await (const e of slowLog.read(id, from)) {
+                    await tick();
+                    yield e;
+                }
+            }
+        });
+        const streaming = collect(slow.served.events({ epoch: 1, seq: 1 }, { signal: AbortSignal.timeout(1000) }));
+        await tick(); // the stream has subscribed to the live tail; the store is still replaying
+        await slow.real.prompt('b').result;
+        const joined = (await streaming).filter((f): f is Extract<WireFrame, { kind: 'event' }> => f.kind === 'event').map((f) => f.seq);
+        expect(joined[0]).toBe(2);
+        expect(joined).toEqual(joined.map((_, i) => i + 2));
+        expect(joined.at(-1)).toBe(slow.served.head.seq);
     });
 
     it('a serverStream-shaped transport: a POST-style command function and a generator of frames', async () => {

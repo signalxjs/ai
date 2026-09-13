@@ -60,11 +60,14 @@ their client stubs are `(input) => Promise<R>` and `(input) => AsyncIterable<T>`
 so `connectSession({ send: (c) => agentCommand({ sessionId, command: c }), events: (from) => agentEvents({ sessionId, from }) })`
 is the whole client.
 
-**WebSocket recipe**: on the socket server, JSON messages with a `commandId`
-go to `handleCommand` and the reply is sent back; a `subscribe { from }`
-message starts `for await (const frame of served.events(from)) ws.send(JSON.stringify(frame))`.
-On the client, `send` posts a command and awaits the matching reply,
-`events(from)` yields the frames received after a `subscribe`.
+**WebSocket recipe**: the socket carries two kinds of JSON messages the app
+defines (they are not part of the wire envelope, which only knows commands,
+replies and frames): a wire command — the server passes it to `handleCommand`
+and sends the reply back, matched by `commandId` — and an app-level
+"start streaming from `from`" message, on which the server runs
+`for await (const frame of served.events(from)) ws.send(JSON.stringify(frame))`.
+The client's `send` posts a command and awaits the reply with its `commandId`;
+its `events(from)` sends the start message and yields the frames that follow.
 
 Coalescing (`coalesce: { maxDelayMs, maxBytes }`) merges runs of text deltas
 into one frame each to limit traffic; off by default. Without an `eventLog`, a
