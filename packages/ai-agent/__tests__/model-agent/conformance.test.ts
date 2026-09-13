@@ -10,7 +10,12 @@ function respondFor(scenario: ConformanceScenario) {
         switch (scenario.name) {
             case 'tool-permission':
             case 'headless-deny':
+            case 'request-timeout':
                 return round === 0 ? { toolCalls: [{ name: 'guarded', input: {}, id: 'g1' }] } : { text: 'Done.' };
+            case 'session-grant':
+                return round < 2 ? { toolCalls: [{ name: 'guarded', input: {}, id: `g${round + 1}` }] } : { text: 'Done twice.' };
+            case 'usage':
+                return { text: 'Hello!', usage: { inputTokens: 3, outputTokens: 2 } };
             case 'tool-error':
                 return round === 0 ? { toolCalls: [{ name: 'failing', input: {}, id: 'f1' }] } : { text: 'It failed.' };
             case 'slow-tool':
@@ -30,8 +35,8 @@ const skip = (s: ConformanceScenario) => (s.name === 'input-request' || s.name =
 
 describe('agentConformance: modelAgent(mockModel)', () => {
     const cases = agentConformance((s) => modelAgent({ model: mockModel({ respond: respondFor(s) }) }), { capabilities: MODEL_AGENT_CAPABILITIES, skip });
-    it('skips only what the engine cannot do', () => {
-        expect(cases.filter((c) => c.skip).map((c) => c.name)).toEqual(['conformance: input-request', 'conformance: support-agent']);
+    it('skips only what the engine cannot do (no client questions, no config options, no session listing)', () => {
+        expect(cases.filter((c) => c.skip).map((c) => c.name)).toEqual(['conformance: input-request', 'conformance: support-agent', 'conformance: configure', 'conformance: list-sessions']);
     });
     for (const c of cases) it.skipIf(!!c.skip)(c.name, c.run, 15_000);
 });

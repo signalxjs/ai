@@ -818,13 +818,22 @@ function scriptFor(scenario: ConformanceScenario): TurnScript {
 }
 
 describe('agentConformance: claudeCode(fake query)', () => {
-    const cases = agentConformance((s) => claudeCode({ query: fakeQuery(scriptFor(s)).query, listen: fakeListen }), {
+    // The fake CLI always reports SESSION as its session id; a listing that names it stands in for the SDK's session store.
+    const listSessions = async () => [{ sessionId: SESSION, summary: 'Conformance', lastModified: 1, cwd } as never];
+    const cases = agentConformance((s) => claudeCode({ query: fakeQuery(scriptFor(s)).query, listen: fakeListen, listSessions }), {
         capabilities: CLAUDE_CODE_CAPABILITIES,
         sessionOptions: { cwd },
         skip: (s) => (s.name === 'support-agent' ? 'Claude Code emits no agent.handoff extension (its ext namespace is claude-code)' : undefined)
     });
-    it('skips only what the harness cannot express (the permission scenarios need every-call; Claude Code is harness-filtered)', () => {
-        expect(cases.filter((c) => c.skip).map((c) => c.name)).toEqual(['conformance: tool-permission', 'conformance: headless-deny', 'conformance: support-agent']);
+    it('skips only what the harness cannot express (the permission scenarios need every-call; Claude Code is harness-filtered; resume is local)', () => {
+        expect(cases.filter((c) => c.skip).map((c) => c.name)).toEqual([
+            'conformance: tool-permission',
+            'conformance: headless-deny',
+            'conformance: support-agent',
+            'conformance: session-grant',
+            'conformance: request-timeout',
+            'conformance: portable-resume'
+        ]);
     });
     for (const c of cases) it.skipIf(!!c.skip)(c.name, c.run, 15_000);
 });
