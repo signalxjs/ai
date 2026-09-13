@@ -53,7 +53,7 @@ export function codingExtension(options: CodingExtensionOptions = {}): ReducerEx
                 }
                 case 'terminal': {
                     const { terminalId, delta } = e.data as { terminalId: string; delta: string };
-                    const term = (state.terminals[terminalId] ??= { output: '', truncated: false });
+                    const term = terminalOf(state, terminalId);
                     term.output += delta;
                     if (term.output.length > max) {
                         term.output = term.output.slice(term.output.length - max);
@@ -63,7 +63,7 @@ export function codingExtension(options: CodingExtensionOptions = {}): ReducerEx
                 }
                 case 'terminal-exit': {
                     const { terminalId, exitCode, signal } = e.data as { terminalId: string; exitCode: number | null; signal?: string };
-                    const term = (state.terminals[terminalId] ??= { output: '', truncated: false });
+                    const term = terminalOf(state, terminalId);
                     term.exitCode = exitCode;
                     if (signal !== undefined) term.signal = signal;
                     break;
@@ -79,9 +79,23 @@ export function codingExtension(options: CodingExtensionOptions = {}): ReducerEx
     };
 }
 
-/** The coding state of a transcript, created on first use. */
+/**
+ * The coding state of a transcript, created on first use.
+ *
+ * Assign, then read BACK out of the transcript — `(x ??= {…})` evaluates to
+ * the literal, and on a reactive transcript that literal is the raw object
+ * behind the proxy. Mutating it would fire no notification, so the first
+ * coding event of a session would never reach the view.
+ */
 export function codingStateOf(transcript: AgentTranscript): CodingState {
-    return (transcript.ext[CODING_NS] ??= { diffs: [], terminals: {}, filesChanged: [] } satisfies CodingState) as CodingState;
+    transcript.ext[CODING_NS] ??= { diffs: [], terminals: {}, filesChanged: [] } satisfies CodingState;
+    return transcript.ext[CODING_NS] as CodingState;
+}
+
+/** One terminal's state, created on first use — read back, never the literal. */
+function terminalOf(state: CodingState, terminalId: string): CodingTerminalState {
+    state.terminals[terminalId] ??= { output: '', truncated: false };
+    return state.terminals[terminalId]!;
 }
 
 /** The coding state if any coding event was reduced, else `undefined`. */

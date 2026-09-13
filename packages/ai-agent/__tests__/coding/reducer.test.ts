@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createTranscript, createReducer, type AgentEvent, type UnstampedEvent } from '@sigx/ai-agent';
+import { createTranscript, createReducer, type AgentEvent, type AgentTranscript, type UnstampedEvent } from '@sigx/ai-agent';
 import { codingExtension, codingEvent, codingState, isCodingEvent, CODING_NS } from '@sigx/ai-agent/coding';
 
 let seq = 0;
@@ -59,5 +59,42 @@ describe('coding extension events and reducer', () => {
             expect(copy).toEqual(full);
         }
         expect(codingState(createTranscript('s'))).toBeUndefined();
+    });
+
+    // The same rule as the core reducer (see `__tests__/state/reduce.test.ts`):
+    // `ext.coding` and each terminal are created on first use, and `(o[k] ??=
+    // {…})` evaluates to the literal -- the raw object behind a reactive
+    // transcript's proxy. Writing through that literal notifies nobody, so the
+    // event that CREATES the state would never reach the view.
+    it('writes only through the transcript it was given, never a retained literal', () => {
+        seq = 0;
+        const writes: string[] = [];
+        const seen = (target: object, path: string): object =>
+            new Proxy(target, {
+                get(o, k, r) {
+                    const v = Reflect.get(o, k) as unknown;
+                    if (typeof v === 'function') return (v as (...a: unknown[]) => unknown).bind(r);
+                    return v !== null && typeof v === 'object' ? seen(v as object, `${path}.${String(k)}`) : v;
+                },
+                set(o, k, v) {
+                    writes.push(`${path}.${String(k)}`);
+                    return Reflect.set(o, k, v);
+                }
+            });
+
+        const reduce = createReducer({ extensions: [codingExtension()] });
+        const t = seen(createTranscript('s'), 't') as AgentTranscript;
+        reduce(t, ev({ ...codingEvent('diff', { path: 'a.ts', newText: 'x' }), turnId: 't1' }));
+        reduce(t, ev({ ...codingEvent('terminal', { terminalId: 'term1', stream: 'stdout', delta: 'hi' }), turnId: 't1' }));
+
+        // The very first diff -- the one that creates `ext.coding`.
+        expect(writes).toContain('t.ext.coding');
+        expect(writes).toContain('t.ext.coding.diffs.0');
+        expect(writes).toContain('t.ext.coding.filesChanged.0');
+        // …and the first chunk of a terminal, which creates that terminal.
+        expect(writes).toContain('t.ext.coding.terminals.term1');
+        expect(writes).toContain('t.ext.coding.terminals.term1.output');
+
+        expect(codingState(t)?.terminals.term1?.output).toBe('hi');
     });
 });

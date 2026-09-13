@@ -6,8 +6,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { component, jsx, defineApp } from 'sigx';
 import { effect } from '@sigx/reactivity';
-import { useAgentSession, type AgentSessionSource, type AgentSessionView, type UseAgentSessionOptions } from '@sigx/ai-agent/app';
-import { type AgentSession, type SessionOptions } from '@sigx/ai-agent';
+import { useAgentSession, type AgentMessage, type AgentPart, type AgentSessionSource, type AgentSessionView, type UseAgentSessionOptions } from '@sigx/ai-agent/app';
+import { allowAll, type AgentSession, type SessionOptions } from '@sigx/ai-agent';
 import { serveSession, connectSession, type SessionTransport } from '@sigx/ai-agent/wire';
 import { mockAgent, type MockStep } from '@sigx/ai-agent/testing';
 import { codingExtension, codingState } from '@sigx/ai-agent/coding';
@@ -393,5 +393,153 @@ describe('useAgentSession', () => {
         expect(m.container.querySelector('.assistant .t')?.textContent).toBe('over the wire');
         // The session grant replayed into the transcript, so a second tab knows it too.
         expect(m.view.transcript.grants).toEqual(['tool:search']);
+    });
+
+    // -- A message published mid-fold ---------------------------------------
+    //
+    // The `mount` above renders every part inside ONE render function, so any
+    // later re-run of it repaints the whole list and hides a missed
+    // notification. A real app splits the rows into CHILD components, each
+    // with its own render effect over one message -- and there a missed
+    // notification is permanent. These mount that shape.
+
+    const Part = component<{ part: AgentPart }>((ctx) => {
+        return () => {
+            const p = ctx.props.part;
+            if (p.type === 'text') return <span class="t">{p.text}</span>;
+            if (p.type === 'tool') return <b class="tool">{`${p.name}:${p.status}`}</b>;
+            return null;
+        };
+    });
+
+    const Row = component<{ message: AgentMessage }>((ctx) => {
+        return () => (
+            <div class={`msg ${ctx.props.message.role}`}>
+                {ctx.props.message.parts.map((part) => (
+                    <Part part={part} />
+                ))}
+            </div>
+        );
+    });
+
+    /** `mount`, but the rows and parts are child components -- one render effect each. */
+    function mountNested(source: AgentSessionSource, options?: UseAgentSessionOptions): Mounted {
+        let view!: AgentSessionView;
+        const App = component(
+            () => {
+                view = useAgentSession(source, options);
+                return () => (
+                    <div>
+                        {view.messages.map((m) => (
+                            <Row message={m} />
+                        ))}
+                        <i class="state">{view.state}</i>
+                    </div>
+                );
+            },
+            { name: 'NestedApp' }
+        );
+        const container = document.createElement('div');
+        document.body.appendChild(container);
+        const app = defineApp(jsx(App, {})).mount(container);
+        let live = true;
+        const unmount = () => {
+            if (!live) return;
+            live = false;
+            app.unmount();
+            container.remove();
+        };
+        closers.push(unmount);
+        return {
+            get view() {
+                return view;
+            },
+            container,
+            unmount
+        };
+    }
+
+    it('renders the first part of a message a child component started observing mid-fold', async () => {
+        const session = await openSession([[{ text: 'Yep, I am here.' }]]);
+        // The turn is over BEFORE the view exists, so every event replays in
+        // one burst and `part-start` pushes the assistant message and its part
+        // back to back. Pushing the message re-renders the list synchronously
+        // -- the new `Row` reads `parts` while it is still empty -- and the
+        // part pushed a line later must still reach it.
+        await session.prompt('there?').result;
+
+        const m = mountNested(session);
+        await tick();
+
+        expect(m.container.querySelector('.assistant')).not.toBeNull();
+        expect(m.container.querySelector('.assistant .t')?.textContent).toBe('Yep, I am here.');
+        expect(m.container.querySelector('.user .t')?.textContent).toBe('there?');
+    });
+
+    it('renders a tool card on a message a child component started observing mid-fold', async () => {
+        const session = await openSession([[{ tool: { name: 'search', output: 'found' } }, { text: 'done' }]], { policy: allowAll });
+        await session.prompt('look it up').result;
+
+        const m = mountNested(session);
+        await tick();
+
+        expect(m.container.querySelector('.assistant .tool')?.textContent).toBe('search:completed');
+    });
+
+    it('keeps rendering deltas that land after a replay, in the same child components', async () => {
+        const session = await openSession([[{ text: 'first answer' }], [{ text: 'second answer', delayMs: 1 }]]);
+        await session.prompt('one').result;
+
+        const m = mountNested(session);
+        await tick();
+        expect(m.container.querySelector('.assistant .t')?.textContent).toBe('first answer');
+
+        await m.view.prompt('two');
+        await tick();
+        expect([...m.container.querySelectorAll('.assistant .t')].map((n) => n.textContent)).toEqual(['first answer', 'second answer']);
+    });
+
+    it('replays a completed turn over the wire into child components', async () => {
+        const agent = mockAgent({ script: [[{ text: 'Yep, I am here.' }]] });
+        const session = await agent.session();
+        // `coalesce` is what the example server uses: the whole run of deltas
+        // arrives as ONE frame, so the burst is as tight as it gets.
+        const served = serveSession(session, { agentId: agent.id, capabilities: agent.capabilities, coalesce: { maxDelayMs: 5 } });
+        await session.prompt('there?').result;
+
+        const remote = await connectSession(inMemory(served), { from: { epoch: 0, seq: 0 } });
+        closers.push(async () => {
+            remote.disconnect();
+            await served.close();
+            await agent.dispose();
+        });
+
+        const m = mountNested(remote);
+        while (m.container.querySelector('.assistant') === null) await tick(1);
+        await tick(20);
+
+        expect(m.container.querySelector('.assistant .t')?.textContent).toBe('Yep, I am here.');
+    });
+
+    it('the coding state the first ext event creates is observable', async () => {
+        const session = await openSession([[{ ext: { ns: 'coding', name: 'diff', data: { path: 'src/a.ts', unifiedDiff: '@@ -1 +1 @@' } } }, { text: 'patched' }]]);
+        const m = mount(session, { extensions: [codingExtension()] });
+        await tick();
+
+        let paths: string[] = [];
+        let runs = 0;
+        effect(() => {
+            paths = codingState(m.view.transcript)?.diffs.map((d) => d.path) ?? [];
+            runs++;
+        });
+        expect(runs).toBe(1);
+
+        await m.view.prompt('fix it');
+        await tick();
+
+        // The very first `diff` -- the one that CREATES `ext.coding` -- has to
+        // notify too, not just the ones that find it already there.
+        expect(paths).toEqual(['src/a.ts']);
+        expect(runs).toBeGreaterThan(1);
     });
 });
