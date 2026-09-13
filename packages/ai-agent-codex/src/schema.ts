@@ -19,6 +19,7 @@ export const CODEX_METHODS = {
     threadList: 'thread/list',
     turnStart: 'turn/start',
     turnInterrupt: 'turn/interrupt',
+    turnSteer: 'turn/steer',
     // server → client requests
     commandApproval: 'item/commandExecution/requestApproval',
     fileChangeApproval: 'item/fileChange/requestApproval',
@@ -189,6 +190,17 @@ export interface TurnStartResponse {
 
 export interface TurnInterruptParams {
     readonly threadId: string;
+    readonly turnId: string;
+}
+
+/** `turn/steer`: input for the RUNNING turn; Codex refuses it when `expectedTurnId` is not the active turn. */
+export interface TurnSteerParams {
+    readonly threadId: string;
+    readonly expectedTurnId: string;
+    readonly input: UserInput[];
+}
+
+export interface TurnSteerResponse {
     readonly turnId: string;
 }
 
