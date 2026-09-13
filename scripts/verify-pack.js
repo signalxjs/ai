@@ -34,7 +34,7 @@ import { assertInRepoRanges, isPackTimeSpecifier } from './lib/ranges.mjs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, '..');
 
-const PACKAGES = ['packages/ai', 'packages/ai-agent', 'packages/ai-agent-node', 'packages/ai-anthropic', 'packages/ai-openai'];
+const PACKAGES = ['packages/ai', 'packages/ai-agent', 'packages/ai-agent-node', 'packages/ai-agent-acp', 'packages/ai-anthropic', 'packages/ai-openai'];
 
 /** Every runtime entry the tarballs expose, imported one by one. */
 const ENTRIES = [
@@ -47,6 +47,7 @@ const ENTRIES = [
     '@sigx/ai-agent/coding',
     '@sigx/ai-agent/harness',
     '@sigx/ai-agent-node',
+    '@sigx/ai-agent-acp',
     '@sigx/ai-anthropic',
     '@sigx/ai-openai',
 ];

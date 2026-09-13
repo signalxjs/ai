@@ -40,6 +40,12 @@
     "ignore": ["@sigx/ai", "@sigx/ai-agent", "node:child_process", "node:crypto", "node:fs", "node:fs/promises", "node:http", "node:net", "node:path", "node:stream"]
   },
   {
+    "name": "@sigx/ai-agent-acp",
+    "path": "packages/ai-agent-acp/dist/index.prod.js",
+    "limit": "8 KB",
+    "ignore": ["@sigx/ai", "@sigx/ai-agent", "@sigx/ai-agent-node", "node:fs/promises", "node:path"]
+  },
+  {
     "name": "@sigx/ai-anthropic",
     "path": "packages/ai-anthropic/dist/index.prod.js",
     "limit": "4 KB",
