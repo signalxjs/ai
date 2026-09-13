@@ -32,7 +32,6 @@
     "include": [
         "src/**/*.ts",
         "src/**/*.tsx",
-        "../../packages/ai/src/env.d.ts",
-        "../../packages/ai-agent/src/env.d.ts"
+        "../../packages/ai/src/env.d.ts"
     ]
 }
