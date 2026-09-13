@@ -8,9 +8,10 @@ import { component, jsx } from 'sigx';
 import { effect } from '@sigx/reactivity';
 import { render } from '@sigx/runtime-dom';
 import { useChat, type Chat, type UIChunk } from '@sigx/ai/app';
+import { defineTool } from '@sigx/ai';
 import { chatStream } from '@sigx/ai/server';
 import { mockModel, type MockModelOptions } from '@sigx/ai/testing';
-import { tick } from '../helpers';
+import { citySchema, tick } from '../helpers';
 
 const containers: HTMLDivElement[] = [];
 afterEach(() => {
@@ -190,5 +191,99 @@ describe('useChat', () => {
         await chat.send('   ');
         expect(model.rounds).toBe(0);
         expect(chat.messages).toHaveLength(0);
+    });
+});
+
+describe('useChat tool approval', () => {
+    const guarded = defineTool({ name: 'guarded', description: 'g', input: citySchema, needsApproval: true, execute: ({ city }) => `ran:${city}` });
+
+    /** Round 0 asks for the guarded tool; any later round answers from the transcript. */
+    const approvalStream = () => {
+        const model = mockModel({
+            respond: (req) => {
+                const last = req.messages[req.messages.length - 1]!;
+                if (last.role === 'tool') return { text: `after ${JSON.stringify(last.content[0]!.output)}` };
+                return { toolCalls: [{ name: 'guarded', input: { city: 'Oslo' }, id: 'c1' }] };
+            }
+        });
+        return { model, stream: (input: { messages: unknown[] }) => chatStream({ model, tools: [guarded], messages: input.messages as any }) };
+    };
+
+    it('stops awaiting, then approve() resumes onto the same message and runs the tool', async () => {
+        const { model, stream } = approvalStream();
+        const { chat, container } = mountChat(stream);
+        await chat.send('go');
+
+        expect(chat.status).toBe('awaiting');
+        expect(chat.streaming).toBeNull();
+        expect(chat.approvals.map((p) => p.id)).toEqual(['c1']);
+        expect(container.querySelector('.tool')?.textContent).toBe('guarded:awaiting');
+        expect(container.querySelector('.status')?.textContent).toBe('awaiting');
+        const assistantId = chat.messages[1]!.id;
+
+        await chat.approve('c1');
+        expect(chat.status).toBe('idle');
+        expect(chat.approvals).toEqual([]);
+        // Same assistant message, now with the result and the follow-up text.
+        expect(chat.messages).toHaveLength(2);
+        expect(chat.messages[1]!.id).toBe(assistantId);
+        expect(chat.messages[1]!.parts).toEqual([
+            { type: 'tool', id: 'c1', name: 'guarded', input: { city: 'Oslo' }, state: 'done', output: 'ran:Oslo' },
+            { type: 'text', text: 'after "ran:Oslo"' }
+        ]);
+        expect(container.querySelector('.tool')?.textContent).toBe('guarded:done');
+        // The resumed request carried the approved call; the model then saw its result.
+        expect(model.rounds).toBe(2);
+        expect(model.requests[1]!.messages[2]).toMatchObject({ role: 'tool', content: [{ toolCallId: 'c1', output: 'ran:Oslo' }] });
+    });
+
+    it('deny() sends the reason back as an error result', async () => {
+        const { model, stream } = approvalStream();
+        const { chat, container } = mountChat(stream);
+        await chat.send('go');
+        expect(chat.status).toBe('awaiting');
+
+        await chat.deny('c1', 'not allowed here');
+        expect(chat.status).toBe('idle');
+        expect(chat.messages[1]!.parts[0]).toEqual({ type: 'tool', id: 'c1', name: 'guarded', input: { city: 'Oslo' }, state: 'denied', output: 'not allowed here' });
+        expect(container.querySelector('.tool')?.textContent).toBe('guarded:denied');
+        expect(model.requests[1]!.messages[2]).toMatchObject({ role: 'tool', content: [{ toolCallId: 'c1', output: 'not allowed here', isError: true }] });
+    });
+
+    it('waits until every call is decided, and ignores unknown or settled ids', async () => {
+        const model = mockModel({
+            respond: (req) => {
+                const last = req.messages[req.messages.length - 1]!;
+                if (last.role === 'tool') return { text: 'end' };
+                return { toolCalls: [{ name: 'guarded', input: { city: 'A' }, id: 'c1' }, { name: 'guarded', input: { city: 'B' }, id: 'c2' }] };
+            }
+        });
+        const { chat } = mountChat((input) => chatStream({ model, tools: [guarded], messages: input.messages as any }));
+        await chat.send('go');
+        expect(chat.approvals.map((p) => p.id)).toEqual(['c1', 'c2']);
+
+        await chat.approve('nope');
+        await chat.approve('c1');
+        expect(chat.status).toBe('awaiting');
+        expect(chat.approvals.map((p) => p.id)).toEqual(['c2']);
+        await chat.approve('c1'); // already decided — a no-op
+        expect(model.rounds).toBe(1);
+
+        await chat.deny('c2');
+        expect(chat.status).toBe('idle');
+        expect(chat.messages[1]!.parts.map((p) => (p.type === 'tool' ? p.state : p.type))).toEqual(['done', 'denied', 'text']);
+    });
+
+    it('send() while awaiting denies the leftovers so the transcript stays whole', async () => {
+        const { model, stream } = approvalStream();
+        const { chat } = mountChat(stream);
+        await chat.send('go');
+        expect(chat.status).toBe('awaiting');
+        await chat.send('never mind');
+        expect(chat.status).toBe('awaiting'); // the new turn asks again
+        expect(chat.messages[1]!.parts[0]).toMatchObject({ state: 'denied', output: 'Skipped by the user.' });
+        expect(chat.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
+        // The skipped call reached the model as an error result.
+        expect(model.requests[1]!.messages[2]).toMatchObject({ role: 'tool', content: [{ toolCallId: 'c1', isError: true }] });
     });
 });
