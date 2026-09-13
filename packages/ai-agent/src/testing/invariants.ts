@@ -16,7 +16,9 @@ export function checkEventInvariants(events: readonly AgentEvent[]): void {
     assert(events.length > 0, 'no events were observed');
     const sessionId = events[0]!.sessionId;
     let epoch = events[0]!.epoch;
-    let seq = 0;
+    // Gapless from the first event the observer saw: a session may have emitted
+    // events (a config announcement) before the client subscribed.
+    let seq = events[0]!.seq - 1;
     const turnStarts = new Map<string, number>();
     const turnEnds = new Map<string, number>();
     const calls = new Map<string, string>();
@@ -28,7 +30,9 @@ export function checkEventInvariants(events: readonly AgentEvent[]): void {
         if (e.epoch !== epoch) {
             assert(e.epoch > epoch, `epoch went backwards: ${epoch} → ${e.epoch} at seq ${e.seq}`);
             epoch = e.epoch;
-            seq = 0;
+            // Same rule as the first epoch: the observer may have missed this
+            // epoch's early events too, so baseline from the first one it saw.
+            seq = e.seq - 1;
         }
         assert(e.seq === seq + 1, `seq gap in epoch ${epoch}: expected ${seq + 1}, got ${e.seq} (${e.type})`);
         seq = e.seq;

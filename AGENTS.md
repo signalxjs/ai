@@ -216,6 +216,16 @@ To run the example: `pnpm build` first (it resolves the packages from
   `result` → `usage` + `turn-end`. Tests replay recorded SDK messages through
   a fake `query` injected via `claudeCode({ query })`; a live smoke is gated on
   `SIGX_LIVE_CLAUDE_CODE=1`.
+- `packages/ai-agent-codex` → `@sigx/ai-agent-codex` — **experimental**, Codex as
+  an `Agent` over the `codex app-server` JSON-RPC protocol (one process and
+  one `createJsonRpcPeer` per agent through `@sigx/ai-agent-node`, a regular
+  dependency; `transport: { readable, writable }` drives a running server). One
+  file per concern: `schema.ts` (the hand-written v2 subset, checked against the
+  generated types in `__tests__/schema.test-d.ts`), `options.ts`, `approvals.ts`,
+  `tools.ts` (dynamic tools), `stream.ts` (items → events), `session.ts`
+  (a thread), `provider.ts` (`codex()`), `index.ts`. `pnpm --filter
+  @sigx/ai-agent-codex codex:generate` regenerates the full types with an
+  installed Codex CLI.
 - `packages/ai-anthropic` → `@sigx/ai-anthropic` — Claude on the official
   `@anthropic-ai/sdk` (a peer dependency, literal range): `anthropic()` →
   `.model(id)`. Streams `client.messages.stream`, maps text / thinking /

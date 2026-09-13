@@ -81,6 +81,17 @@ describe('agentConformance', () => {
         expect(() => checkEventInvariants(ok)).not.toThrow();
         expect(() => checkEventInvariants([ok[0]!, { ...ok[1]!, seq: 3 }])).toThrow(/seq gap/);
         expect(() => checkEventInvariants([ok[0]!])).toThrow(/turn-end/);
+        // An observer that joined mid-way through a LATER epoch: the first event seen in
+        // that epoch is the baseline there too, exactly as for the first epoch.
+        const midSecondEpoch: AgentEvent[] = [
+            { type: 'turn-start', turnId: 't1', input: [], sessionId: 's', epoch: 1, seq: 5 },
+            { type: 'turn-end', turnId: 't1', stopReason: 'end_turn', sessionId: 's', epoch: 1, seq: 6 },
+            { type: 'turn-start', turnId: 't2', input: [], sessionId: 's', epoch: 2, seq: 4 },
+            { type: 'turn-end', turnId: 't2', stopReason: 'end_turn', sessionId: 's', epoch: 2, seq: 5 }
+        ];
+        expect(() => checkEventInvariants(midSecondEpoch)).not.toThrow();
+        // A real gap inside that later epoch is still caught.
+        expect(() => checkEventInvariants([midSecondEpoch[0]!, midSecondEpoch[1]!, midSecondEpoch[2]!, { ...midSecondEpoch[3]!, seq: 6 }])).toThrow(/seq gap in epoch 2/);
         // A reducer that depends on hidden state is not replayable.
         let calls = 0;
         expect(() =>
