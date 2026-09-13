@@ -166,7 +166,8 @@ export function modelAgent(options: ModelAgentOptions): Agent {
                         for await (const chunk of streamText({
                             model: options.model,
                             ...(system !== undefined ? { system } : {}),
-                            messages: toModelMessages(toUIMessages(transcript!)),
+                            // `omit`: a delegate's words are its own, never the host model's.
+                            messages: toModelMessages(toUIMessages(transcript!, { subagents: 'omit' })),
                             ...(gated.tools.length ? { tools: gated.tools, onToolApproval: gated.onToolApproval } : {}),
                             ...(options.maxSteps !== undefined ? { maxSteps: options.maxSteps } : {}),
                             ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),

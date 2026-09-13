@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createTranscript, reduceAgentEvent, toUIMessages, contentToOutput, type AgentEvent, type UnstampedEvent } from '@sigx/ai-agent';
+import { createTranscript, reduceAgentEvent, toUIMessages, promptPartsToUI, contentToOutput, type AgentEvent, type UnstampedEvent } from '@sigx/ai-agent';
 import { toModelMessages } from '@sigx/ai';
 
 let seq = 0;
@@ -79,6 +79,33 @@ describe('toUIMessages', () => {
         expect(ui[0]!.parts).toEqual([
             { type: 'tool', id: 'c1', name: 'delegate', input: null, state: 'done', output: 'summary' },
             { type: 'text', text: '[researcher c1] found it' }
+        ]);
+    });
+
+    it('omits nested subagent messages when asked, so a host model never reads them as its own words', () => {
+        seq = 0;
+        const t = transcriptOf([
+            ev({ type: 'turn-start', turnId: 't1', input: [] }),
+            ev({ type: 'user-message', turnId: 't1', messageId: 'u1', parts: [{ type: 'text', text: 'go' }] }),
+            ev({ type: 'tool-call', turnId: 't1', callId: 'c1', name: 'delegate' }),
+            ev({ type: 'part-start', turnId: 't1', parentCallId: 'c1', messageId: 'sub', partId: 'sp', kind: 'text', actor: 'researcher' }),
+            ev({ type: 'part-delta', turnId: 't1', parentCallId: 'c1', partId: 'sp', delta: 'found it' }),
+            ev({ type: 'user-message', turnId: 't1', parentCallId: 'c1', messageId: 'subu', parts: [{ type: 'text', text: 'nested prompt' }] }),
+            ev({ type: 'tool-update', turnId: 't1', callId: 'c1', status: 'completed', output: 'summary' })
+        ]);
+        const omitted = toUIMessages(t, { subagents: 'omit' });
+        expect(omitted.map((m) => m.id)).toEqual(['u1', 'a:t1:0']);
+        expect(omitted[1]!.parts).toEqual([{ type: 'tool', id: 'c1', name: 'delegate', input: null, state: 'done', output: 'summary' }]);
+        // The default is unchanged: flatten folds every nested message, the user one included.
+        expect(toUIMessages(t, { subagents: 'flatten' })).toEqual(toUIMessages(t));
+        expect(toUIMessages(t)[1]!.parts).toHaveLength(3);
+    });
+
+    it('promptPartsToUI maps prompt parts the way user messages are mapped', () => {
+        expect(promptPartsToUI([{ type: 'text', text: 'hi' }, { type: 'image', mediaType: 'image/png', data: 'AAA=' }, { type: 'resource', uri: 'file:///a.txt', text: 'body' }])).toEqual([
+            { type: 'text', text: 'hi' },
+            { type: 'image', mediaType: 'image/png', data: 'AAA=' },
+            { type: 'text', text: 'body' }
         ]);
     });
 

@@ -24,6 +24,7 @@
 
 import { addUsage } from '@sigx/ai';
 import type { AgentEvent, EventOf } from '../protocol/index.js';
+import { findToolMessage, spawnedAgent } from './agents.js';
 import type { AgentMessage, AgentTranscript, ToolPartState } from './transcript.js';
 
 export interface ReducerExtension {
@@ -111,6 +112,55 @@ export function createReducer(options: CreateReducerOptions = {}): AgentReducer 
                 if (e.output !== undefined) tool.output = e.output;
                 if (e.error !== undefined) tool.error = e.error;
                 if (e.content !== undefined) tool.content = e.content;
+                break;
+            }
+            case 'agent-start': {
+                // One start per agent; a repeat (a harness that announces twice) changes nothing.
+                if (t.agents[e.agentId]) break;
+                const spawn = e.callId !== undefined ? findToolMessage(t, e.callId) : undefined;
+                // The parent is the agent inside which the spawn happened: for a
+                // call-bound agent, the call that the spawning call's message sits
+                // in; for an ambient one, the call the event itself sits in.
+                const within = spawn ? spawn.message.parentCallId : e.parentCallId;
+                const parent = within !== undefined ? spawnedAgent(t, within) : undefined;
+                // Depth comes from the call chain whenever the chain is conclusive: a
+                // parent agent gives parent + 1, and a spawning call that sits in no
+                // other call gives 0. The harness's own `depth` only counts when the
+                // chain cannot say — an ambient agent, or a spawn inside a call no
+                // agent claimed.
+                const depth = parent ? parent.depth + 1 : spawn && within === undefined ? 0 : (e.depth ?? 0);
+                t.agents[e.agentId] = {
+                    agentId: e.agentId,
+                    ...(e.callId !== undefined ? { callId: e.callId } : {}),
+                    ...(parent ? { parentAgentId: parent.agentId } : {}),
+                    depth,
+                    ...(e.turnId !== undefined ? { turnId: e.turnId } : {}),
+                    seq: e.seq,
+                    ...(e.kind !== undefined ? { kind: e.kind } : {}),
+                    ...(e.title !== undefined ? { title: e.title } : {}),
+                    ...(e.description !== undefined ? { description: e.description } : {}),
+                    ...(e.model !== undefined ? { model: e.model } : {}),
+                    ...(e.background !== undefined ? { background: e.background } : {}),
+                    status: 'running'
+                };
+                // Link the spawning tool part — through the transcript, never the
+                // `spawn.part` we found before the store (same aliasing rule as
+                // `assistantMessage`; the lookup is repeated on purpose).
+                if (spawn) {
+                    const part = findTool(t, e.callId!);
+                    if (part) part.agentId = e.agentId;
+                }
+                break;
+            }
+            case 'agent-update': {
+                const agent = t.agents[e.agentId];
+                if (!agent) break;
+                agent.status = e.status;
+                if (e.summary !== undefined) agent.summary = e.summary;
+                if (e.usage !== undefined) agent.usage = e.usage;
+                if (e.costUsd !== undefined) agent.costUsd = e.costUsd;
+                if (e.output !== undefined) agent.output = e.output;
+                if (e.error !== undefined) agent.error = e.error;
                 break;
             }
             case 'request': {

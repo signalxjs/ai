@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createTranscript, createReducer, type AgentEvent, type AgentTranscript, type UnstampedEvent } from '@sigx/ai-agent';
+import { createTranscript, createReducer, callerAgent, type AgentEvent, type AgentTranscript, type UnstampedEvent } from '@sigx/ai-agent';
 import { codingExtension, codingEvent, codingState, isCodingEvent, CODING_NS } from '@sigx/ai-agent/coding';
 
 let seq = 0;
@@ -59,6 +59,30 @@ describe('coding extension events and reducer', () => {
             expect(copy).toEqual(full);
         }
         expect(codingState(createTranscript('s'))).toBeUndefined();
+    });
+
+    it('a diff made inside a sub-agent is attributed to that agent through callerAgent', () => {
+        seq = 0;
+        const reduce = createReducer({ extensions: [codingExtension()] });
+        const t = createTranscript('s');
+        const events: AgentEvent[] = [
+            ev({ type: 'turn-start', turnId: 't1', input: [] }),
+            ev({ type: 'tool-call', turnId: 't1', callId: 'c1', name: 'delegate' }),
+            ev({ type: 'agent-start', turnId: 't1', parentCallId: 'c1', agentId: 'a1', callId: 'c1', kind: 'editor' }),
+            // The sub-agent edits a file: its OWN tool call, nested under c1.
+            ev({ type: 'tool-call', turnId: 't1', parentCallId: 'c1', callId: 'c2', name: 'edit', category: 'edit' }),
+            ev({ ...codingEvent('diff', { path: 'a.ts', newText: 'x' }, { parentCallId: 'c2' }), turnId: 't1' }),
+            ev({ type: 'tool-update', turnId: 't1', parentCallId: 'c1', callId: 'c2', status: 'completed' }),
+            // The host edits too, at the top level.
+            ev({ type: 'tool-call', turnId: 't1', callId: 'c3', name: 'edit', category: 'edit' }),
+            ev({ ...codingEvent('diff', { path: 'b.ts', newText: 'y' }, { parentCallId: 'c3' }), turnId: 't1' }),
+            ev({ type: 'tool-update', turnId: 't1', callId: 'c3', status: 'completed' })
+        ];
+        for (const e of events) reduce(t, e);
+        const diffs = codingState(t)!.diffs;
+        expect(diffs.map((d) => d.callId)).toEqual(['c2', 'c3']);
+        expect(callerAgent(t, diffs[0]!.callId!)?.agentId).toBe('a1');
+        expect(callerAgent(t, diffs[1]!.callId!)).toBeUndefined();
     });
 
     // The same rule as the core reducer (see `__tests__/state/reduce.test.ts`):

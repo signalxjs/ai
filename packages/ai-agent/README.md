@@ -230,6 +230,33 @@ if (part.type === 'reasoning') {
 }
 ```
 
+### Sub-agents in the transcript
+
+Every sub-agent an `agent-start` announced lives under `transcript.agents`
+(by id, with its `status`, cumulative `usage`, `output` and the `callId` that
+spawned it), and the spawning tool part carries `agentId` back. The reducer
+derives `depth` and `parentAgentId` from the call chain, so a harness's own
+depth only counts for an ambient agent that no call started. Selectors build
+the views from that flat record:
+
+```ts
+import { agentTree, walkAgents, spawnedAgent, callerAgent, agentMessages, agentsUsage } from '@sigx/ai-agent';
+
+agentTree(transcript);                 // AgentNode[] — { agent, children }, start order
+walkAgents(transcript, (agent, depth) => …);
+spawnedAgent(transcript, callId);      // the agent this call started
+callerAgent(transcript, callId);       // the agent that MADE this call (undefined: the session)
+agentMessages(transcript, agentId);    // the messages produced inside it
+agentsUsage(transcript);               // summed over every agent — separate from transcript.usage
+```
+
+A sub-agent's messages stay in `transcript.messages` with their
+`parentCallId`. `toUIMessages` flattens them into the calling message as a
+marked text part by default; `toUIMessages(t, { subagents: 'omit' })` drops
+them — what a host feeding its transcript back to a model wants, so a
+delegate's words are never taken for its own. `promptPartsToUI(parts)` is the
+user half of that mapping on its own.
+
 ## Usage: the well-known keys
 
 `Usage` (from `@sigx/ai`) is an open index signature, but adapters do not get

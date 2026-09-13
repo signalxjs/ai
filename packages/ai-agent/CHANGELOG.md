@@ -8,6 +8,18 @@ follow [SemVer](https://semver.org/).
 
 ### Added
 
+- The sub-agent tree in the transcript: `transcript.agents` (`AgentState` by
+  id, folded from `agent-start` / `agent-update` — status, cumulative usage,
+  output, the spawning `callId`, and `depth` / `parentAgentId` derived from the
+  call chain), `ToolPartState.agentId` on the spawning tool part, and the
+  selectors `spawnedAgent`, `callerAgent`, `childAgents`, `agentMessages`,
+  `agentTree`, `walkAgents`, `agentsUsage`. `checkEventInvariants` now holds
+  every agent to one start, a seen spawning call bound to no other agent (and,
+  when nested, nested under that very call), and a terminal status — and every
+  `tool-call` to a fresh `callId`.
+- `toUIMessages(transcript, { subagents: 'flatten' | 'omit' })` — `omit` drops
+  the messages produced inside a sub-agent (the default flattens them as
+  before), and `promptPartsToUI` exposes the user half of the mapping.
 - The contract: `Agent`, `AgentSession`, `AgentTurn`, `SessionOptions`,
   `SessionRef`, `TurnResult`, `PromptInput`.
 - The event union (`AgentEvent`) with `(epoch, seq)` stamps, `AgentCapabilities`,
@@ -126,6 +138,9 @@ follow [SemVer](https://semver.org/).
 
 ### Fixed
 
+- `modelAgent` fed a delegate's flattened text back to the host model as the
+  host's own words on the next turn; it now builds the conversation with
+  `toUIMessages(transcript, { subagents: 'omit' })`.
 - Session grants survive resume: `modelAgent` and `mockAgent` seed the session
   from the transcript's (or the ref's) grants, so a tool allowed for the session
   is not asked again after `resume`.
