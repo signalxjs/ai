@@ -35,13 +35,18 @@ With a real model, or the real Claude Code harness:
 
 ```sh
 ANTHROPIC_API_KEY=sk-ant-…  pnpm --filter agent-example dev   # our engine on Claude
-OPENAI_API_KEY=sk-…          pnpm --filter agent-example dev   # our engine on OpenAI
-AI_AGENT=claude-code         pnpm --filter agent-example dev   # the Claude Code harness itself
+OPENAI_API_KEY=sk-…         pnpm --filter agent-example dev   # our engine on OpenAI
+SIGX_AI_AGENT=claude-code   pnpm --filter agent-example dev   # the Claude Code harness itself
 ```
 
-`AI_AGENT=claude-code` needs Claude Code available and signed in; when it is
+`SIGX_AI_AGENT=claude-code` needs Claude Code available and signed in; when it is
 not, the example says so and falls back to our own engine. **Nothing in
 `App.tsx` changes either way** — that is the point of the contract.
+
+The `SIGX_` prefix is deliberate: a bare `AI_AGENT` is generic enough that the
+tooling you run this from may already define it (Claude Code does). Each
+variable is validated against the values the server understands, so an
+unrecognised one warns and the banner names the fallback it actually used.
 
 Or put them in a file — `dev` and `start` both load `.env` (node's
 `--env-file-if-exists`, so a missing file is fine):
@@ -51,7 +56,7 @@ cp .env.example .env             # then uncomment what you need
 ```
 
 `.env` is gitignored; `.env.example` documents every var the example reads
-(`AI_AGENT`, `AI_PROVIDER`, `AI_MODEL`, `ANTHROPIC_API_KEY`,
+(`SIGX_AI_AGENT`, `SIGX_AI_PROVIDER`, `SIGX_AI_MODEL`, `ANTHROPIC_API_KEY`,
 `OPENAI_API_KEY`, `PORT`).
 
 Production:

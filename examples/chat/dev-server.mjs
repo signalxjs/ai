@@ -27,6 +27,6 @@ createServer((req, res) => {
         });
     });
 }).listen(port, () => {
-    const provider = process.env.AI_PROVIDER ?? (process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.OPENAI_API_KEY ? 'openai' : 'mock');
+    const provider = process.env.SIGX_AI_PROVIDER ?? (process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.OPENAI_API_KEY ? 'openai' : 'mock');
     console.log(`chat dev  http://localhost:${port}  (provider: ${provider})`);
 });
