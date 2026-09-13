@@ -22,6 +22,7 @@ Full guides, API reference and live examples → **<https://sigx.dev/ai/>**
 | Package | What |
 |---|---|
 | [`@sigx/ai`](./packages/ai) | Provider-neutral core: the `LanguageModel` seam, `UIMessage` and the `UIChunk` stream protocol, `defineTool`, `streamText` / `generateText` / `streamObject`, plus `@sigx/ai/app` (`useChat`, `useCompletion`, `useObject`), `@sigx/ai/server` (`chatStream` for `serverStream` handlers) and `@sigx/ai/testing` (`mockModel`) |
+| [`@sigx/ai-agent`](./packages/ai-agent) | **Experimental.** The agent layer: one provider-neutral `Agent` contract for agent harnesses (Claude Code, Codex, ACP agents) and our own engine — events with `(epoch, seq)` stamps, capabilities, the policy engine, session helpers for adapters, plus `@sigx/ai-agent/testing` (`mockAgent`) |
 | [`@sigx/ai-anthropic`](./packages/ai-anthropic) | Claude on the official `@anthropic-ai/sdk` — streaming, tool use, adaptive thinking, refusal handling |
 | [`@sigx/ai-openai`](./packages/ai-openai) | OpenAI on the official `openai` SDK — Responses API streaming and function calling |
 

@@ -176,6 +176,18 @@ To run the example: `pnpm build` first (it resolves the packages from
   terminal or Lynx app can use them), and `./testing` (`mockModel` — a
   scripted, deterministic model for tests, docs and CI). Zero runtime
   dependencies; `node:`-free so the deploy adapters (workerd, edge) run it.
+- `packages/ai-agent` → `@sigx/ai-agent` — **experimental**, the agent layer
+  (tracking issue #35): one provider-neutral `Agent` contract for agent
+  harnesses and our own engine. Entries today: `.` (the contract, the
+  `AgentEvent` union with `(epoch, seq)` stamps, `AgentCapabilities`, the
+  policy engine `resolveRequest` + built-in rules, and the session helpers
+  every adapter builds on — `createEventLog`, `createTurn`,
+  `createSessionCore`) and `./testing` (`mockAgent`, a scripted agent).
+  Later milestones add `./coding`, `./harness`, `./wire`, `./app`. Zero
+  runtime dependencies; edge-safe (`node:`-free, no `process` / `Buffer`,
+  enforced by `__tests__/package/edge-safety.test.ts`). Peers on `@sigx/ai`.
+  Node-only building blocks live in `@sigx/ai-agent-node`; adapters are
+  `@sigx/ai-agent-<harness>` (named by harness, not vendor).
 - `packages/ai-anthropic` → `@sigx/ai-anthropic` — Claude on the official
   `@anthropic-ai/sdk` (a peer dependency, literal range): `anthropic()` →
   `.model(id)`. Streams `client.messages.stream`, maps text / thinking /
@@ -216,6 +228,14 @@ Source layout (`packages/ai/src`):
   stays flat (`./dist/<entry>.js`, vite names bundles by entry).
 - **Tests mirror `src/`**: `__tests__/<folder>/<file>.test.ts` covers
   `src/<folder>/<file>.ts`; shared fixtures stay in `__tests__/helpers.ts`.
+
+Source layout (`packages/ai-agent/src`) follows the same folder-per-concern
+rule with its own one-way order:
+`utils ← protocol ← policy ← session ← state ← store ← model-agent | agent-tool`;
+`coding/`, `harness/`, `wire/`, `app/` and `testing/` sit on top of what they
+need and nothing below imports them. The core (`.`) is domain-neutral — coding
+concepts (cwd, diffs, terminals, plans) live only in `./coding`. Tests mirror
+`src/` the same way; `__tests__/package/` holds package-level checks.
 
 A provider package (`packages/ai-<vendor>/src`) is small enough for one file
 per concern, no folders: `options.ts` (the `<Vendor>ProviderOptions`
