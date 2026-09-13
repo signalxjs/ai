@@ -74,8 +74,9 @@ export async function resolveExecutable(name: string, options: ResolveExecutable
     const pathextKey = win ? envKey(env, 'PATHEXT', platform) : undefined;
     // Lower-cased: Windows does not care, and the path we report should look
     // like the file on disk (`tool.cmd`, not `tool.CMD` from PATHEXT).
+    // A key may exist with an `undefined` value (a partial env, an unset variable).
     const exts = win
-        ? (pathextKey ? env[pathextKey]! : DEFAULT_PATHEXT)
+        ? ((pathextKey ? env[pathextKey] : undefined) ?? DEFAULT_PATHEXT)
               .split(';')
               .filter(Boolean)
               .map((e) => e.toLowerCase())
@@ -88,7 +89,7 @@ export async function resolveExecutable(name: string, options: ResolveExecutable
         if (win && !extname(base)) for (const e of exts) candidates.push(base + e);
     } else {
         const pathKey = envKey(env, 'PATH', platform);
-        const dirs = (pathKey ? env[pathKey]! : '').split(win ? ';' : delimiter).filter(Boolean);
+        const dirs = ((pathKey ? env[pathKey] : undefined) ?? '').split(win ? ';' : delimiter).filter(Boolean);
         for (const dir of dirs) {
             const base = join(dir, name);
             if (win) {

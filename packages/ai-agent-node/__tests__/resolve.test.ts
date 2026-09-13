@@ -101,6 +101,13 @@ describe('resolveExecutable', () => {
         await expect(resolveExecutable('script.js', { cwd: root, env: { PATH: '/nowhere' }, platform: 'linux' })).rejects.toBeInstanceOf(ExecutableNotFoundError);
     });
 
+    it('tolerates PATH / PATHEXT keys whose value is undefined', async () => {
+        const env = { Path: `${join(root, 'bin with space')}`, PATHEXT: undefined } as NodeJS.ProcessEnv;
+        expect((await resolveExecutable('native', { env, platform: 'win32' })).kind).toBe('native');
+        await expect(resolveExecutable('native', { env: { PATH: undefined } as NodeJS.ProcessEnv, platform: 'win32' })).rejects.toBeInstanceOf(ExecutableNotFoundError);
+        await expect(resolveExecutable('native', { env: { PATH: undefined } as NodeJS.ProcessEnv, platform: 'linux' })).rejects.toBeInstanceOf(ExecutableNotFoundError);
+    });
+
     it('reports the searched directories when nothing is found', async () => {
         const err = await resolveExecutable('missing-tool', { env: { PATH: `${join(root, 'lib')}${win ? ';' : ':'}${join(root, 'bin with space')}` } }).catch((e: unknown) => e);
         expect(err).toBeInstanceOf(ExecutableNotFoundError);
