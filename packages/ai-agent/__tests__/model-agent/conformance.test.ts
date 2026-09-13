@@ -24,6 +24,14 @@ function respondFor(scenario: ConformanceScenario) {
                 return { error: 'the model is down' };
             case 'structured-output':
                 return { text: '{"ok":true}' };
+            case 'delegate-tree':
+                return round === 0 ? { toolCalls: [{ name: 'delegate', input: {}, id: 'd1' }] } : { text: 'Done.' };
+            case 'delegate-cancel':
+                return round === 0 ? { toolCalls: [{ name: 'delegateSlow', input: {}, id: 'd1' }] } : { text: 'Moving on.' };
+            case 'delegate-request':
+                return round === 0 ? { toolCalls: [{ name: 'delegateAsking', input: {}, id: 'd1' }] } : { text: 'Done.' };
+            case 'steer':
+                return round === 0 ? { toolCalls: [{ name: 'delayed', input: {}, id: 't1' }] } : { text: 'Done.' };
             default:
                 return { text: 'Hello!' };
         }
