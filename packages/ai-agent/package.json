@@ -23,6 +23,12 @@
             "development": "./dist/testing.js",
             "production": "./dist/testing.prod.js",
             "import": "./dist/testing.js"
+        },
+        "./coding": {
+            "types": "./dist/coding/index.d.ts",
+            "development": "./dist/coding.js",
+            "production": "./dist/coding.prod.js",
+            "import": "./dist/coding.js"
         }
     },
     "files": [

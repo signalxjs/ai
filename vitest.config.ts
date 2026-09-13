@@ -32,6 +32,7 @@ export default defineConfig({
             // `@sigx/ai-agent` subpaths first, then the bare name as a regex: a
             // string `find` is a prefix match and would swallow `@sigx/ai-agent-node`.
             { find: '@sigx/ai-agent/testing', replacement: resolve(__dirname, 'packages/ai-agent/src/testing/index.ts') },
+            { find: '@sigx/ai-agent/coding', replacement: resolve(__dirname, 'packages/ai-agent/src/coding/index.ts') },
             { find: '@sigx/ai-agent/harness', replacement: resolve(__dirname, 'packages/ai-agent/src/harness/index.ts') },
             { find: '@sigx/ai-agent-node', replacement: resolve(__dirname, 'packages/ai-agent-node/src/index.ts') },
             { find: /^@sigx\/ai-agent$/, replacement: resolve(__dirname, 'packages/ai-agent/src/index.ts') },

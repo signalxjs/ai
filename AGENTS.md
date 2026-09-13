@@ -184,10 +184,13 @@ To run the example: `pnpm build` first (it resolves the packages from
   policy engine `resolveRequest` + built-in rules, and the session helpers
   every adapter builds on — `createEventLog`, `createTurn`,
   `createSessionCore`) and `./testing` (`mockAgent`, a scripted agent).
-  `./harness` is the edge-safe protocol kit protocol adapters build on: a
-  JSON-RPC 2.0 peer over Web Streams (`createJsonRpcPeer`), NDJSON framing, an
-  MCP tool handler (`createMcpToolHandler`, Streamable HTTP, tools only) and
-  `webSocketStreams`. Later milestones add `./coding`, `./wire`, `./app`. Zero
+  `./coding` adds the coding vocabulary (categories, typed `coding.*` events
+  and their reducer plugin, path-aware policies); `./harness` is the edge-safe
+  protocol kit protocol adapters build on: a JSON-RPC 2.0 peer over Web
+  Streams (`createJsonRpcPeer`), NDJSON framing, an MCP tool handler
+  (`createMcpToolHandler`, Streamable HTTP, tools only) and `webSocketStreams`;
+  `./testing` also ships `recordAgent` / `replayAgent`. Later milestones add
+  `./wire`, `./app`. Zero
   runtime dependencies; edge-safe (`node:`-free, no `process` / `Buffer`,
   enforced by `__tests__/package/edge-safety.test.ts`). Peers on `@sigx/ai`.
   Node-only building blocks live in `@sigx/ai-agent-node`; adapters are
