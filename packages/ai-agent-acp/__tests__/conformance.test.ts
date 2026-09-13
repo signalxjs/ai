@@ -2,8 +2,8 @@
 /** The conformance suite against the ACP adapter over the in-memory fake agent. */
 import { describe, it, expect, afterEach } from 'vitest';
 import { agentConformance, type ConformanceScenario } from '@sigx/ai-agent/testing';
-import { acp } from '@sigx/ai-agent-acp';
-import { fakeAcpAgent, type FakeAcp, type FakePromptApi } from './fake-acp-agent';
+import { acp, capabilitiesFrom } from '@sigx/ai-agent-acp';
+import { fakeAcpAgent, FULL_CAPABILITIES, type FakeAcp, type FakePromptApi } from './fake-acp-agent';
 
 const fakes: FakeAcp[] = [];
 afterEach(async () => {
@@ -58,14 +58,22 @@ describe('agentConformance: acp over a fake ACP agent', () => {
         await agent.connect();
         return agent;
     };
-    // Capabilities are known only after connect(): compute the skips from what the fake advertises.
-    const probe = fakeAcpAgent({ onPrompt: async () => ({ stopReason: 'end_turn' }) });
-    fakes.push(probe);
-    const cases = agentConformance(make, { skip, sessionOptions: { cwd: process.cwd() } });
-    it('skips only the scenarios ACP cannot express', async () => {
-        const caps = await acp({ transport: probe.transport }).connect();
-        expect(caps.structuredOutput).toBe(false);
-        expect(cases.filter((c) => c.skip).map((c) => c.name)).toEqual(['conformance: input-request', 'conformance: support-agent']);
+    // Capabilities are known only after connect(); the fake advertises FULL_CAPABILITIES, so the
+    // same mapping `connect()` applies gives the suite its capability-driven skips up front —
+    // a scenario the adapter cannot run is an asserted skip, never a silent no-op.
+    const capabilities = capabilitiesFrom({ protocolVersion: 1, agentCapabilities: FULL_CAPABILITIES });
+    const cases = agentConformance(make, { capabilities, skip, sessionOptions: { cwd: process.cwd() } });
+    it('skips exactly the scenarios ACP cannot express', async () => {
+        const probe = fakeAcpAgent({ onPrompt: async () => ({ stopReason: 'end_turn' }) });
+        fakes.push(probe);
+        expect(await acp({ transport: probe.transport }).connect()).toEqual(capabilities);
+        expect(cases.filter((c) => c.skip).map((c) => c.name)).toEqual([
+            'conformance: tool-permission',
+            'conformance: headless-deny',
+            'conformance: input-request',
+            'conformance: structured-output',
+            'conformance: support-agent'
+        ]);
     });
     for (const c of cases) it.skipIf(!!c.skip)(c.name, c.run, 15_000);
 });
