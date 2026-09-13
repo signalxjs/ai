@@ -6,7 +6,7 @@
  */
 
 import { AgentError, SessionBusyError } from '../protocol/index.js';
-import type { AgentEvent, Decision, PromptInput, SessionState, UnstampedEvent } from '../protocol/index.js';
+import type { AgentCapabilities, AgentEvent, Decision, PromptInput, PromptPart, SessionState, UnstampedEvent } from '../protocol/index.js';
 import { toPromptParts } from '../protocol/index.js';
 import { createGrants, resolveRequest } from '../policy/index.js';
 import type { Policy, PolicyRequest, Resolved, SessionGrants } from '../policy/index.js';
@@ -27,8 +27,17 @@ export interface SessionCoreOptions {
     readonly signal?: AbortSignal;
     /** The agent's `steer` capability: a prompt during a turn is allowed. */
     readonly steer?: boolean;
+    /** The agent's `promptParts` capability: a part beyond it fails the prompt before any event. Default: everything. */
+    readonly promptParts?: AgentCapabilities['promptParts'];
     readonly now?: () => number;
 }
+
+/** The part kinds each `promptParts` level admits. */
+const ADMITTED: Record<AgentCapabilities['promptParts'], ReadonlySet<PromptPart['type']>> = {
+    text: new Set(['text']),
+    'text+image': new Set(['text', 'image']),
+    'text+image+file': new Set(['text', 'image', 'file', 'resource'])
+};
 
 /** Per-turn context handed to `run` alongside the driver. */
 export interface TurnContext {
@@ -96,10 +105,13 @@ export function createSessionCore(options: SessionCoreOptions): SessionCore {
             const turnId = promptOptions?.turnId ?? generateId('turn');
             if (closed) return failedTurn(turnId, new AgentError('protocol_error', `[sigx ai-agent] session "${id}" is closed`));
             if (current && !current.settled && !options.steer) return failedTurn(turnId, new SessionBusyError(id, current.id));
+            const parts = toPromptParts(input);
+            const refused = options.promptParts ? parts.find((p) => !ADMITTED[options.promptParts!].has(p.type)) : undefined;
+            if (refused) return failedTurn(turnId, new AgentError('protocol_error', `[sigx ai-agent] session "${id}" accepts promptParts "${options.promptParts}" — a ${refused.type} part was refused`));
             const turn = createTurn({
                 log,
                 turnId,
-                input: toPromptParts(input),
+                input: parts,
                 signals: [controller.signal, promptOptions?.signal],
                 run: (driver) => {
                     const ctx: TurnContext = {
