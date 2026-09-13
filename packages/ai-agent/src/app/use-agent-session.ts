@@ -126,9 +126,11 @@ export function useAgentSession(source: AgentSessionSource, options: UseAgentSes
     let iterator: AsyncIterator<AgentEvent> | null = null;
     let stopped = false;
     let unwatch: (() => void) | undefined;
-    // Turns already reported through `onTurnEnd`: a steer resolves with the
-    // running turn's result, and that turn ends once.
-    const reported = new Set<string>();
+    // The turn last reported through `onTurnEnd`: a steer resolves with the
+    // running turn's result, and that turn ends once. One id is enough — a
+    // session runs one turn at a time, so a later prompt either steers this
+    // one or starts the next.
+    let reported: string | undefined;
 
     /** A failure becomes the transcript's error, in the shape an `error` event has. */
     function fail(e: unknown): void {
@@ -288,8 +290,8 @@ export function useAgentSession(source: AgentSessionSource, options: UseAgentSes
                 // gone gets no callback (see `fail`), and a turn that several
                 // prompts steered ends once. Read the id AFTER the result: a
                 // remote handle learns which turn it joined from the ack.
-                if (!stopped && !reported.has(turn.id)) {
-                    reported.add(turn.id);
+                if (!stopped && reported !== turn.id) {
+                    reported = turn.id;
                     options.onTurnEnd?.(result);
                 }
                 return result;
