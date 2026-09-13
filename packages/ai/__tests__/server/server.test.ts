@@ -143,4 +143,14 @@ describe('chatStream / toTextStream', () => {
         const ran = await collect(chatStream({ model: script(), messages: [userMessage('x')], tools: [guarded], onToolApproval: () => 'allow' as const }));
         expect(ran.map((c) => c.type)).toEqual(['start', 'tool-call', 'tool-approval-request', 'tool-result', 'text', 'finish']);
     });
+
+    it("chatStream honours the client's approval on resume; an explicit handler can veto it", async () => {
+        const guarded = defineTool({ name: 'g', description: 'g', input: citySchema, needsApproval: true, execute: () => 'ran' });
+        const transcript = [userMessage('x', 'u1'), { id: 'a1', role: 'assistant' as const, parts: [{ type: 'tool' as const, id: 'c1', name: 'g', input: { city: 'Oslo' }, state: 'approved' as const }] }];
+        const honoured = await collect(chatStream({ model: mockModel({ script: [{ text: 'end' }] }), messages: transcript, tools: [guarded] }));
+        expect(honoured.map((c) => c.type)).toEqual(['start', 'tool-result', 'text', 'finish']);
+        expect(honoured[1]).toEqual({ type: 'tool-result', id: 'c1', output: 'ran' });
+        const vetoed = await collect(chatStream({ model: mockModel({ script: [{ text: 'end' }] }), messages: transcript, tools: [guarded], onToolApproval: () => 'deny' as const }));
+        expect(vetoed[1]).toMatchObject({ type: 'tool-result', id: 'c1', denied: true });
+    });
 });

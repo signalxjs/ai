@@ -173,14 +173,16 @@ describe('streamText tool approval', () => {
                 ]
             }
         ];
-        const onToolApproval = vi.fn(async () => 'deny' as const);
+        const onToolApproval = vi.fn(async (_call: unknown, ctx: { approvedByClient?: true }) => (ctx.approvedByClient ? ('allow' as const) : ('deny' as const)));
         const chunks = await collect(streamText({ model, messages: transcript, tools: [guarded, open], onToolApproval }));
         // No model round for the resumed calls; the start re-announces the message.
         expect(chunks[0]).toEqual({ type: 'start', messageId: 'a1' });
-        // Only the newly settled result is streamed; the approved call ran WITHOUT asking again.
+        // Only the newly settled result is streamed; the approved call is not announced again,
+        // but the handler still sees it — flagged as the client's decision.
         expect(types(chunks)).toEqual(['start', 'tool-result', 'text', 'text', 'finish']);
         expect(results(chunks)).toEqual([{ type: 'tool-result', id: 'c1', output: 'ran:A' }]);
-        expect(onToolApproval).not.toHaveBeenCalled();
+        expect(onToolApproval).toHaveBeenCalledTimes(1);
+        expect(onToolApproval).toHaveBeenCalledWith({ id: 'c1', name: 'guarded', input: { city: 'A' } }, { signal: expect.any(AbortSignal), approvedByClient: true });
         expect(model.rounds).toBe(1);
         expect(model.requests[0]!.messages).toEqual([
             { role: 'user', content: 'go' },
@@ -202,6 +204,18 @@ describe('streamText tool approval', () => {
                 ]
             }
         ]);
+    });
+
+    it("a client's approval alone runs nothing: the server handler can veto, and no handler denies", async () => {
+        const transcript: UIMessage[] = [
+            userMessage('go', 'u1'),
+            { id: 'a1', role: 'assistant', parts: [{ type: 'tool', id: 'c1', name: 'guarded', input: { city: 'A' }, state: 'approved' }] }
+        ];
+        const vetoed = await collect(streamText({ model: mockModel({ script: [{ text: 'end' }] }), messages: transcript, tools: [guarded], onToolApproval: async () => ({ deny: 'policy says no' }) as const }));
+        expect(results(vetoed)).toEqual([{ type: 'tool-result', id: 'c1', output: 'policy says no', isError: true, denied: true }]);
+
+        const bare = await collect(streamText({ model: mockModel({ script: [{ text: 'end' }] }), messages: transcript, tools: [guarded] }));
+        expect(results(bare)).toEqual([{ type: 'tool-result', id: 'c1', output: expect.stringMatching(/requires approval/), isError: true, denied: true }]);
     });
 
     it('resumes a still-awaiting call by asking again', async () => {
@@ -233,7 +247,7 @@ describe('streamText tool approval', () => {
                 ]
             }
         ];
-        const r = await generateText({ model, messages: transcript, tools: [guarded, open] });
+        const r = await generateText({ model, messages: transcript, tools: [guarded, open], onToolApproval: (_c, ctx) => (ctx.approvedByClient ? 'allow' : 'deny') });
         expect(r.message.id).toBe('a1');
         expect(r.message.parts).toEqual([
             { type: 'text', text: 'Let me.' },

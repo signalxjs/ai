@@ -37,11 +37,12 @@ ends with the call `awaiting`, `useChat` reports `status: 'awaiting'` and
 so the same assistant message resumes where it stopped.
 
 The resumed transcript comes from the client, so in that flow the **client is
-the approver**: whoever holds the transcript can mark a call `approved`. Use
-it for tools the user is entitled to run on their own say-so. A tool that
-needs a server-side decision (a policy, a role check) gets it from
-`onToolApproval` on the server — pass one to `chatStream` and nothing is
-deferred.
+the approver**: whoever holds the transcript can mark a call `approved`, and
+`chatStream`'s default handler honours it. Use it for tools the user is
+entitled to run on their own say-so. A client's approval never runs a tool
+by itself: a resumed `approved` call goes through `onToolApproval` again with
+`ctx.approvedByClient` set, so a server-side handler (a policy, a role
+check) can veto it — and bare `streamText` with no handler denies it.
 
 ## Install
 

@@ -30,4 +30,5 @@ All notable changes to `@sigx/ai` are documented here. The format follows
   `streamText` resumes a transcript whose last assistant message carries the
   client's decisions, so a stateless `serverStream` can ask the user:
   `useChat` exposes `status: 'awaiting'`, `approvals`, `approve(id)` and
-  `deny(id, reason?)`.
+  `deny(id, reason?)`. A client's approval is re-checked by `onToolApproval`
+  (`ctx.approvedByClient`), so a server handler can veto it.

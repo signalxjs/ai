@@ -30,13 +30,19 @@ export interface ChatStreamOptions extends Omit<StreamTextOptions, 'messages'> {
  * the client rather than denied. The turn ends with `finish { reason:
  * 'tool' }` and the call left `awaiting`; `useChat.approve` / `deny` settle
  * it and send the transcript again, and the next `chatStream` resumes at
- * that call. Pass `onToolApproval` to decide on the server instead.
+ * that call, honouring the client's approval.
+ *
+ * That makes THE CLIENT THE APPROVER: whoever holds the transcript can mark
+ * a call approved. Right for tools the user may run on their own say-so;
+ * for a server-side decision (a policy, a role check) pass `onToolApproval`
+ * — it replaces the default entirely and also sees the client's approvals
+ * (`ctx.approvedByClient`), so it can veto them.
  */
 export function chatStream(options: ChatStreamOptions): AsyncGenerator<UIChunk, void, undefined> {
     return streamText(options.onToolApproval ? options : { ...options, onToolApproval: deferToClient });
 }
 
-const deferToClient = () => 'defer' as const;
+const deferToClient: NonNullable<StreamTextOptions['onToolApproval']> = (_call, ctx) => (ctx.approvedByClient ? 'allow' : 'defer');
 
 /** Only the text deltas — a string stream `useStream` consumes as-is. */
 export async function* toTextStream(chunks: AsyncIterable<UIChunk>): AsyncGenerator<string, void, undefined> {

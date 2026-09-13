@@ -16,6 +16,12 @@
  * the tool phase (no model round) with the client's `approved` / `denied`
  * states applied. That is how a stateless `serverStream` asks a human.
  *
+ * The transcript is client-supplied, so a call the client marked `approved`
+ * is NOT run on that alone: it goes through `onToolApproval` again with
+ * `approvedByClient: true`. `chatStream`'s default handler honours it (the
+ * client is the approver there, by design); a server-side handler can veto;
+ * with no handler it is denied like any other gated call.
+ *
  * Abort is cooperative and total: `signal` reaches the provider (it aborts
  * the HTTP stream) and every tool (`ctx.signal`), and a consumer that
  * `break`s out of the iterable closes the provider stream through the
@@ -33,6 +39,16 @@ export interface ToolApprovalCall {
     readonly id: string;
     readonly name: string;
     readonly input: unknown;
+}
+
+export interface ToolApprovalContext {
+    readonly signal: AbortSignal;
+    /**
+     * Set when the client already approved this call in the transcript it
+     * sent back (a resumed turn). The handler decides whether that is enough
+     * — `chatStream`'s default says yes; a server policy may say no.
+     */
+    readonly approvedByClient?: true;
 }
 
 /**
@@ -59,10 +75,11 @@ export interface StreamTextOptions {
     /** Observe each model round as it finishes (usage accounting, logging). */
     readonly onStep?: (step: StepInfo) => void;
     /**
-     * Decide a call the tool flagged with `needsApproval`. Without a handler
-     * such a call is denied with a message — never silently run.
+     * Decide a call the tool flagged with `needsApproval` — including one the
+     * client marked `approved` in a resumed transcript (`ctx.approvedByClient`).
+     * Without a handler such a call is denied with a message — never silently run.
      */
-    readonly onToolApproval?: (call: ToolApprovalCall, ctx: { readonly signal: AbortSignal }) => ToolApprovalDecision | Promise<ToolApprovalDecision>;
+    readonly onToolApproval?: (call: ToolApprovalCall, ctx: ToolApprovalContext) => ToolApprovalDecision | Promise<ToolApprovalDecision>;
 }
 
 export interface StepInfo {
@@ -301,11 +318,17 @@ export async function* streamText(options: StreamTextOptions): AsyncGenerator<UI
             }
 
             // Phase 1 — who needs a human. Each gated call is announced before
-            // any call runs, so the UI shows every pending decision at once.
+            // any call runs, so the UI shows every pending decision at once. A
+            // call the client already approved is gated too (the handler sees
+            // `approvedByClient`), but not announced again.
             const gated = new Set<string>();
             const failedApproval = new Map<string, string>();
             for (const call of round.toolCalls) {
-                if (resumed?.settled.has(call.id) || resumed?.approved.has(call.id)) continue;
+                if (resumed?.settled.has(call.id)) continue;
+                if (resumed?.approved.has(call.id)) {
+                    gated.add(call.id);
+                    continue;
+                }
                 if (resumed?.awaiting.has(call.id)) {
                     gated.add(call.id);
                     yield { type: 'tool-approval-request', id: call.id };
@@ -337,8 +360,9 @@ export async function* streamText(options: StreamTextOptions): AsyncGenerator<UI
                     const approvalError = failedApproval.get(call.id);
                     if (approvalError !== undefined) return { call, output: approvalError, isError: true };
                     if (gated.has(call.id)) {
+                        const approvedByClient = resumed?.approved.has(call.id) ?? false;
                         const decision = onToolApproval
-                            ? await onToolApproval(call, { signal: toolSignal })
+                            ? await onToolApproval(call, approvedByClient ? { signal: toolSignal, approvedByClient: true } : { signal: toolSignal })
                             : ({ deny: `Tool "${call.name}" requires approval and no onToolApproval handler was supplied.` } as const);
                         if (decision === 'defer') return { call, deferred: true };
                         if (decision !== 'allow') {

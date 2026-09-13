@@ -57,6 +57,7 @@ export type {
     StreamTextOptions,
     StepInfo,
     ToolApprovalCall,
+    ToolApprovalContext,
     ToolApprovalDecision,
     GenerateTextResult,
     StreamObjectOptions,
