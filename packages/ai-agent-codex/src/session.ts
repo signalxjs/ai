@@ -20,6 +20,7 @@ import type {
     PermissionsRequestApprovalParams,
     SandboxMode,
     SandboxPolicy,
+    SandboxPolicyParam,
     ThreadStartResponse,
     ToolRequestUserInputParams,
     TurnStartParams,
@@ -63,6 +64,24 @@ export function sandboxMode(policy: SandboxPolicy | SandboxMode | undefined): Sa
     return type === 'dangerFullAccess' ? 'danger-full-access' : type === 'readOnly' ? 'read-only' : type === 'workspaceWrite' ? 'workspace-write' : undefined;
 }
 
+/** The `turn/start` policy for a sandbox mode — the network stays off, `cwd` is the only writable root. */
+export function toSandboxPolicy(mode: SandboxMode): SandboxPolicyParam {
+    switch (mode) {
+        case 'read-only':
+            return { type: 'readOnly', networkAccess: false };
+        case 'workspace-write':
+            return { type: 'workspaceWrite', writableRoots: [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false };
+        case 'danger-full-access':
+            return { type: 'dangerFullAccess' };
+    }
+}
+
+/** A config option whose `current` is always one of its `values`, even when Codex reports a mode we do not model. */
+function configOption(id: string, label: string, values: readonly string[], current: string, unlisted: string): ConfigOption {
+    const listed = values.map((v) => ({ id: v }));
+    return { id, label, values: values.includes(current) ? listed : [...listed, { id: current, label: unlisted }], current };
+}
+
 function toUserInput(input: PromptInput): UserInput[] {
     const parts = typeof input === 'string' ? [{ type: 'text' as const, text: input }] : input;
     const out: UserInput[] = [];
@@ -103,13 +122,8 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
     const overrides: { model?: string; approvalPolicy?: AskForApproval; sandbox?: SandboxMode; effort?: string } = {};
     let config: ConfigOption[] = [
         { id: 'model', label: 'Model', values: deps.models.length ? deps.models.map((m) => ({ id: m.id, ...(m.label ? { label: m.label } : {}) })) : [{ id: deps.thread.model }], current: deps.thread.model },
-        {
-            id: 'approvalPolicy',
-            label: 'Approval policy',
-            values: APPROVAL_VALUES.map((v) => ({ id: v })),
-            current: typeof deps.thread.approvalPolicy === 'string' ? deps.thread.approvalPolicy : 'granular'
-        },
-        { id: 'sandbox', label: 'Sandbox', values: SANDBOX_VALUES.map((v) => ({ id: v })), current: sandboxMode(deps.thread.sandbox) ?? 'unknown' },
+        configOption('approvalPolicy', 'Approval policy', APPROVAL_VALUES, typeof deps.thread.approvalPolicy === 'string' ? deps.thread.approvalPolicy : 'granular', 'Granular (managed by Codex)'),
+        configOption('sandbox', 'Sandbox', SANDBOX_VALUES, sandboxMode(deps.thread.sandbox) ?? 'unknown', 'Unknown'),
         ...(deps.thread.reasoningEffort ? [{ id: 'effort', label: 'Reasoning effort', values: [{ id: deps.thread.reasoningEffort }], current: deps.thread.reasoningEffort }] : [])
     ];
     core.emit({ type: 'config', options: config });
@@ -146,6 +160,7 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
                     ...(output ? { outputSchema: output.json as TurnStartParams['outputSchema'] } : {}),
                     ...(overrides.model !== undefined ? { model: overrides.model } : {}),
                     ...(overrides.approvalPolicy !== undefined ? { approvalPolicy: overrides.approvalPolicy } : {}),
+                    ...(overrides.sandbox !== undefined ? { sandboxPolicy: toSandboxPolicy(overrides.sandbox) } : {}),
                     ...(overrides.effort !== undefined ? { effort: overrides.effort } : {})
                 };
                 try {

@@ -18,3 +18,14 @@ follow [SemVer](https://semver.org/).
   every adapter shares instead of Codex's own spellings:
   `reasoningOutputTokens` → `reasoningTokens`, `cachedInputTokens` →
   `cacheReadInputTokens`, `cacheWriteInputTokens` → `cacheCreationInputTokens`.
+
+### Fixed
+
+- `configure({ sandbox })` was recorded in the `config` event but never sent:
+  the next `turn/start` now carries the matching `sandboxPolicy`.
+- A `config` option's `current` is always one of its `values` — a granular
+  approval policy or a sandbox we do not model (`externalSandbox`) is listed
+  as its own value instead of pointing at nothing.
+- `plan` items (and `item/plan/delta`) were passed through as `ext
+  { name: 'item.plan' }` with their deltas dropped; they are text parts now.
+  `coding.plan` stays the structured `turn/plan/updated` step list.
