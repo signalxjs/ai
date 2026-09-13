@@ -219,6 +219,34 @@ describe('streamText tool approval', () => {
         expect(types(allowed)).toEqual(['start', 'tool-approval-request', 'tool-result', 'text', 'finish']);
     });
 
+    it('generateText over a resumed transcript returns the whole assistant message', async () => {
+        const model = mockModel({ script: [{ text: 'end' }] });
+        const transcript: UIMessage[] = [
+            userMessage('go', 'u1'),
+            {
+                id: 'a1',
+                role: 'assistant',
+                parts: [
+                    { type: 'text', text: 'Let me.' },
+                    { type: 'tool', id: 'c1', name: 'guarded', input: { city: 'A' }, state: 'approved' },
+                    { type: 'tool', id: 'c2', name: 'open', input: { city: 'B' }, state: 'done', output: 'free:B' }
+                ]
+            }
+        ];
+        const r = await generateText({ model, messages: transcript, tools: [guarded, open] });
+        expect(r.message.id).toBe('a1');
+        expect(r.message.parts).toEqual([
+            { type: 'text', text: 'Let me.' },
+            { type: 'tool', id: 'c1', name: 'guarded', input: { city: 'A' }, state: 'done', output: 'ran:A' },
+            { type: 'tool', id: 'c2', name: 'open', input: { city: 'B' }, state: 'done', output: 'free:B' },
+            { type: 'text', text: 'end' }
+        ]);
+        expect(r.toolCalls.map((c) => c.id)).toEqual(['c1', 'c2']);
+        expect(r.text).toBe('Let me.end');
+        // The caller's transcript was not mutated.
+        expect(transcript[1]!.parts[1]).toMatchObject({ state: 'approved' });
+    });
+
     it('generateText reports a denied call as an error', async () => {
         const model = twoRounds([{ name: 'guarded', city: 'Oslo', id: 'c1' }]);
         const r = await generateText({ model, messages: [userMessage('go')], tools: [guarded], onToolApproval: async () => 'deny' as const });

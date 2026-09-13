@@ -182,16 +182,27 @@ interface ResumedRound extends RoundResult {
 }
 
 /**
+ * The assistant message a `streamText` over `messages` would RESUME rather
+ * than start afresh: the last one, when it carries a call the client has
+ * decided (`approved`) or that is still undecided (`awaiting`). Engine-private.
+ */
+export function resumedMessage(messages: StreamTextOptions['messages']): UIMessage | undefined {
+    if (!isUIMessages(messages)) return undefined;
+    const last = messages[messages.length - 1];
+    if (!last || last.role !== 'assistant') return undefined;
+    return last.parts.some((p) => p.type === 'tool' && (p.state === 'approved' || p.state === 'awaiting')) ? last : undefined;
+}
+
+/**
  * A UI transcript whose last message is an assistant turn with a call the
  * client has decided (`approved`) or that is still undecided (`awaiting`)
  * resumes at that turn's tool phase. Everything before it is the
  * conversation; its own settled calls are reused as results.
  */
 function resumePoint(messages: readonly UIMessage[]): { head: readonly UIMessage[]; round: ResumedRound } | undefined {
-    const last = messages[messages.length - 1];
-    if (!last || last.role !== 'assistant') return undefined;
+    const last = resumedMessage(messages);
+    if (!last) return undefined;
     const toolParts = last.parts.filter((p): p is UIToolPart => p.type === 'tool');
-    if (!toolParts.some((p) => p.state === 'approved' || p.state === 'awaiting')) return undefined;
     const settled = new Map<string, SettledResult>();
     const approved = new Set<string>();
     const awaiting = new Set<string>();

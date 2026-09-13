@@ -72,14 +72,18 @@ export function applyChunk(message: UIMessage, chunk: UIChunk): boolean {
     }
 }
 
-/** Drain a chunk stream into a fresh assistant message. */
-export async function assembleMessage(chunks: AsyncIterable<UIChunk>): Promise<{ message: UIMessage; last: UIChunk | undefined }> {
+/**
+ * Drain a chunk stream into an assistant message — a fresh one, or `into`
+ * when the stream's `start` announces its id (a resumed turn continues the
+ * message it stopped on; see `streamText`).
+ */
+export async function assembleMessage(chunks: AsyncIterable<UIChunk>, into?: UIMessage): Promise<{ message: UIMessage; last: UIChunk | undefined }> {
     let message: UIMessage | undefined;
     let last: UIChunk | undefined;
     for await (const chunk of chunks) {
         last = chunk;
         if (chunk.type === 'start') {
-            message = createMessage('assistant', [], chunk.messageId);
+            message = into && into.id === chunk.messageId ? into : createMessage('assistant', [], chunk.messageId);
             continue;
         }
         message ??= createMessage('assistant');
