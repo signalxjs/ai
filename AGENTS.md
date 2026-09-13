@@ -189,8 +189,10 @@ To run the example: `pnpm build` first (it resolves the packages from
   protocol kit protocol adapters build on: a JSON-RPC 2.0 peer over Web
   Streams (`createJsonRpcPeer`), NDJSON framing, an MCP tool handler
   (`createMcpToolHandler`, Streamable HTTP, tools only) and `webSocketStreams`;
-  `./testing` also ships `recordAgent` / `replayAgent`. Later milestones add
-  `./wire`, `./app`. Zero
+  `./testing` also ships `recordAgent` / `replayAgent`. `./wire` serves a
+  session in one place and uses it from another over any transport
+  (`serveSession` / `connectSession`, a versioned envelope, replay for late
+  joiners and reconnects). Later milestones add `./app`. Zero
   runtime dependencies; edge-safe (`node:`-free, no `process` / `Buffer`,
   enforced by `__tests__/package/edge-safety.test.ts`). Peers on `@sigx/ai`.
   Node-only building blocks live in `@sigx/ai-agent-node`; adapters are

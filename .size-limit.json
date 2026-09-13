@@ -34,6 +34,12 @@
     "ignore": ["@sigx/ai"]
   },
   {
+    "name": "@sigx/ai-agent/wire",
+    "path": "packages/ai-agent/dist/wire.prod.js",
+    "limit": "6 KB",
+    "ignore": ["@sigx/ai"]
+  },
+  {
     "name": "@sigx/ai-agent-claude-code",
     "path": "packages/ai-agent-claude-code/dist/index.prod.js",
     "limit": "8 KB",

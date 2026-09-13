@@ -47,3 +47,8 @@ follow [SemVer](https://semver.org/).
   `modelAgent`.
 - `agentConformance` accepts `skip(scenario)` for reasons capabilities cannot
   express.
+- `@sigx/ai-agent/wire`: the versioned envelope (`WireCommand`, `WireReply`,
+  `WireFrame`, `WIRE_PROTOCOL_VERSION`), `serveSession` (idempotent commands,
+  per-principal `authorize`, replay from the buffer, an `EventLogStore`, or a
+  `gap`), `connectSession` (an `AgentSessionClient` that reconnects from its
+  last cursor) and `coalesceFrames`.
