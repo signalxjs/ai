@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import type { Options, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { defineTool, type JsonSchema, type StandardSchemaV1 } from '@sigx/ai';
-import { allowAll, allowReadOnly, denyAll, type AgentEvent, type AgentTurn } from '@sigx/ai-agent';
+import { allowAll, allowReadOnly, denyAll, type AgentEvent, type AgentTurn, type UnstampedEvent } from '@sigx/ai-agent';
 import { agentConformance, type ConformanceScenario } from '@sigx/ai-agent/testing';
 import { codingState, codingExtension } from '@sigx/ai-agent/coding';
 import { createReducer, createTranscript } from '@sigx/ai-agent';
@@ -33,6 +33,8 @@ import {
     questionsSchema,
     questionOptions,
     toAskAnswers,
+    createAgentTracker,
+    taskKind,
     type ListenFn,
     type QueryFn
 } from '@sigx/ai-agent-claude-code';
@@ -844,6 +846,23 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
             const closing = agentEvents(await all);
             expect(closing.at(-1)).toMatchObject({ type: 'agent-update', agentId: 't2', status: 'cancelled' });
             expect(closing.at(-1)!.turnId).toBeUndefined();
+        });
+
+        it('the tracker joins only real text blocks of an AgentOutput, and falls back to the tool result text', () => {
+            const seen: UnstampedEvent[] = [];
+            const emit = (e: UnstampedEvent) => {
+                seen.push(e);
+            };
+            const tracker = createAgentTracker();
+            expect(tracker.handleTask(taskStarted('t1', 'task_1'), emit)).toBe(true);
+            tracker.settleCall('task_1', { ...AGENT_OUTPUT('t1', 'ok'), content: [{ type: 'text' }, { type: 'text', text: 'ok' }, { type: 'image', text: 'nope' }] }, 'fallback', false, emit);
+            expect(seen.at(-1)).toMatchObject({ type: 'agent-update', status: 'completed', output: 'ok' });
+            const empty = createAgentTracker();
+            empty.handleTask(taskStarted('t2', 'task_2'), emit);
+            empty.settleCall('task_2', { ...AGENT_OUTPUT('t2', 'x'), content: [{ type: 'text' }] }, 'fallback', false, emit);
+            expect(seen.at(-1)).toMatchObject({ agentId: 't2', status: 'completed', output: 'fallback' });
+            expect(taskKind({ task_type: 'local_bash' })).toBeUndefined();
+            expect(taskKind({ subagent_type: 'Explore' })).toBe('subagent');
         });
 
         it('steer stays off: a second prompt mid-turn is refused and the CLI sees one user message', async () => {

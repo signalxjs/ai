@@ -157,7 +157,12 @@ export function createAgentTracker(): AgentTracker {
                 return;
             }
             if (r.status === 'completed') {
-                const content = Array.isArray(r.content) ? (r.content as { type?: string; text?: unknown }[]).filter((c) => c.type === 'text').map((c) => String(c.text)).join('\n') : '';
+                const content = Array.isArray(r.content)
+                    ? (r.content as { type?: string; text?: unknown }[])
+                          .filter((c): c is { type: 'text'; text: string } => c.type === 'text' && typeof c.text === 'string')
+                          .map((c) => c.text)
+                          .join('\n')
+                    : '';
                 const usage = { ...toUsage(r.usage as Record<string, unknown> | undefined), ...(typeof r.totalTokens === 'number' ? { totalTokens: r.totalTokens } : {}) };
                 end(agent, 'completed', { output: content || text, ...(Object.keys(usage).length ? { usage } : {}) }, emit);
                 return;
