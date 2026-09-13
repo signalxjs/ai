@@ -22,6 +22,7 @@ import { allowAll, type Policy } from '../policy/index.js';
 import type { Agent, AgentSession, SessionOptions, TurnResult } from '../session/index.js';
 import { agentMessages, createReducer, createTranscript, spawnedAgent } from '../state/index.js';
 import { agentTool } from '../agent-tool/index.js';
+import { sleep } from '../utils/abort.js';
 import { assert, assertEqual } from './assert.js';
 import { checkEventInvariants, checkReplayEquality, checkResultMatchesTurnEnd } from './invariants.js';
 import { mockAgent, type MockStep } from './mock-agent.js';
@@ -78,7 +79,9 @@ export const CONFORMANCE_TOOLS = {
         throw new Error('the tool failed on purpose');
     }),
     /** Waits until the turn is cancelled. */
-    slow: tool('slow', 'A tool that never finishes on its own.', (_input, ctx) => new Promise<never>((_, reject) => ctx.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }))),
+    slow: tool('slow', 'A tool that never finishes on its own.', (_input, ctx) =>
+        ctx.signal.aborted ? Promise.reject(new Error('aborted')) : new Promise<never>((_, reject) => ctx.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }))
+    ),
     /** Returns `{ ok: true }` after a short pause — long enough for the suite to steer the running turn. */
     delayed: tool('delayed', 'A tool that returns { ok: true } after a short delay.', (_input, ctx) => sleep(DELAYED_MS, ctx.signal).then(() => ({ ok: true }))),
     /** A sub-agent that replies with one line of text. */
@@ -90,20 +93,6 @@ export const CONFORMANCE_TOOLS = {
 };
 
 const DELAYED_MS = 200;
-
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const timer = setTimeout(resolve, ms);
-        signal.addEventListener(
-            'abort',
-            () => {
-                clearTimeout(timer);
-                reject(new Error('aborted'));
-            },
-            { once: true }
-        );
-    });
-}
 
 /**
  * A delegate: `agentTool` over a scripted `mockAgent`, so a host with in-process
