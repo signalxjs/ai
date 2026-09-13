@@ -8,7 +8,7 @@
  * run with a context that can emit nested events (`agentTool` uses it).
  */
 
-import type { AnyTool, StreamTextOptions, ToolContext } from '@sigx/ai';
+import { validateWith, type AnyTool, type StreamTextOptions, type ToolContext } from '@sigx/ai';
 import type { UnstampedEvent } from '../protocol/index.js';
 import type { PolicyRequest, Resolved } from '../policy/index.js';
 import type { TurnDriver } from '../session/index.js';
@@ -38,7 +38,12 @@ export function gateTools(tools: readonly AnyTool[], options: GateOptions): Gate
         input: tool.input,
         spec: tool.spec,
         ...(tool.annotations ? { annotations: tool.annotations } : {}),
-        approval: async () => true,
+        // Bad arguments fail here, before any policy or human is asked — the
+        // same order `defineTool`'s own `needsApproval` keeps.
+        approval: async (raw) => {
+            await validateWith(tool.input, raw, `Invalid arguments for tool "${tool.name}"`);
+            return true;
+        },
         run: (raw, ctx) => {
             const nested: AgentToolContext = {
                 ...ctx,

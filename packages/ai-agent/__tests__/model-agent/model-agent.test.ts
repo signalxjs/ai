@@ -92,6 +92,15 @@ describe('modelAgent', () => {
         expect((await turn.result).stopReason).toBe('end_turn');
     });
 
+    it('invalid tool arguments fail before anyone is asked', async () => {
+        const { agent, model } = agentWith({ respond: (_r, round) => (round === 0 ? { toolCalls: [{ name: 'echo', input: 'not an object', id: 'c1' }] } : { text: 'x' }) });
+        const session = await agent.session();
+        const { events } = await drain(session.prompt('go'));
+        expect(events.filter((e) => e.type === 'request' || e.type === 'request-resolved')).toEqual([]);
+        expect(events.find((e) => e.type === 'tool-update' && e.status === 'failed')).toMatchObject({ callId: 'c1', error: expect.stringContaining('Invalid arguments for tool "echo"') });
+        expect(model.requests[1]!.messages.find((m) => m.role === 'tool')!.content[0]).toMatchObject({ isError: true });
+    });
+
     it('a request timeout denies; a tool that throws fails; cancel during a slow tool ends cancelled', async () => {
         const timeout = agentWith({ respond: (_r, round) => (round === 0 ? { toolCalls: [{ name: 'echo', input: {}, id: 'c1' }] } : { text: 'x' }) });
         const s1 = await timeout.agent.session({ requestTimeoutMs: 5 });
