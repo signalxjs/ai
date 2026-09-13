@@ -116,6 +116,27 @@ into one frame each to limit traffic; off by default. Without an `eventLog`, a
 client whose cursor has left the in-memory buffer receives a `gap` frame and
 continues from the head — a `TranscriptStore` snapshot is the app's way to fill it.
 
+**Reconnects.** A broken stream is retried from the last cursor with backoff
+(`reconnect: { maxAttempts, backoffMs }`; default 10 attempts, exponential from
+250 ms and capped at 10 s). The client reports where it stands as `status`
+(`connecting` · `connected` · `reconnecting` · `lost` · `closed`;
+`onStatusChange(listener)` observes it, `connected` is `status === 'connected'`).
+Once the attempts run out — or at once with `reconnect: false` — the client is
+`lost`, not gone: the session still exists, the local buffer stays open and
+in-flight turns keep waiting, so `remote.reconnect()` (a button, a
+"back online" event) resumes exactly where the stream broke. `closed` is
+final: `disconnect()` / `close()` end the buffer and reject pending turns, and
+a session that shuts down cleanly (its last event is `state: closed`) ends the
+client the same way rather than as `lost`.
+
+**Errors keep their code.** A command the server refuses rejects with
+`RemoteCommandError` — an `AgentError` whose `remote` is the wire code
+(`unauthorized`, `closed`, `unsupported`, `invalid`, `internal`) and whose
+`command` names what was sent, so a client branches on the code rather than a
+message. A `busy` prompt is a `SessionBusyError`, as locally. On the server,
+`handleCommand` validates each payload's shape (prompt parts, decision, patch)
+and answers `invalid` before anything reaches the session.
+
 ## Coding agents
 
 The core knows nothing about files or shells. `@sigx/ai-agent/coding` adds the
@@ -241,8 +262,8 @@ import { useAgentSession } from '@sigx/ai-agent/app';
 const view = useAgentSession(session); // a local AgentSession, or a connectSession client
 
 // view.transcript · .messages · .state · .turn · .requests · .usage · .costUsd
-//     .config · .error · .live · .capabilities
-// view.prompt(input, opts?) · .respond(requestId, decision) · .cancel() · .configure(patch)
+//     .config · .error · .live · .connected · .capabilities
+// view.prompt(input, opts?) · .respond(requestId, decision) · .cancel() · .configure(patch) · .reconnect()
 
 <>
     {view.messages.map((m) => m.parts.map((p) => (p.type === 'text' ? <span>{p.text}</span> : <ToolCard part={p} />)))}
@@ -275,6 +296,13 @@ What it guarantees:
   `view.error` (and `onError`), so a click handler needs no `catch`;
   `prompt()` resolves `undefined` in that case and with the `TurnResult`
   otherwise.
+- **A lost connection is visible and recoverable.** `view.connected` follows
+  a `connectSession` client's `status` (for a local session it equals `live`).
+  When the client goes `lost`, `error` is set with `recoverable: true` and
+  `onError` fires — the transcript is intact and the turn still pending — and
+  `view.reconnect()` picks the session back up from where the stream broke.
+  A session that closes cleanly ends the subscription with no error; a
+  subscription that ends while the session is still open is reported as one.
 
 [`examples/agent`](https://github.com/signalxjs/ai/tree/main/examples/agent)
 is the whole picture: `serveSession` on the server, `connectSession` +
