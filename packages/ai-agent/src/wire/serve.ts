@@ -122,11 +122,13 @@ export function serveSession(session: AgentSession, options: ServeSessionOptions
                 // fills the middle — a long replay must not overflow the session's
                 // per-subscriber backlog.
                 const liveIterator = session.subscribe()[Symbol.asyncIterator]();
-                const live = createQueue<AgentEvent>({
-                    onClose: () => {
-                        void liveIterator.return?.();
-                    }
-                });
+                let released = false;
+                const release = () => {
+                    if (released) return;
+                    released = true;
+                    void liveIterator.return?.();
+                };
+                const live = createQueue<AgentEvent>({ onClose: release });
                 void (async () => {
                     try {
                         for (;;) {
@@ -139,16 +141,26 @@ export function serveSession(session: AgentSession, options: ServeSessionOptions
                         live.fail(e);
                     }
                 })();
-                if (options.eventLog) {
-                    for await (const e of options.eventLog.read(session.id, from)) {
-                        if (signal?.aborted) return;
-                        if (last && !cursorBefore(last, e)) continue;
-                        last = { epoch: e.epoch, seq: e.seq };
-                        yield toFrame(e);
+                let handedOff = false;
+                try {
+                    if (options.eventLog) {
+                        for await (const e of options.eventLog.read(session.id, from)) {
+                            if (signal?.aborted) return;
+                            if (last && !cursorBefore(last, e)) continue;
+                            last = { epoch: e.epoch, seq: e.seq };
+                            yield toFrame(e);
+                        }
+                    } else {
+                        yield { v: V, kind: 'gap', from, resumeAt: head };
+                        last = head;
                     }
-                } else {
-                    yield { v: V, kind: 'gap', from, resumeAt: head };
-                    last = head;
+                    handedOff = true;
+                } finally {
+                    // Left before the tail took over (abort, a store error): release the live subscription.
+                    if (!handedOff) {
+                        live.end();
+                        release();
+                    }
                 }
                 source = live;
             }

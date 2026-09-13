@@ -124,6 +124,45 @@ describe('serveSession / connectSession', () => {
         await session.close();
     });
 
+    it('a stream that breaks right after hello reconnects from the head — no event is missed', async () => {
+        const { served } = await serve([[{ text: 'a b c' }]]);
+        let broke = false;
+        const transport: SessionTransport = {
+            send: (c) => served.handleCommand(c),
+            events: (from, o) =>
+                (async function* () {
+                    for await (const f of served.events(from, o)) {
+                        yield f;
+                        if (!broke && f.kind === 'hello') {
+                            broke = true;
+                            // The session emits while the client is disconnected.
+                            await served.handleCommand({ v: 1, commandId: 'p0', type: 'prompt', turnId: 'early', input: [{ type: 'text', text: 'go' }] });
+                            await tick(5);
+                            throw new Error('dropped');
+                        }
+                    }
+                })()
+        };
+        const remote = await connectSession(transport, { reconnect: { backoffMs: () => 1 } });
+        await tick(20);
+        const all = await collect(until(remote.subscribe({ epoch: 0, seq: 0 }), 20));
+        expect(all.map((e) => e.seq)).toEqual(all.map((_, i) => i + 1));
+        expect(all.some((e) => e.type === 'turn-end' && e.turnId === 'early')).toBe(true);
+        remote.disconnect();
+    });
+
+    it('a cursor inside a coalesced span cannot be replayed exactly, and says so', async () => {
+        const { served } = await serve([[{ text: 'one two three four' }]], {}, { coalesce: { schedule: () => undefined } });
+        const remote = await connectSession(inMemory(served));
+        const { events } = await drain(remote.prompt('go'));
+        const merged = events.find((e) => e.type === 'part-delta')!;
+        // Frames carry seqFrom..seq for a merged delta; the client's buffer keeps the span.
+        expect(merged.seq).toBeGreaterThan(events[events.indexOf(merged) - 1]!.seq + 1);
+        expect(() => remote.subscribe({ epoch: merged.epoch, seq: merged.seq - 1 })).toThrow(/coalesced span/);
+        expect(await collect(until(remote.subscribe({ epoch: merged.epoch, seq: merged.seq }), 10))).not.toContainEqual(merged);
+        remote.disconnect();
+    });
+
     it('a broken stream with reconnect: false ends the client', async () => {
         const { served } = await serve([[{ text: 'x' }]]);
         const transport: SessionTransport = {
@@ -244,6 +283,43 @@ describe('serveSession / connectSession', () => {
         const frames = await collect(noStore.served.events({ epoch: 1, seq: 2 }, { signal: AbortSignal.timeout(30) }));
         expect(frames.map((f) => f.kind)).toEqual(['hello', 'gap']);
         expect(frames[1]).toMatchObject({ kind: 'gap', from: { epoch: 1, seq: 2 }, resumeAt: noStore.served.head });
+
+        // A store that fails mid-replay: the live tail subscription is released, not leaked.
+        let released = 0;
+        const failingStore: EventLogStore = {
+            append: async () => {},
+            async *read() {
+                throw new Error('store down');
+            }
+        };
+        const leakAgent = mockAgent({ script: [[{ text: 'x' }]] });
+        const leakReal = await leakAgent.session();
+        const leakSession: AgentSession = {
+            ...leakReal,
+            get ref() {
+                return leakReal.ref;
+            },
+            subscribe: (from?: Cursor) => {
+                if (from && from.epoch > 0) throw new AgentError('protocol_error', 'evicted');
+                const inner = leakReal.subscribe(from);
+                if (from) return inner;
+                return {
+                    [Symbol.asyncIterator]() {
+                        const it = inner[Symbol.asyncIterator]();
+                        return {
+                            next: () => it.next(),
+                            return: () => (released++, it.return!()),
+                            [Symbol.asyncIterator]() {
+                                return this;
+                            }
+                        };
+                    }
+                };
+            }
+        };
+        const leaky = serveSession(leakSession, { agentId: 'mock', capabilities: leakAgent.capabilities, eventLog: failingStore });
+        await expect(collect(leaky.events({ epoch: 1, seq: 1 }))).rejects.toThrow('store down');
+        expect(released).toBe(1);
 
         const log = memoryEventLog();
         const stored = await evicting(log);

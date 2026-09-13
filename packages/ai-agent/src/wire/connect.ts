@@ -72,12 +72,15 @@ export async function connectSession(transport: SessionTransport, options: Conne
         switch (frame.kind) {
             case 'hello':
                 hello = frame;
+                // A live connection starts at the server's head, so a stream that
+                // breaks before its first event still reconnects from a cursor.
+                last ??= frame.head;
                 resolveHello(frame);
                 break;
             case 'event': {
                 const cursor = { epoch: frame.epoch, seq: frame.seq };
                 if (last && !cursorBefore(last, cursor)) return;
-                buffer.push(frame.event);
+                buffer.push(frame.event, frame.seqFrom);
                 last = cursor;
                 break;
             }
