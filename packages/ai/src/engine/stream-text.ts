@@ -30,9 +30,24 @@
 
 import { DENIED_MESSAGE, addUsage, toModelMessages, type LanguageModel, type ModelEvent, type ModelMessage, type ModelRequest } from '../model/index.js';
 import { generateId, type FinishReason, type UIChunk, type UIMessage, type UIToolPart, type Usage } from '../protocol/index.js';
+import { jsonSchemaOf, validateWith, type JsonSchema, type StandardSchemaV1 } from '../schema/index.js';
 import { findTool, type AnyTool } from '../tool/index.js';
+import { parsePartialJson } from '../utils/partial-json.js';
 import { abortable, abortError, isAbort } from './abort.js';
 import { toWireValue } from './wire-value.js';
+
+/**
+ * Ask the turn for a structured result: every model round requests the JSON
+ * format (tools still run), and the final answer is validated with `schema`
+ * onto `finish.output`. A final answer that does not parse or validate ends
+ * the turn with an `error` chunk instead.
+ */
+export interface OutputOptions {
+    readonly schema: StandardSchemaV1;
+    /** Explicit JSON Schema when the library cannot derive one. */
+    readonly jsonSchema?: JsonSchema;
+    readonly name?: string;
+}
 
 /** The call `onToolApproval` decides on. */
 export interface ToolApprovalCall {
@@ -80,6 +95,8 @@ export interface StreamTextOptions {
      * Without a handler such a call is denied with a message — never silently run.
      */
     readonly onToolApproval?: (call: ToolApprovalCall, ctx: ToolApprovalContext) => ToolApprovalDecision | Promise<ToolApprovalDecision>;
+    /** A structured result for the turn — see {@link OutputOptions}. */
+    readonly output?: OutputOptions;
 }
 
 export interface StepInfo {
@@ -252,6 +269,38 @@ type ToolOutcome =
     | { readonly call: { id: string; name: string }; readonly deferred: true };
 
 /**
+ * The `responseFormat` every round of a turn with `output` asks for. The
+ * model's JSON is the INPUT of `schema.validate` (transforms and defaults
+ * turn it into the output type), so the schema's input side is what the
+ * model is told to produce — the same as `generateObject`.
+ */
+function toResponseFormat(output: OutputOptions): NonNullable<ModelRequest['responseFormat']> {
+    const schema = output.jsonSchema ?? jsonSchemaOf(output.schema);
+    if (!schema) {
+        throw new Error('[sigx ai] streamText: no JSON Schema for `output.schema` — pass `output.jsonSchema` or use a library with Standard JSON Schema support.');
+    }
+    return { type: 'json', schema, ...(output.name ? { name: output.name } : {}) };
+}
+
+/**
+ * The structured result of a turn: the final round's text, parsed (a
+ * repairable partial document is accepted) and validated. Throws the error
+ * the turn reports.
+ */
+async function toOutput(output: OutputOptions, assistant: ModelMessage & { role: 'assistant' }): Promise<unknown> {
+    let text = '';
+    for (const p of assistant.content) if (p.type === 'text') text += p.text;
+    let raw: unknown;
+    try {
+        raw = JSON.parse(text);
+    } catch {
+        raw = parsePartialJson(text);
+        if (raw === undefined) throw new Error('[sigx ai] streamText: the model returned no parseable JSON for `output`.');
+    }
+    return validateWith(output.schema, raw, 'The model output did not match the schema');
+}
+
+/**
  * Stream one assistant turn as UI chunks. Runs the tool loop; ends with
  * exactly one `finish` (or one `error`).
  */
@@ -260,6 +309,9 @@ export async function* streamText(options: StreamTextOptions): AsyncGenerator<UI
     // A finite integer ≥ 1; anything else (NaN, Infinity, a fraction) falls
     // back to the default rather than producing a loop that never runs.
     const maxSteps = Number.isFinite(options.maxSteps) ? Math.max(1, Math.floor(options.maxSteps as number)) : 5;
+    // Resolved up front: a schema that cannot be rendered is a caller error,
+    // reported before any model round runs.
+    const responseFormat = options.output ? toResponseFormat(options.output) : undefined;
     const resume = isUIMessages(options.messages) ? resumePoint(options.messages) : undefined;
     const messages: ModelMessage[] = resume
         ? toModelMessages(resume.head)
@@ -271,6 +323,8 @@ export async function* streamText(options: StreamTextOptions): AsyncGenerator<UI
     const toolSignal = signal ?? new AbortController().signal;
     let usage: Usage | undefined;
     let finish: FinishReason = 'other';
+    /** The round that answered without tool calls — where a structured result comes from. */
+    let finalRound: RoundResult | undefined;
 
     yield { type: 'start', messageId: resume?.round.messageId ?? options.messageId ?? generateId() };
 
@@ -296,14 +350,18 @@ export async function* streamText(options: StreamTextOptions): AsyncGenerator<UI
                     ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
                     ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
                     ...(signal ? { signal } : {}),
-                    ...(options.providerOptions ? { providerOptions: options.providerOptions } : {})
+                    ...(options.providerOptions ? { providerOptions: options.providerOptions } : {}),
+                    ...(responseFormat ? { responseFormat } : {})
                 };
                 round = yield* runRound(model, request);
                 usage = addUsage(usage, round.usage);
                 finish = round.finish;
                 options.onStep?.({ step, finishReason: round.finish, usage: round.usage, toolCalls: round.toolCalls });
 
-                if (!round.toolCalls.length) break;
+                if (!round.toolCalls.length) {
+                    finalRound = round;
+                    break;
+                }
                 messages.push(round.assistant);
 
                 if (step === maxSteps) {
@@ -427,5 +485,16 @@ export async function* streamText(options: StreamTextOptions): AsyncGenerator<UI
         yield { type: 'error', message: e instanceof Error ? e.message : String(e) };
         return;
     }
-    yield { type: 'finish', reason: finish, ...(usage ? { usage } : {}) };
+    // Only a completed answer is a structured result: a turn cut short by the
+    // token limit, a refusal, or one waiting on the client (`tool`) has none.
+    let output: unknown;
+    if (options.output && finalRound && finish === 'stop') {
+        try {
+            output = await toOutput(options.output, finalRound.assistant);
+        } catch (e) {
+            yield { type: 'error', message: e instanceof Error ? e.message : String(e) };
+            return;
+        }
+    }
+    yield { type: 'finish', reason: finish, ...(usage ? { usage } : {}), ...(output !== undefined ? { output } : {}) };
 }
