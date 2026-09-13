@@ -17,12 +17,13 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { listSessions as sdkListSessions, query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import type { OutputFormat, Query, SDKMessage, SDKResultMessage, SDKUserMessage, SpawnOptions, SpawnedProcess } from '@anthropic-ai/claude-agent-sdk';
 import { AgentError, capabilities, createEventLog, createSessionCore, toPromptParts } from '@sigx/ai-agent';
-import type { Agent, AgentCapabilities, AgentSession, PromptInput, PromptOptions, SessionRef, SessionSummary, TurnContext, TurnDriver } from '@sigx/ai-agent';
+import type { Agent, AgentCapabilities, AgentSession, CancelTarget, PromptInput, PromptOptions, SessionRef, SessionSummary, TurnContext, TurnDriver } from '@sigx/ai-agent';
 import { listenMcp, resolveExecutable, spawnAgentProcess, type AgentProcess } from '@sigx/ai-agent-node';
 import type { ClaudeCodeOptions, ClaudeCodeSessionOptions } from './options.js';
 import { createCanUseTool, type PermissionTarget } from './permissions.js';
 import { PERMISSION_MODES, toOutputFormat, toQueryOptions, toUserMessage } from './request.js';
 import { createTurnMapper, mapSessionMessage, type TurnMapper } from './stream.js';
+import { createAgentTracker } from './tasks.js';
 import { startToolServer, type ToolServer } from './tools.js';
 
 export const DEFAULT_TOOL_SERVER = 'sigx-tools';
@@ -31,13 +32,23 @@ export const CLAUDE_CODE_CAPABILITIES: AgentCapabilities = capabilities({
     resume: 'local',
     fork: true,
     cancel: true,
+    // `steer` stays OFF. A second user message reaches the CLI mid-turn, but
+    // the CLI decides whether it folds into the running turn between tool
+    // rounds or starts a new turn after the result — same-turn injection is
+    // not a promise the adapter can keep (see the live probe in the tests).
+    steer: false,
     config: true,
     structuredOutput: true,
     promptParts: 'text+image',
     tools: 'mcp',
     // Mode `default` runs read-only builtins without asking: not every call reaches the policy.
     permissions: 'harness-filtered',
-    listSessions: true
+    listSessions: true,
+    // Task frames are `agent-start` / `agent-update`; `cancel({ agentId })` is `stopTask`;
+    // a sub-agent's permission questions come through the same `canUseTool` and `respond()`.
+    subagents: 'control',
+    // `session({ agents })` becomes the SDK's programmatic `agents`.
+    defineAgents: true
 });
 
 /** A push queue that is also the SDK's `AsyncIterable<SDKUserMessage>` prompt. */
@@ -161,11 +172,18 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
         const core = createSessionCore({
             id: localId,
             log,
+            subagents: 'control',
+            promptParts: CLAUDE_CODE_CAPABILITIES.promptParts,
             ...(sessionOptions.policy ? { policy: sessionOptions.policy } : {}),
             interactive: sessionOptions.interactive ?? true,
             ...(sessionOptions.requestTimeoutMs !== undefined ? { requestTimeoutMs: sessionOptions.requestTimeoutMs } : {}),
             ...(sessionOptions.signal ? { signal: sessionOptions.signal } : {})
         });
+        // The session's sub-agents: a background one outlives the turn that spawned it.
+        const tracker = createAgentTracker();
+        const emitSessionEvent = (e: Parameters<typeof core.emit>[0]) => {
+            core.emit(e);
+        };
 
         // Client tools, served over MCP for the lifetime of the session.
         const toolServer: ToolServer | undefined = sessionOptions.tools?.length ? await startToolServer(sessionOptions.tools, { name: serverName, version: '0.1.0', listen: options.listen ?? listenMcp }) : undefined;
@@ -192,7 +210,7 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
         const emitSession = (m: SDKMessage) => {
             if (m.type === 'system' && (m as { subtype: string }).subtype === 'init') claudeSessionId = (m as { session_id: string }).session_id;
             if (current) current.mapper.handle(m);
-            else mapSessionMessage(m, (e) => core.emit(e));
+            else if (!tracker.handleTask(m, emitSessionEvent)) mapSessionMessage(m, emitSessionEvent);
         };
 
         const startQuery = (format: OutputFormat | undefined) => {
@@ -251,6 +269,8 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
             }
             abort?.abort();
             await reader?.catch(() => {});
+            // The process is gone, and every background agent with it.
+            if (!core.closed) tracker.sweep('cancelled', emitSessionEvent);
         };
 
         const session: AgentSession & { configure(patch: Readonly<Record<string, string>>): Promise<void> } = {
@@ -269,6 +289,7 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
                     const mapper = createTurnMapper({
                         driver,
                         serverName,
+                        tracker,
                         onResult: (r) => current?.done(r),
                         interrupted: () => interrupted,
                         previousCostUsd: () => lastCost
@@ -283,6 +304,8 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
                                 if (result && typeof result.total_cost_usd === 'number') lastCost = result.total_cost_usd;
                                 if (!result && !driver.ended) {
                                     const message = failure ? failure.message : `Claude Code exited before the turn ended${stderrTail ? `: ${stderrTail.trim().split('\n').slice(-3).join(' | ')}` : ''}`;
+                                    // Every sub-agent, background ones included, died with the process.
+                                    tracker.sweep(driver.signal.aborted ? 'cancelled' : 'failed', (e) => driver.emit(e), { message });
                                     if (!driver.signal.aborted) driver.emit({ type: 'error', code: 'process_exited', message, recoverable: false });
                                     driver.end({ stopReason: driver.signal.aborted ? 'cancelled' : 'error', ...(driver.signal.aborted ? {} : { error: { code: 'process_exited', message } }) });
                                 }
@@ -308,7 +331,18 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
                 });
             },
             respond: (requestId, decision) => core.respond(requestId, decision),
-            cancel: () => core.cancel(),
+            async cancel(target?: CancelTarget) {
+                if (target?.agentId === undefined || target.agentId === localId) return core.cancel();
+                // A sub-agent that is already over is a no-op, like a late respond().
+                if (tracker.get(target.agentId)?.terminal) return;
+                const running = q;
+                if (!running) throw new AgentError('protocol_error', '[sigx ai-agent-claude-code] cancel({ agentId }) needs a running session (prompt first)');
+                try {
+                    await running.stopTask(target.agentId);
+                } catch (e) {
+                    throw new AgentError('protocol_error', `[sigx ai-agent-claude-code] Claude Code could not stop task "${target.agentId}": ${e instanceof Error ? e.message : String(e)}`);
+                }
+            },
             async configure(patch) {
                 if (!q) throw new AgentError('protocol_error', '[sigx ai-agent-claude-code] configure() needs a running session (prompt first)');
                 if (patch.model !== undefined) await q.setModel(patch.model);
@@ -326,6 +360,8 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
             },
             subscribe: (from) => core.subscribe(from),
             async close() {
+                // A background agent ends with the session; a foreground one ends with its turn (below).
+                tracker.sweep('cancelled', emitSessionEvent);
                 await core.close();
                 await stopQuery();
                 await toolServer?.close();

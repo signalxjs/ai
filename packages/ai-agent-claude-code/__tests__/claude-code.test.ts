@@ -6,9 +6,10 @@
  */
 import { describe, it, expect } from 'vitest';
 import { execFile } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import type { Options, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { defineTool, type JsonSchema, type StandardSchemaV1 } from '@sigx/ai';
 import { allowAll, allowReadOnly, denyAll, type AgentEvent, type AgentTurn } from '@sigx/ai-agent';
@@ -32,7 +33,8 @@ import {
     questionsSchema,
     questionOptions,
     toAskAnswers,
-    type ListenFn
+    type ListenFn,
+    type QueryFn
 } from '@sigx/ai-agent-claude-code';
 
 async function collect<T>(it: AsyncIterable<T>): Promise<T[]> {
@@ -100,6 +102,31 @@ const toolUseBlocks = (id: string, name: string, input: object, index = 0, paren
 const toolResult = (id: string, content: string, isError = false, parent: string | null = null) =>
     m({ type: 'user', ...base, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content, ...(isError ? { is_error: true } : {}) }] }, parent_tool_use_id: parent });
 const progress = (id: string, name: string) => m({ type: 'tool_progress', ...base, tool_use_id: id, tool_name: name, parent_tool_use_id: null, elapsed_time_seconds: 1 });
+/** A `user` frame whose `tool_result` also carries the tool's structured `tool_use_result` (the Task tool's `AgentOutput`). */
+const toolResultWith = (id: string, content: string, toolUseResult: unknown, isError = false) =>
+    m({ type: 'user', ...base, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content, ...(isError ? { is_error: true } : {}) }] }, parent_tool_use_id: null, tool_use_result: toolUseResult });
+// ── task frames (sub-agents), shapes from `@anthropic-ai/claude-agent-sdk` 0.3.270 ──
+const sys = (subtype: string, fields: Record<string, unknown>) => m({ type: 'system', subtype, ...base, ...fields });
+const TASK_USAGE = { total_tokens: 120, tool_uses: 2, duration_ms: 30 };
+const taskStarted = (taskId: string, toolUseId: string | undefined, extra: Record<string, unknown> = {}) =>
+    sys('task_started', { task_id: taskId, ...(toolUseId ? { tool_use_id: toolUseId } : {}), description: 'research', task_type: 'local_agent', subagent_type: 'Explore', is_backgrounded: false, spawn_depth: 1, prompt: 'find it', ...extra });
+const taskProgress = (taskId: string, toolUseId: string, extra: Record<string, unknown> = {}) => sys('task_progress', { task_id: taskId, tool_use_id: toolUseId, description: 'research', subagent_type: 'Explore', usage: TASK_USAGE, ...extra });
+const taskUpdated = (taskId: string, patch: Record<string, unknown>) => sys('task_updated', { task_id: taskId, patch });
+const taskNotification = (taskId: string, status: 'completed' | 'failed' | 'stopped', extra: Record<string, unknown> = {}) =>
+    sys('task_notification', { task_id: taskId, status, output_file: '/tmp/task.out', summary: 'all done', usage: { total_tokens: 300, tool_uses: 3, duration_ms: 50 }, ...extra });
+/** The Task tool's `tool_use_result` once a foreground sub-agent finished. */
+const AGENT_OUTPUT = (agentId: string, text: string) => ({
+    agentId,
+    agentType: 'Explore',
+    content: [{ type: 'text', text }],
+    totalToolUseCount: 2,
+    totalDurationMs: 40,
+    totalTokens: 300,
+    usage: { input_tokens: 200, output_tokens: 100, cache_creation_input_tokens: null, cache_read_input_tokens: null, server_tool_use: null, service_tier: null, cache_creation: null },
+    status: 'completed',
+    prompt: 'find it'
+});
+const agentEvents = (events: AgentEvent[]) => events.filter((e): e is Extract<AgentEvent, { type: 'agent-start' | 'agent-update' }> => e.type === 'agent-start' || e.type === 'agent-update');
 const RESULT = (extra: Record<string, unknown> = {}) =>
     m({
         type: 'result',
@@ -126,6 +153,8 @@ interface TurnCtx {
     readonly options: Options;
     readonly interrupted: () => boolean;
     readonly onInterrupt: Promise<void>;
+    /** Resolves with the task id the host asked to stop (`Query.stopTask`). */
+    readonly onStop: Promise<string>;
     /** Ask the host's canUseTool the way the CLI would. */
     ask(name: string, input: object, toolUseID?: string): Promise<{ behavior: 'allow' | 'deny'; message?: string; updatedInput?: Record<string, unknown> }>;
 }
@@ -138,27 +167,35 @@ interface FakeQuery {
     readonly interrupts: number;
     readonly closes: number;
     readonly models: string[];
+    /** Task ids passed to `stopTask`. */
+    readonly stops: string[];
+    /** User messages the fake received, across queries. */
+    readonly users: number;
 }
 
 function fakeQuery(turnScript: TurnScript, options: { init?: (cwd: string) => SDKMessage; exitAfterTurns?: number } = {}): FakeQuery {
-    const state = { calls: [] as Options[], interrupts: 0, closes: 0, models: [] as string[] };
+    const state = { calls: [] as Options[], interrupts: 0, closes: 0, models: [] as string[], stops: [] as string[], users: 0 };
     const query: FakeQuery['query'] = ({ prompt, options: opts = {} }) => {
         state.calls.push(opts);
         let interrupted = false;
         let resolveInterrupt!: () => void;
         let onInterrupt = new Promise<void>((r) => (resolveInterrupt = r));
+        let resolveStop!: (id: string) => void;
+        let onStop = new Promise<string>((r) => (resolveStop = r));
         let closed = false;
         const gen = (async function* (): AsyncGenerator<SDKMessage, void> {
             yield (options.init ?? INIT)(opts.cwd ?? '');
             let turn = 0;
             if (typeof prompt === 'string') return;
             for await (const user of prompt) {
+                state.users++;
                 if (closed) return;
                 if (options.exitAfterTurns !== undefined && turn >= options.exitAfterTurns) return;
                 const ctx: TurnCtx = {
                     options: opts,
                     interrupted: () => interrupted,
                     onInterrupt,
+                    onStop,
                     ask: async (name, input, toolUseID) => {
                         const r = (await opts.canUseTool!(name, input as Record<string, unknown>, { signal: new AbortController().signal, suggestions: [], ...(toolUseID ? { toolUseID } : {}) } as never)) as unknown as
                             | { behavior: 'allow'; updatedInput?: Record<string, unknown> }
@@ -173,6 +210,7 @@ function fakeQuery(turnScript: TurnScript, options: { init?: (cwd: string) => SD
                 }
                 interrupted = false;
                 onInterrupt = new Promise<void>((r) => (resolveInterrupt = r));
+                onStop = new Promise<string>((r) => (resolveStop = r));
             }
         })();
         const q = Object.assign(gen, {
@@ -181,6 +219,11 @@ function fakeQuery(turnScript: TurnScript, options: { init?: (cwd: string) => SD
                 interrupted = true;
                 resolveInterrupt();
                 return undefined;
+            },
+            stopTask: async (id: string) => {
+                if (id === 'no-such-task') throw new Error('unknown task');
+                state.stops.push(id);
+                resolveStop(id);
             },
             setPermissionMode: async () => {},
             setModel: async (model?: string) => {
@@ -206,6 +249,12 @@ function fakeQuery(turnScript: TurnScript, options: { init?: (cwd: string) => SD
         },
         get models() {
             return state.models;
+        },
+        get stops() {
+            return state.stops;
+        },
+        get users() {
+            return state.users;
         }
     };
 }
@@ -611,6 +660,207 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
         expect(events.find((e) => e.type === 'tool-update' && e.callId === 'task_1' && e.status === 'completed')).toMatchObject({ output: 'summary' });
     });
 
+    describe('sub-agents (#97)', () => {
+        const TASK_INPUT = { description: 'research', prompt: 'find it', subagent_type: 'Explore' };
+
+        it('a spawn binds to its Task call, nested frames carry the agent type as actor, and the agent ends exactly once', async () => {
+            const fake = fakeQuery(async function* (_u, _t, ctx) {
+                yield messageStart();
+                yield* toolUseBlocks('task_1', 'Task', TASK_INPUT);
+                yield* messageStop();
+                await ctx.ask('Task', TASK_INPUT);
+                yield taskStarted('t1', 'task_1');
+                yield messageStart('task_1');
+                yield* textBlocks('found it', 'task_1');
+                yield* messageStop('task_1');
+                yield taskProgress('t1', 'task_1', { summary: 'reading files' });
+                yield taskProgress('t1', 'task_1', { last_tool_name: 'Grep', usage: { total_tokens: 200, tool_uses: 3, duration_ms: 35 } });
+                yield toolResultWith('task_1', 'summary text', AGENT_OUTPUT('t1', 'summary text'));
+                // A second terminal frame for the same agent says nothing new.
+                yield taskNotification('t1', 'completed');
+                yield messageStart();
+                yield* textBlocks('Done.');
+                yield* messageStop();
+                yield RESULT();
+            });
+            const agent = claudeCode({ query: fake.query, listen: fakeListen });
+            expect(agent.capabilities).toMatchObject({ subagents: 'control', defineAgents: true, steer: false });
+            const session = await agent.session({ cwd, policy: allowAll });
+            const { events, result } = await drain(session.prompt('go'));
+            expect(agentEvents(events)).toEqual([
+                expect.objectContaining({ type: 'agent-start', agentId: 't1', callId: 'task_1', kind: 'subagent', title: 'research', description: 'find it', depth: 1, background: false, parentCallId: 'task_1' }),
+                expect.objectContaining({ type: 'agent-update', agentId: 't1', status: 'running', parentCallId: 'task_1' }),
+                expect.objectContaining({ type: 'agent-update', agentId: 't1', status: 'running', summary: 'reading files', usage: { totalTokens: 120 } }),
+                expect.objectContaining({ type: 'agent-update', agentId: 't1', status: 'running', summary: 'Grep', usage: { totalTokens: 200 } }),
+                expect.objectContaining({ type: 'agent-update', agentId: 't1', status: 'completed', output: 'summary text', usage: { inputTokens: 200, outputTokens: 100, totalTokens: 300 } })
+            ]);
+            // The spawn was announced before the agent started, and the agent ended before its call settled.
+            const at = (pred: (e: AgentEvent) => boolean) => events.findIndex(pred);
+            expect(at((e) => e.type === 'tool-call' && e.callId === 'task_1')).toBeLessThan(at((e) => e.type === 'agent-start'));
+            expect(at((e) => e.type === 'agent-update' && e.status === 'completed')).toBeLessThan(at((e) => e.type === 'tool-update' && e.callId === 'task_1' && e.status === 'completed'));
+            expect(events.find((e) => e.type === 'part-start' && e.parentCallId === 'task_1')).toMatchObject({ actor: 'Explore' });
+            expect(events.filter((e) => e.type === 'ext' && /^task_/.test(e.name))).toEqual([]);
+            expect(result.stopReason).toBe('end_turn');
+        });
+
+        it('a background agent keeps running past its call; cancel({ agentId }) stops it and the stopped notification reads cancelled', async () => {
+            const fake = fakeQuery(async function* (_u, _t, ctx) {
+                yield messageStart();
+                yield* toolUseBlocks('task_2', 'Task', { ...TASK_INPUT, run_in_background: true });
+                yield* messageStop();
+                await ctx.ask('Task', { ...TASK_INPUT, run_in_background: true });
+                yield taskStarted('t2', 'task_2', { is_backgrounded: true });
+                yield toolResultWith('task_2', 'Async agent launched.', { status: 'async_launched', isAsync: true, agentId: 't2', description: 'research', prompt: 'find it', outputFile: '/tmp/agent.out' });
+                const stopped = await ctx.onStop;
+                yield taskNotification(stopped, 'stopped', { summary: 'stopped by the operator', usage: { total_tokens: 40, tool_uses: 1, duration_ms: 10 } });
+                yield messageStart();
+                yield* textBlocks('Launched.');
+                yield* messageStop();
+                yield RESULT();
+            });
+            const agent = claudeCode({ query: fake.query, listen: fakeListen });
+            const session = await agent.session({ cwd, policy: allowAll });
+            const { events, result } = await drain(session.prompt('go'), async (e) => {
+                if (e.type === 'tool-update' && e.callId === 'task_2' && e.status === 'completed') await session.cancel({ agentId: 't2' });
+            });
+            expect(fake.stops).toEqual(['t2']);
+            expect(fake.interrupts).toBe(0);
+            expect(agentEvents(events)).toEqual([
+                expect.objectContaining({ type: 'agent-start', agentId: 't2', callId: 'task_2', background: true }),
+                expect.objectContaining({ type: 'agent-update', agentId: 't2', status: 'running' }),
+                expect.objectContaining({ type: 'agent-update', agentId: 't2', status: 'cancelled', summary: 'stopped by the operator', usage: { totalTokens: 40 } })
+            ]);
+            expect(result.stopReason).toBe('end_turn');
+            // A target that is already over is a no-op; one the CLI rejects surfaces as protocol_error.
+            await session.cancel({ agentId: 't2' });
+            expect(fake.stops).toEqual(['t2']);
+            await expect(session.cancel({ agentId: 'no-such-task' })).rejects.toMatchObject({ code: 'protocol_error' });
+        });
+
+        it('a workflow run is a sub-agent of kind workflow; ambient and non-agent tasks stay ext', async () => {
+            const fake = fakeQuery(async function* (_u, _t, ctx) {
+                yield messageStart();
+                yield* toolUseBlocks('task_3', 'Workflow', { name: 'spec' });
+                yield* messageStop();
+                await ctx.ask('Workflow', { name: 'spec' });
+                yield taskStarted('w1', 'task_3', { task_type: 'local_workflow', workflow_name: 'spec', description: 'run the spec workflow', prompt: 'Run the spec workflow.', subagent_type: undefined, spawn_depth: undefined });
+                yield taskStarted('amb', undefined, { ambient: true, skip_transcript: true, description: 'watcher', subagent_type: undefined });
+                yield taskStarted('bash1', 'toolu_b', { task_type: 'local_bash', description: 'npm test', subagent_type: undefined, spawn_depth: undefined });
+                yield toolResultWith('task_3', 'Workflow launched.', { status: 'async_launched', taskId: 'w1', taskType: 'local_workflow', workflowName: 'spec' });
+                yield taskNotification('w1', 'completed', { summary: 'spec passed' });
+                yield taskNotification('amb', 'completed');
+                yield RESULT();
+            });
+            const agent = claudeCode({ query: fake.query, listen: fakeListen });
+            const session = await agent.session({ cwd, policy: allowAll });
+            const { events } = await drain(session.prompt('go'));
+            expect(agentEvents(events)).toEqual([
+                expect.objectContaining({ type: 'agent-start', agentId: 'w1', callId: 'task_3', kind: 'workflow', title: 'spec', description: 'Run the spec workflow.' }),
+                expect.objectContaining({ type: 'agent-update', agentId: 'w1', status: 'running' }),
+                expect.objectContaining({ type: 'agent-update', agentId: 'w1', status: 'completed', summary: 'spec passed' })
+            ]);
+            expect(agentEvents(events)[0]).not.toHaveProperty('depth');
+            const extTasks = (name: string) => events.filter((e): e is Extract<AgentEvent, { type: 'ext' }> => e.type === 'ext' && e.name === name).map((e) => (e.data as { task_id: string }).task_id);
+            expect(extTasks('task_started')).toEqual(['amb', 'bash1']);
+            expect(extTasks('task_notification')).toEqual(['amb']);
+        });
+
+        it('task_updated patches map to paused / running / failed; a patch without a status stays ext; a terminal is final', async () => {
+            const fake = fakeQuery(async function* (_u, _t, ctx) {
+                yield messageStart();
+                yield* toolUseBlocks('task_1', 'Task', TASK_INPUT);
+                yield* messageStop();
+                await ctx.ask('Task', TASK_INPUT);
+                yield taskStarted('t1', 'task_1');
+                yield taskUpdated('t1', { status: 'paused' });
+                yield taskUpdated('t1', { status: 'running' });
+                yield taskUpdated('t1', { description: 'renamed' });
+                yield taskUpdated('t1', { status: 'failed', error: 'boom' });
+                yield taskUpdated('t1', { status: 'killed' });
+                yield toolResult('task_1', 'Agent failed: boom', true);
+                yield RESULT();
+            });
+            const agent = claudeCode({ query: fake.query, listen: fakeListen });
+            const session = await agent.session({ cwd, policy: allowAll });
+            const { events } = await drain(session.prompt('go'));
+            expect(agentEvents(events).map((e) => (e.type === 'agent-start' ? 'start' : e.status))).toEqual(['start', 'running', 'paused', 'running', 'failed']);
+            expect(agentEvents(events).find((e) => e.type === 'agent-update' && e.status === 'failed')).toMatchObject({ error: { code: 'provider_error', message: 'boom' } });
+            expect(events.filter((e) => e.type === 'ext' && e.name === 'task_updated')).toHaveLength(1);
+            expect(events.find((e) => e.type === 'tool-update' && e.callId === 'task_1' && e.status === 'failed')).toBeDefined();
+        });
+
+        it('agent definitions reach the SDK; subagent text is forwarded unless opted out; progress summaries are opt-in', async () => {
+            const fake = fakeQuery(() => [messageStart(), ...textBlocks('hi'), ...messageStop(), RESULT()]);
+            const agent = claudeCode({ query: fake.query, listen: fakeListen });
+            const s1 = await agent.session({ cwd, interactive: false, agents: { reviewer: { description: 'Reviews a diff.', prompt: 'You review code.', tools: ['Read', 'Grep'], model: 'sonnet', maxTurns: 3 }, terse: { description: 'Answers briefly.' } } });
+            await s1.prompt('x').result;
+            expect(fake.calls[0]!.agents).toEqual({
+                reviewer: { description: 'Reviews a diff.', prompt: 'You review code.', tools: ['Read', 'Grep'], model: 'sonnet', maxTurns: 3 },
+                terse: { description: 'Answers briefly.', prompt: 'Answers briefly.' }
+            });
+            expect(fake.calls[0]!.forwardSubagentText).toBe(true);
+            expect(fake.calls[0]!.agentProgressSummaries).toBeUndefined();
+            const s2 = await agent.session({ cwd, interactive: false, subagentTranscript: false, agentProgressSummaries: true });
+            await s2.prompt('y').result;
+            expect(fake.calls[1]!.forwardSubagentText).toBeUndefined();
+            expect(fake.calls[1]!.agentProgressSummaries).toBe(true);
+            expect(fake.calls[1]!.agents).toBeUndefined();
+        });
+
+        it('an agent still running at the result is swept: cancelled after an interrupt, failed otherwise; a background one ends when the session closes', async () => {
+            const interruptedRun = fakeQuery(async function* (_u, _t, ctx) {
+                yield messageStart();
+                yield* toolUseBlocks('task_1', 'Task', TASK_INPUT);
+                yield* messageStop();
+                yield taskStarted('t1', 'task_1');
+                await ctx.onInterrupt;
+                yield RESULT_ERROR('error_during_execution');
+            });
+            const a1 = claudeCode({ query: interruptedRun.query, listen: fakeListen });
+            const s1 = await a1.session({ cwd, policy: allowAll });
+            const turn = s1.prompt('go');
+            const seen: AgentEvent[] = [];
+            for await (const e of turn) {
+                seen.push(e);
+                if (e.type === 'agent-start') await s1.cancel();
+            }
+            expect((await turn.result).stopReason).toBe('cancelled');
+            expect(agentEvents(seen).at(-1)).toMatchObject({ type: 'agent-update', agentId: 't1', status: 'cancelled' });
+
+            const abandoned = fakeQuery(() => [messageStart(), ...toolUseBlocks('task_1', 'Task', TASK_INPUT), ...messageStop(), taskStarted('t1', 'task_1'), RESULT()]);
+            const a2 = claudeCode({ query: abandoned.query, listen: fakeListen });
+            const s2 = await a2.session({ cwd, policy: allowAll });
+            const r2 = await drain(s2.prompt('go'));
+            expect(agentEvents(r2.events).at(-1)).toMatchObject({ type: 'agent-update', agentId: 't1', status: 'failed', error: { code: 'provider_error' } });
+
+            const background = fakeQuery(() => [messageStart(), ...toolUseBlocks('task_2', 'Task', TASK_INPUT), ...messageStop(), taskStarted('t2', 'task_2', { is_backgrounded: true }), toolResultWith('task_2', 'launched', { status: 'async_launched', agentId: 't2', description: 'research', prompt: 'find it', outputFile: '/tmp/o' }), RESULT()]);
+            const a3 = claudeCode({ query: background.query, listen: fakeListen });
+            const s3 = await a3.session({ cwd, policy: allowAll });
+            const all = collect(s3.subscribe());
+            const r3 = await drain(s3.prompt('go'));
+            // Still running after the turn: the result does not end a background agent.
+            expect(agentEvents(r3.events).map((e) => (e.type === 'agent-start' ? 'start' : e.status))).toEqual(['start', 'running']);
+            await s3.close();
+            const closing = agentEvents(await all);
+            expect(closing.at(-1)).toMatchObject({ type: 'agent-update', agentId: 't2', status: 'cancelled' });
+            expect(closing.at(-1)!.turnId).toBeUndefined();
+        });
+
+        it('steer stays off: a second prompt mid-turn is refused and the CLI sees one user message', async () => {
+            const fake = fakeQuery(() => [messageStart(), ...textBlocks('working on it'), ...messageStop(), RESULT()]);
+            const agent = claudeCode({ query: fake.query, listen: fakeListen });
+            const session = await agent.session({ cwd, interactive: false });
+            const turn = session.prompt('go');
+            let refused: unknown;
+            for await (const e of turn) {
+                if (e.type === 'part-delta' && !refused) refused = await session.prompt('and also this').result.catch((err: unknown) => err);
+            }
+            expect(refused).toMatchObject({ name: 'SessionBusyError' });
+            expect((await turn.result).stopReason).toBe('end_turn');
+            expect(fake.users).toBe(1);
+        });
+    });
+
     it('maps result subtypes, interrupts, context overflow, assistant and auth errors', async () => {
         const run = async (script: TurnScript, sessionOptions: Record<string, unknown> = {}) => {
             const fake = fakeQuery(script);
@@ -874,4 +1124,86 @@ describe.skipIf(!process.env.SIGX_LIVE_CLAUDE_CODE)('@sigx/ai-agent-claude-code 
             }
         }
     }, 120_000);
+
+    /**
+     * EVIDENCE, not a contract (issue #97): does a second user message written
+     * to the CLI mid-turn fold into the RUNNING turn, or start a new one after
+     * the result? The adapter keeps `steer: false` until this says "folds,
+     * always". The probe wraps the real `query` so it can inject a message the
+     * moment a tool starts running and read `user_message_uuids` off every
+     * `result` frame; nothing here asserts either outcome.
+     */
+    it('probe: a second user message mid-turn — folded into the running turn, or a turn of its own?', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'sigx-cc-steer-'));
+        const PROBE_UUID = '4b2d1c0a-1111-4222-8333-444455556666';
+        const results: { uuids: string[] | undefined; numTurns: number; text: string }[] = [];
+        const probing: QueryFn = ({ prompt, options }) => {
+            let inject!: (m: SDKUserMessage) => void;
+            const merged = mergeInto(prompt as AsyncIterable<SDKUserMessage>, (push) => (inject = push));
+            const q = sdkQuery({ prompt: merged, options });
+            let injected = false;
+            const wrapped = (async function* () {
+                for await (const msg of q) {
+                    if (!injected && msg.type === 'tool_progress') {
+                        injected = true;
+                        inject({ type: 'user', message: { role: 'user', content: 'Also: end your final reply with the single word BANANA.' }, parent_tool_use_id: null, priority: 'now', uuid: PROBE_UUID } as SDKUserMessage);
+                    }
+                    if (msg.type === 'result') results.push({ uuids: (msg as { user_message_uuids?: string[] }).user_message_uuids, numTurns: msg.num_turns, text: msg.subtype === 'success' ? msg.result : '' });
+                    yield msg;
+                }
+            })();
+            return Object.assign(wrapped, {
+                interrupt: () => q.interrupt(),
+                close: () => q.close(),
+                setModel: (m?: string) => q.setModel(m),
+                setPermissionMode: (m: never) => q.setPermissionMode(m),
+                stopTask: (t: string) => q.stopTask(t)
+            }) as unknown as Query;
+        };
+        const agent = claudeCode({ query: probing });
+        try {
+            const session = await agent.session({ cwd: dir, interactive: false, policy: allowAll, maxTurns: 8 });
+            const { events, result } = await drain(session.prompt('Run these three shell commands one at a time with the Bash tool, waiting for each result before the next: `echo one`, then `echo two`, then `echo three`. Then reply with the single word: done.'));
+            const folded = results.length === 1 && (results[0]!.uuids?.includes(PROBE_UUID) ?? false);
+            const extraResults = events.filter((e) => e.type === 'ext' && e.ns === 'claude-code' && (e.name === 'success' || e.name === 'result')).length;
+            const evidence = `[steer probe] results=${results.length} folded=${folded} banana=${/BANANA/i.test(textOf(events))} extraResultFrames=${extraResults} uuids=${JSON.stringify(results.map((r) => r.uuids))} numTurns=${JSON.stringify(results.map((r) => r.numTurns))} stopReason=${result.stopReason} text=${JSON.stringify(textOf(events).slice(-120))}`;
+            console.info(evidence);
+            // The reporter may swallow console output: the same line lands next to the temp dir.
+            writeFileSync(join(tmpdir(), 'sigx-cc-steer-probe.txt'), `${new Date().toISOString()} ${evidence}\n`, { flag: 'a' });
+            expect(results.length).toBeGreaterThan(0);
+        } finally {
+            await agent.dispose();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 240_000);
 });
+
+/** `source` plus whatever `push` adds, in arrival order — the injected message goes out while the source is still waiting. */
+function mergeInto<T>(source: AsyncIterable<T>, expose: (push: (item: T) => void) => void): AsyncIterable<T> {
+    const extra: T[] = [];
+    let wake: (() => void) | undefined;
+    expose((item) => {
+        extra.push(item);
+        wake?.();
+    });
+    return {
+        async *[Symbol.asyncIterator]() {
+            const it = source[Symbol.asyncIterator]();
+            let pending: Promise<{ r: IteratorResult<T> }> | undefined;
+            for (;;) {
+                if (extra.length) {
+                    yield extra.shift()!;
+                    continue;
+                }
+                pending ??= it.next().then((r) => ({ r }));
+                const woke = new Promise<{ woke: true }>((resolve) => (wake = () => resolve({ woke: true })));
+                const next = await Promise.race([pending, woke]);
+                wake = undefined;
+                if ('woke' in next) continue;
+                pending = undefined;
+                if (next.r.done) return;
+                yield next.r.value;
+            }
+        }
+    };
+}
