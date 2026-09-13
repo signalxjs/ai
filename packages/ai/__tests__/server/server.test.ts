@@ -37,6 +37,46 @@ describe('ChatInput', () => {
         ]);
     });
 
+    it('accepts image and file parts on user messages, strips extras, and rejects the malformed', () => {
+        const ok = validate({
+            messages: [
+                {
+                    id: 'u1',
+                    role: 'user',
+                    parts: [
+                        { type: 'image', mediaType: 'image/png', data: 'iVBORw0KGgo=', extra: 1 },
+                        { type: 'image', mediaType: 'image/jpeg', url: 'https://x.test/a.jpg' },
+                        { type: 'file', mediaType: 'application/pdf', data: 'JVBERi0=', filename: 'a.pdf' },
+                        { type: 'file', mediaType: 'text/plain', url: 'http://x.test/a.txt' }
+                    ]
+                }
+            ]
+        });
+        expect(ok.issues).toBeUndefined();
+        expect((ok.value as ChatInputType).messages[0]!.parts).toEqual([
+            { type: 'image', mediaType: 'image/png', data: 'iVBORw0KGgo=' },
+            { type: 'image', mediaType: 'image/jpeg', url: 'https://x.test/a.jpg' },
+            { type: 'file', mediaType: 'application/pdf', data: 'JVBERi0=', filename: 'a.pdf' },
+            { type: 'file', mediaType: 'text/plain', url: 'http://x.test/a.txt' }
+        ]);
+        const part = (p: Record<string, unknown>, role = 'user') => validate({ messages: [{ id: 'm', role, parts: [p] }] }).issues;
+        const path = ['messages', 0, 'parts', 0];
+        expect(part({ type: 'image', mediaType: 'image/png' })).toEqual([{ message: 'exactly one of data or url is required', path }]);
+        expect(part({ type: 'image', mediaType: 'image/png', data: 'AAAA', url: 'https://x.test/a' })).toEqual([{ message: 'exactly one of data or url is required', path }]);
+        expect(part({ type: 'image', mediaType: 'not a type', data: 'AAAA' })).toEqual([{ message: 'must be a media type like image/png', path: [...path, 'mediaType'] }]);
+        expect(part({ type: 'image', mediaType: 'image/png', data: 'not base64!' })).toEqual([{ message: 'must be base64', path: [...path, 'data'] }]);
+        // The character set alone is not enough: `atob` needs whole quartets and end padding only.
+        expect(part({ type: 'image', mediaType: 'image/png', data: 'AAA' })).toEqual([{ message: 'must be base64', path: [...path, 'data'] }]);
+        expect(part({ type: 'image', mediaType: 'image/png', data: 'AA=A' })).toEqual([{ message: 'must be base64', path: [...path, 'data'] }]);
+        expect(part({ type: 'image', mediaType: 'image/png', data: 'AA==' })?.length ?? 0).toBe(0);
+        expect(part({ type: 'image', mediaType: 'image/png', data: 'A'.repeat(10_000_004) })).toEqual([{ message: 'longer than 10000000 characters', path: [...path, 'data'] }]);
+        expect(part({ type: 'image', mediaType: 'image/png', url: 'ftp://x.test/a' })).toEqual([{ message: 'must be an http(s) URL', path: [...path, 'url'] }]);
+        expect(part({ type: 'image', mediaType: 'image/png', url: 'https://x.test/' + 'a'.repeat(8200) })).toEqual([{ message: 'longer than 8192 characters', path: [...path, 'url'] }]);
+        expect(part({ type: 'file', mediaType: 'text/plain', data: 'AAAA', filename: 'f'.repeat(256) })).toEqual([{ message: 'longer than 255 characters', path: [...path, 'filename'] }]);
+        expect(part({ type: 'file', mediaType: 'text/plain', data: 'AAAA', filename: 7 })).toEqual([{ message: 'must be a string', path: [...path, 'filename'] }]);
+        expect(part({ type: 'image', mediaType: 'image/png', data: 'AAAA' }, 'assistant')).toEqual([{ message: 'only user messages carry image or file parts', path: [...path, 'type'] }]);
+    });
+
     it('normalizes tool parts: null input when omitted, no output on a pending call', () => {
         const r = validate({
             messages: [

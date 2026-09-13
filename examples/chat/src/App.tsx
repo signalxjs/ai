@@ -23,6 +23,8 @@ const Part = component<{ part: UIPart; role: UIMessage['role']; live: boolean }>
             );
         }
         if (p.type === 'reasoning') return p.text ? <div class="reasoning">{p.text}</div> : null;
+        // An attachment the user sent: show what it is, not its bytes.
+        if (p.type === 'image' || p.type === 'file') return <code class="attachment">{p.type === 'file' && p.filename ? p.filename : p.mediaType}</code>;
         const tail = p.state === 'pending' || p.state === 'approved' ? ' …' : p.state === 'awaiting' ? ' ? (needs approval)' : ` → ${JSON.stringify(p.output)}`;
         return (
             <code class={`tool ${p.state}`}>

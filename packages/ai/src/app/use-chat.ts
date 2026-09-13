@@ -207,7 +207,8 @@ export function useChat(options: UseChatOptions): Chat {
         if (message.role !== 'user') {
             throw new Error(`[sigx ai] useChat.send() takes a user message; got role "${message.role}". Use initialMessages for a seeded transcript.`);
         }
-        if (!message.parts.some((p) => p.type === 'text' && p.text.trim())) return;
+        // Nothing to say: no text with content and no attachment.
+        if (!message.parts.some((p) => (p.type === 'text' && p.text.trim()) || p.type === 'image' || p.type === 'file')) return;
         stopCurrent();
         untrack(() => {
             // Moving on from an awaiting turn decides its open calls as denied,
