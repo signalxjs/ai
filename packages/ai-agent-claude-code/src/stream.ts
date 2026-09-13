@@ -11,7 +11,7 @@ import type { SDKMessage, SDKResultMessage } from '@anthropic-ai/claude-agent-sd
 import { parsePartialJson, type Usage } from '@sigx/ai';
 import type { AgentErrorCode, StopReason, TurnDriver, UnstampedEvent } from '@sigx/ai-agent';
 import { codingEvent, type CodingPlanEntry } from '@sigx/ai-agent/coding';
-import { categoryFor, splitToolName, toolAnnotations } from './request.js';
+import { categoryFor, PERMISSION_MODES, splitToolName, toolAnnotations } from './request.js';
 
 export const CLAUDE_CODE_NS = 'claude-code';
 
@@ -374,7 +374,7 @@ export function mapSessionMessage(message: SDKMessage, emit: Emit): void {
                     type: 'config',
                     options: [
                         { id: 'model', label: 'Model', values: [{ id: model }], current: model },
-                        { id: 'permissionMode', label: 'Permission mode', values: ['default', 'acceptEdits', 'plan', 'dontAsk', 'auto'].map((id) => ({ id })), current: mode }
+                        { id: 'permissionMode', label: 'Permission mode', values: PERMISSION_MODES.map((id) => ({ id })), current: mode }
                     ]
                 });
             } else if (m.subtype === 'session_state_changed') {

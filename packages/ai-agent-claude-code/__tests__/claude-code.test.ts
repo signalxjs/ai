@@ -15,7 +15,13 @@ import { allowAll, allowReadOnly, denyAll, type AgentEvent, type AgentTurn } fro
 import { agentConformance, type ConformanceScenario } from '@sigx/ai-agent/testing';
 import { codingState, codingExtension } from '@sigx/ai-agent/coding';
 import { createReducer, createTranscript } from '@sigx/ai-agent';
-import { claudeCode, CLAUDE_CODE_CAPABILITIES, splitToolName, primaryArg, toUserMessage, spawnForSdk, type ListenFn } from '@sigx/ai-agent-claude-code';
+import { claudeCode, CLAUDE_CODE_CAPABILITIES, splitToolName, primaryArg, toUserMessage, spawnForSdk, startToolServer, bearerToken, sameToken, PERMISSION_MODES, type ListenFn } from '@sigx/ai-agent-claude-code';
+
+async function collect<T>(it: AsyncIterable<T>): Promise<T[]> {
+    const out: T[] = [];
+    for await (const x of it) out.push(x);
+    return out;
+}
 
 // ── recorded frames ─────────────────────────────────────────────────────────
 
@@ -420,6 +426,40 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
             parent_tool_use_id: null
         });
         expect(() => toUserMessage([{ type: 'file', mediaType: 'application/pdf', data: 'x' }])).toThrow(/not supported/);
+        expect(() => toUserMessage([{ type: 'image', mediaType: 'image/png' }])).toThrow(/needs data or url/);
+        expect(toUserMessage([{ type: 'image', mediaType: 'image/png', url: 'https://x/y.png' }]).message.content).toEqual([{ type: 'image', source: { type: 'url', url: 'https://x/y.png' } }]);
+    });
+
+    it('config events advertise every permission mode, bypass included', async () => {
+        const fake = fakeQuery(() => [messageStart(), ...textBlocks('hi'), ...messageStop(), RESULT()]);
+        const agent = claudeCode({ query: fake.query, listen: fakeListen, allowDangerouslySkipPermissions: true });
+        const session = await agent.session({ cwd, interactive: false });
+        const { events } = await drain(session.prompt('x'));
+        const init = events.find((e) => e.type === 'config') as Extract<AgentEvent, { type: 'config' }>;
+        expect(init.options[1]!.values.map((v) => v.id)).toEqual([...PERMISSION_MODES]);
+        const all = collect(session.subscribe());
+        await session.configure!({ permissionMode: 'bypassPermissions' });
+        await session.close();
+        const configs = (await all).filter((e): e is Extract<AgentEvent, { type: 'config' }> => e.type === 'config');
+        expect(configs.at(-1)!.options[0]).toMatchObject({ id: 'permissionMode', current: 'bypassPermissions', values: expect.arrayContaining([{ id: 'bypassPermissions' }]) });
+    });
+
+    it('the MCP tool server accepts its bearer token case-insensitively and rejects others', async () => {
+        let handler!: (r: Request) => Promise<Response>;
+        const listen: ListenFn = async (h) => {
+            handler = h;
+            return { url: 'http://127.0.0.1:1/mcp', token: 'secret', headers: { Authorization: 'Bearer secret' }, server: undefined as never, close: async () => {} };
+        };
+        const server = await startToolServer([], { name: 'sigx-tools', version: '0', listen });
+        const ping = (auth: string) => handler(new Request('http://127.0.0.1:1/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: auth }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' }) }));
+        expect((await ping('Bearer secret')).status).toBe(200);
+        expect((await ping('bearer   secret ')).status).toBe(200);
+        expect((await ping('Bearer nope')).status).toBe(401);
+        expect((await ping('Basic secret')).status).toBe(401);
+        expect(bearerToken(null)).toBeUndefined();
+        expect(sameToken(undefined, 'x')).toBe(false);
+        expect(server.config).toEqual({ type: 'http', url: 'http://127.0.0.1:1/mcp', headers: { Authorization: 'Bearer secret' } });
+        await server.close();
     });
 });
 

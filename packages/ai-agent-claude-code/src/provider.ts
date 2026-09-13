@@ -21,7 +21,7 @@ import type { Agent, AgentCapabilities, AgentSession, PromptInput, PromptOptions
 import { listenMcp, resolveExecutable, spawnAgentProcess, type AgentProcess } from '@sigx/ai-agent-node';
 import type { ClaudeCodeOptions, ClaudeCodeSessionOptions } from './options.js';
 import { createCanUseTool, type PermissionTarget } from './permissions.js';
-import { toOutputFormat, toQueryOptions, toUserMessage } from './request.js';
+import { PERMISSION_MODES, toOutputFormat, toQueryOptions, toUserMessage } from './request.js';
 import { createTurnMapper, mapSessionMessage, type TurnMapper } from './stream.js';
 import { startToolServer, type ToolServer } from './tools.js';
 
@@ -320,7 +320,7 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
                     type: 'config',
                     options: [
                         ...(patch.model !== undefined ? [{ id: 'model', label: 'Model', values: [{ id: patch.model }], current: patch.model }] : []),
-                        ...(patch.permissionMode !== undefined ? [{ id: 'permissionMode', label: 'Permission mode', values: ['default', 'acceptEdits', 'plan', 'dontAsk', 'auto'].map((v) => ({ id: v })), current: patch.permissionMode }] : [])
+                        ...(patch.permissionMode !== undefined ? [{ id: 'permissionMode', label: 'Permission mode', values: PERMISSION_MODES.map((v) => ({ id: v })), current: patch.permissionMode }] : [])
                     ]
                 });
             },

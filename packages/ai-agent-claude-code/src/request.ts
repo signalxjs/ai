@@ -14,6 +14,9 @@ import type { ClaudeCodeOptions, ClaudeCodeSessionOptions } from './options.js';
 /** Built-in tools that only read. */
 const READ_ONLY = new Set(['Read', 'Glob', 'Grep', 'LS', 'NotebookRead']);
 
+/** Every permission mode the CLI knows — what a `config` event advertises. */
+export const PERMISSION_MODES = ['default', 'acceptEdits', 'plan', 'dontAsk', 'auto', 'bypassPermissions'] as const;
+
 /** Annotations we can vouch for on a built-in tool. */
 export function toolAnnotations(name: string): ToolAnnotations | undefined {
     return READ_ONLY.has(name) ? { readOnly: true } : undefined;
@@ -46,7 +49,9 @@ export function toUserMessage(parts: readonly PromptPart[], parentToolUseId: str
     for (const p of parts) {
         if (p.type === 'text') content.push({ type: 'text', text: p.text });
         else if (p.type === 'image') {
-            content.push({ type: 'image', source: p.data !== undefined ? { type: 'base64', media_type: p.mediaType, data: p.data } : { type: 'url', url: p.url ?? '' } });
+            if (p.data !== undefined) content.push({ type: 'image', source: { type: 'base64', media_type: p.mediaType, data: p.data } });
+            else if (p.url !== undefined) content.push({ type: 'image', source: { type: 'url', url: p.url } });
+            else throw new AgentError('protocol_error', '[sigx ai-agent-claude-code] an image part needs data or url');
         } else if (p.type === 'resource') content.push({ type: 'text', text: p.text ?? p.uri });
         else throw new AgentError('protocol_error', `[sigx ai-agent-claude-code] prompt part "${p.type}" is not supported (promptParts: text+image)`);
     }

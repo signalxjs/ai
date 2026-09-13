@@ -4,10 +4,24 @@
  * an HTTP MCP server with a per-session bearer token.
  */
 
+import { timingSafeEqual } from 'node:crypto';
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import type { AnyTool } from '@sigx/ai';
 import { createMcpToolHandler } from '@sigx/ai-agent/harness';
 import type { ListenFn } from './options.js';
+
+/** The bearer token of an `Authorization` header — scheme case-insensitive, whitespace tolerated. */
+export function bearerToken(header: string | null): string | undefined {
+    const m = header ? /^\s*bearer\s+(\S+)\s*$/i.exec(header) : null;
+    return m ? m[1] : undefined;
+}
+
+export function sameToken(a: string | undefined, b: string): boolean {
+    if (a === undefined) return false;
+    const x = Buffer.from(a, 'utf8');
+    const y = Buffer.from(b, 'utf8');
+    return x.length === y.length && timingSafeEqual(x, y);
+}
 
 export interface ToolServer {
     readonly name: string;
@@ -20,7 +34,7 @@ export async function startToolServer(tools: readonly AnyTool[], options: { read
     const handler = createMcpToolHandler(tools, {
         name: options.name,
         version: options.version,
-        auth: (request) => request.headers.get('authorization') === `Bearer ${token}`
+        auth: (request) => sameToken(bearerToken(request.headers.get('authorization')), token)
     });
     const listener = await options.listen(handler);
     token = listener.token;

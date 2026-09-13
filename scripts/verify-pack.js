@@ -128,7 +128,7 @@ function main() {
         scripts: { smoke: 'node smoke.mjs' },
         // The provider packages peer on their SDKs; the scratch app owns the copy,
         // exactly as a consuming app does.
-        dependencies: { ...deps, '@anthropic-ai/sdk': '*', '@anthropic-ai/claude-agent-sdk': '*', openai: '*' },
+        dependencies: { ...deps, '@anthropic-ai/sdk': '*', '@anthropic-ai/claude-agent-sdk': '>=0.3.0 <1', openai: '*' },
     };
     writeFileSync(join(appDir, 'package.json'), JSON.stringify(appPkg, null, 2));
 
