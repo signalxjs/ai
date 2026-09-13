@@ -11,7 +11,7 @@
 
 import { access, readFile, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { delimiter, dirname, extname, isAbsolute, join, resolve, sep } from 'node:path';
+import { dirname, extname, posix, resolve, sep, win32 } from 'node:path';
 import { envKey } from './env.js';
 
 export type ExecutableKind = 'native' | 'node-script' | 'cmd-shim';
@@ -68,6 +68,9 @@ export async function resolveExecutable(name: string, options: ResolveExecutable
     const platform = options.platform ?? process.platform;
     const env = options.env ?? process.env;
     const win = platform === 'win32';
+    // Path arithmetic follows the requested platform, not the host, so results
+    // (and the searched list on failure) are the same wherever this runs.
+    const p = win ? win32 : posix;
     const nodePath = options.nodePath ?? process.execPath;
     const hasSeparator = name.includes('/') || (win && name.includes('\\'));
 
@@ -84,18 +87,19 @@ export async function resolveExecutable(name: string, options: ResolveExecutable
 
     const candidates: string[] = [];
     if (hasSeparator) {
-        const base = isAbsolute(name) ? name : resolve(options.cwd ?? process.cwd(), name);
+        const base = p.isAbsolute(name) ? name : p.resolve(options.cwd ?? process.cwd(), name);
         candidates.push(base);
-        if (win && !extname(base)) for (const e of exts) candidates.push(base + e);
+        if (win && !p.extname(base)) for (const e of exts) candidates.push(base + e);
     } else {
         const pathKey = envKey(env, 'PATH', platform);
-        const dirs = ((pathKey ? env[pathKey] : undefined) ?? '').split(win ? ';' : delimiter).filter(Boolean);
+        // The delimiter follows the `platform` option, not the host (tests and adapters resolve for another OS).
+        const dirs = ((pathKey ? env[pathKey] : undefined) ?? '').split(win ? ';' : ':').filter(Boolean);
         for (const dir of dirs) {
-            const base = join(dir, name);
+            const base = p.join(dir, name);
             if (win) {
                 // Like cmd.exe: a name with an extension is looked up as-is; a bare
                 // name tries every PATHEXT extension, then the bare file.
-                if (extname(name)) candidates.push(base);
+                if (p.extname(name)) candidates.push(base);
                 else {
                     for (const e of exts) candidates.push(base + e);
                     candidates.push(base);
@@ -108,7 +112,7 @@ export async function resolveExecutable(name: string, options: ResolveExecutable
         if (!(await exists(file, !win))) continue;
         return classify(file, { win, nodePath, env });
     }
-    throw new ExecutableNotFoundError(name, candidates.map((c) => dirname(c)).filter((d, i, a) => a.indexOf(d) === i));
+    throw new ExecutableNotFoundError(name, candidates.map((c) => p.dirname(c)).filter((d, i, a) => a.indexOf(d) === i));
 }
 
 async function classify(file: string, ctx: { win: boolean; nodePath: string; env: NodeJS.ProcessEnv }): Promise<ResolvedExecutable> {

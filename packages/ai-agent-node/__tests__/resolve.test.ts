@@ -108,6 +108,13 @@ describe('resolveExecutable', () => {
         expect((await resolveExecutable('tool.cmd.cmd', { env, platform: 'win32', nodePath: 'NODE' })).kind).toBe('node-script');
     });
 
+    it('splits PATH with the delimiter of the requested platform, not the host', async () => {
+        const linux = await resolveExecutable('nothing-here', { env: { PATH: '/a:/b' }, platform: 'linux' }).catch((e: ExecutableNotFoundError) => e);
+        expect((linux as ExecutableNotFoundError).searched).toEqual(['/a', '/b']);
+        const windows = await resolveExecutable('nothing-here', { env: { Path: 'C:\\a;D:\\b', PATHEXT: '.EXE' }, platform: 'win32' }).catch((e: ExecutableNotFoundError) => e);
+        expect((windows as ExecutableNotFoundError).searched).toEqual(['C:\\a', 'D:\\b']);
+    });
+
     it('tolerates PATH / PATHEXT keys whose value is undefined', async () => {
         const env = { Path: `${join(root, 'bin with space')}`, PATHEXT: undefined } as NodeJS.ProcessEnv;
         expect((await resolveExecutable('native', { env, platform: 'win32' })).kind).toBe('native');

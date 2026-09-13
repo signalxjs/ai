@@ -40,7 +40,7 @@ describe('spawnAgentProcess', () => {
     }, 30_000);
 
     it('a non-zero exit carries the stderr tail; ProcessExitedError formats it', async () => {
-        const proc = spawnAgentProcess({ command: node, args: [fixture('stderr-exit.mjs'), '3', 'something', 'broke'], stderrTailBytes: 9 });
+        const proc = spawnAgentProcess({ command: node, args: [fixture('stderr-exit.mjs'), '3', 'something', 'broke'], stderrTailChars: 9 });
         const exit = await proc.exited;
         expect(exit.code).toBe(3);
         expect(exit.stderrTail).toBe('ng broke\n');

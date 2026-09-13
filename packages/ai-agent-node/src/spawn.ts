@@ -25,8 +25,8 @@ export interface SpawnAgentProcessOptions {
     readonly inheritEnv?: boolean;
     /** Replace the default allowlist. */
     readonly allowEnv?: readonly string[];
-    /** Characters of stderr kept for error reports. Default 65 536. */
-    readonly stderrTailBytes?: number;
+    /** Characters (UTF-16 code units) of stderr kept for error reports. Default 65 536. */
+    readonly stderrTailChars?: number;
     /** Kill the child when this process exits. Default `true`. */
     readonly killOnParentExit?: boolean;
     /** From `resolveExecutable`; `cmd-shim` switches on `cmd.exe` quoting. */
@@ -51,7 +51,7 @@ export interface AgentProcess {
     /** Resolves once the process is running; rejects when it could not start (ENOENT, EINVAL, …). */
     readonly spawned: Promise<void>;
     readonly exited: Promise<ProcessExit>;
-    /** Terminate the whole tree; idempotent; resolves when it is gone. */
+    /** Terminate the whole tree; idempotent; resolves when it is gone, rejects if it cannot be terminated within `graceMs` + 5 s. */
     kill(options?: { readonly graceMs?: number }): Promise<void>;
 }
 
@@ -93,7 +93,7 @@ export function spawnAgentProcess(options: SpawnAgentProcessOptions): AgentProce
     const env = buildChildEnv({ ...(options.inheritEnv ? { inheritEnv: true } : {}), ...(options.allowEnv ? { allow: options.allowEnv } : {}), ...(options.env ? { extra: options.env } : {}), platform });
     const args = options.kind === 'cmd-shim' ? cmdShimArgs(options.command, options.args ?? []) : [...(options.args ?? [])];
     const command = options.kind === 'cmd-shim' ? (env.ComSpec ?? env.COMSPEC ?? 'C:\\Windows\\System32\\cmd.exe') : options.command;
-    const tailMax = options.stderrTailBytes ?? 65_536;
+    const tailMax = options.stderrTailChars ?? 65_536;
 
     const child: ChildProcess = spawn(command, args, {
         ...(options.cwd ? { cwd: options.cwd } : {}),
@@ -202,14 +202,26 @@ export function spawnAgentProcess(options: SpawnAgentProcessOptions): AgentProce
                 await exited;
                 return;
             }
+            const graceMs = killOptions.graceMs ?? 2000;
+            // "Resolves when the tree is gone" must not become "hangs forever" when
+            // the kill itself fails: give the exit a bounded wait, then report.
+            const settled = async (label: string) => {
+                const timeout = new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), graceMs + 5000));
+                if ((await Promise.race([exited, timeout])) === 'timeout') {
+                    throw new Error(`[sigx ai-agent-node] could not terminate pid ${pid} (${label})`);
+                }
+            };
             if (win) {
-                await new Promise<void>((resolve) => {
-                    execFile('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true }, () => resolve());
+                const failure = await new Promise<string | undefined>((resolve) => {
+                    execFile('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true }, (e) => {
+                        // Exit code 128 = the process was already gone.
+                        resolve(e && (e as { code?: number }).code !== 128 ? e.message : undefined);
+                    });
                 });
-                await exited;
+                if (failure) child.kill('SIGKILL');
+                await settled(failure ?? 'taskkill');
                 return;
             }
-            const graceMs = killOptions.graceMs ?? 2000;
             const signalTree = (signal: NodeJS.Signals) => {
                 try {
                     process.kill(-pid, signal);
@@ -223,8 +235,11 @@ export function spawnAgentProcess(options: SpawnAgentProcessOptions): AgentProce
             };
             signalTree('SIGTERM');
             const timer = setTimeout(() => signalTree('SIGKILL'), graceMs);
-            await exited;
-            clearTimeout(timer);
+            try {
+                await settled('SIGTERM then SIGKILL');
+            } finally {
+                clearTimeout(timer);
+            }
         })();
         return killing;
     };
