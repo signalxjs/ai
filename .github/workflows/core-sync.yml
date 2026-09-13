@@ -88,7 +88,7 @@ jobs:
       - run: pnpm verify:catalog
 
       - name: Open / update alignment PR
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         with:
           branch: chore/align-with-core
           commit-message: "chore: align with core ${{ steps.target.outputs.minor }}"
