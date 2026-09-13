@@ -41,9 +41,9 @@ function userParts(m: AgentMessage): UIPart[] {
     const parts: UIPart[] = [];
     for (const p of m.parts) {
         if (p.type === 'text') parts.push({ type: 'text', text: p.text });
-        // Image and file parts share their shape with `UIImagePart` / `UIFilePart`
-        // (signalxjs/ai#36); a `resource` has no UI counterpart and is rendered as text.
-        else if (p.type === 'image' || p.type === 'file') parts.push({ ...p } as unknown as UIPart);
+        // Image and file parts share their shape with `UIImagePart` / `UIFilePart`;
+        // a `resource` has no UI counterpart and is rendered as text.
+        else if (p.type === 'image' || p.type === 'file') parts.push({ ...p });
         else if (p.type === 'resource') parts.push({ type: 'text', text: p.text ?? p.uri });
     }
     return parts;
