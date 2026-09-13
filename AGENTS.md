@@ -184,17 +184,28 @@ To run the example: `pnpm build` first (it resolves the packages from
   policy engine `resolveRequest` + built-in rules, and the session helpers
   every adapter builds on — `createEventLog`, `createTurn`,
   `createSessionCore`) and `./testing` (`mockAgent`, a scripted agent).
-  `./harness` is the edge-safe protocol kit protocol adapters build on: a
-  JSON-RPC 2.0 peer over Web Streams (`createJsonRpcPeer`), NDJSON framing, an
-  MCP tool handler (`createMcpToolHandler`, Streamable HTTP, tools only) and
-  `webSocketStreams`. `./wire` serves a session in one place and uses it from
-  another over any transport (`serveSession` / `connectSession`, a versioned
-  envelope, replay for late joiners and reconnects). Later milestones add
-  `./coding`, `./app`. Zero
+  `./coding` adds the coding vocabulary (categories, typed `coding.*` events
+  and their reducer plugin, path-aware policies); `./harness` is the edge-safe
+  protocol kit protocol adapters build on: a JSON-RPC 2.0 peer over Web
+  Streams (`createJsonRpcPeer`), NDJSON framing, an MCP tool handler
+  (`createMcpToolHandler`, Streamable HTTP, tools only) and `webSocketStreams`;
+  `./testing` also ships `recordAgent` / `replayAgent`. `./wire` serves a
+  session in one place and uses it from another over any transport
+  (`serveSession` / `connectSession`, a versioned envelope, replay for late
+  joiners and reconnects). Later milestones add `./app`. Zero
   runtime dependencies; edge-safe (`node:`-free, no `process` / `Buffer`,
   enforced by `__tests__/package/edge-safety.test.ts`). Peers on `@sigx/ai`.
   Node-only building blocks live in `@sigx/ai-agent-node`; adapters are
   `@sigx/ai-agent-<harness>` (named by harness, not vendor).
+- `packages/ai-agent-node` → `@sigx/ai-agent-node` — **experimental**, the
+  family's only Node-specific package (`tsconfig` `types: ["node"]`): it owns
+  cross-platform process correctness — `resolveExecutable` (`PATH`/`Path`,
+  `PATHEXT`, npm `.cmd` shims run under `process.execPath`),
+  `spawnAgentProcess` (never `shell: true`; Web Streams stdio; process-group /
+  `taskkill /T` kill; children die with the parent), `buildChildEnv` (an
+  allowlist, `NODE_OPTIONS` excluded) and `listenMcp` (loopback `node:http`
+  host for the harness MCP tool handler). Adapters that spawn a harness take
+  it as a regular `dependencies` entry. Tested on Ubuntu, Windows and macOS.
 - `packages/ai-anthropic` → `@sigx/ai-anthropic` — Claude on the official
   `@anthropic-ai/sdk` (a peer dependency, literal range): `anthropic()` →
   `.model(id)`. Streams `client.messages.stream`, maps text / thinking /

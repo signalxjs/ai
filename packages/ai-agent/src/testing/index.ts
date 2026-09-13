@@ -6,3 +6,5 @@ export type { ConformanceScenario, ConformanceCase, ConformanceOptions } from '.
 export { agentConformance, CONFORMANCE_SCENARIOS, CONFORMANCE_TOOLS } from './conformance.js';
 export { checkEventInvariants, checkReplayEquality, checkResultMatchesTurnEnd } from './invariants.js';
 export { ConformanceError } from './assert.js';
+export type { AgentFixture, FixtureSession, FixtureSessionOptions, FixtureCommand, FixtureEntry, RecordAgentOptions, RecordingAgent, ReplayAgentOptions } from './record.js';
+export { recordAgent, replayAgent, serializeFixture, ReplayMismatchError, FIXTURE_VERSION } from './record.js';

@@ -10,6 +10,7 @@ const base = defineLibConfig({
         index: 'src/index.ts',
         harness: 'src/harness/index.ts',
         testing: 'src/testing/index.ts',
+        coding: 'src/coding/index.ts',
         wire: 'src/wire/index.ts'
     },
     external: [/@sigx\/.*/, /^node:/],

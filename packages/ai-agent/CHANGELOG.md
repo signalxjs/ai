@@ -26,6 +26,14 @@ follow [SemVer](https://semver.org/).
 - `@sigx/ai-agent/testing`: `agentConformance`, `CONFORMANCE_SCENARIOS`,
   `CONFORMANCE_TOOLS` and the invariant checks `checkEventInvariants`,
   `checkReplayEquality`, `checkResultMatchesTurnEnd`.
+- `@sigx/ai-agent/coding`: `CODING_CATEGORIES` / `categoryOf`, the typed
+  `coding.diff` / `terminal` / `terminal-exit` / `plan` / `files-changed` events
+  (`codingEvent`, `isCodingEvent`) with the `codingExtension` reducer plugin
+  (`codingState`), `CodingSessionOptions`, the pure path helpers
+  (`normalizePath`, `resolveFrom`, `isWithin`) and the policies
+  `allowCategories` / `denyOutside`.
+- `@sigx/ai-agent/testing`: `recordAgent` / `replayAgent` / `serializeFixture`
+  — versioned, deterministic fixtures for any adapter.
 - `@sigx/ai-agent/harness`: `createJsonRpcPeer` (JSON-RPC 2.0 over Web Streams,
   requests in both directions, cooperative cancel, backpressure), `ndjsonDecoder` /
   `ndjsonEncoder` and the `'message'` framing, `createMcpToolHandler` (client tools
