@@ -39,21 +39,31 @@ export function webSocketStreams(ws: WebSocketLike): WebSocketStreams {
     const readable = new ReadableStream<Uint8Array>({
         start(controller) {
             let done = false;
+            // Frames are enqueued strictly in arrival order: a Blob frame is read
+            // asynchronously, so everything queues behind the previous frame's read.
+            let chain: Promise<void> = Promise.resolve();
+            const toBytes = async (data: unknown): Promise<Uint8Array | undefined> => {
+                if (typeof data === 'string') return encoder.encode(data);
+                if (data instanceof ArrayBuffer) return new Uint8Array(data);
+                if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+                if (data && typeof (data as { arrayBuffer?: unknown }).arrayBuffer === 'function') {
+                    return new Uint8Array(await (data as { arrayBuffer(): Promise<ArrayBuffer> }).arrayBuffer());
+                }
+                return undefined;
+            };
             const onMessage = (event: { data: unknown }) => {
                 if (done) return;
-                const data = event.data;
-                if (typeof data === 'string') controller.enqueue(encoder.encode(data));
-                else if (data instanceof ArrayBuffer) controller.enqueue(new Uint8Array(data));
-                else if (ArrayBuffer.isView(data)) controller.enqueue(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
-                else if (data && typeof (data as { arrayBuffer?: unknown }).arrayBuffer === 'function') {
-                    // A Blob frame: read it; a failed read cannot be skipped (framing would drift), so it fails the stream.
-                    (data as { arrayBuffer(): Promise<ArrayBuffer> }).arrayBuffer().then(
-                        (buf) => {
-                            if (!done) controller.enqueue(new Uint8Array(buf));
-                        },
-                        (e: unknown) => fail(e instanceof Error ? e : new Error(String(e)))
-                    );
-                }
+                const { data } = event;
+                chain = chain.then(async () => {
+                    if (done) return;
+                    try {
+                        const bytes = await toBytes(data);
+                        if (bytes && !done) controller.enqueue(bytes);
+                    } catch (e) {
+                        // A failed read cannot be skipped (framing would drift): the stream fails.
+                        fail(e instanceof Error ? e : new Error(String(e)));
+                    }
+                });
             };
             const detach = () => {
                 done = true;

@@ -33,6 +33,8 @@ const CR = 0x0d;
 /** Bytes in → one decoded line (without its newline) per chunk out. */
 export function ndjsonDecoder(options: NdjsonOptions = {}): TransformStream<Uint8Array, string> {
     const limit = options.maxLineBytes ?? DEFAULT_MAX_LINE;
+    // One decoder for the stream: each line is decoded from its complete bytes, so no streaming state is needed.
+    const decoder = new TextDecoder();
     let pending: Uint8Array[] = [];
     let pendingBytes = 0;
 
@@ -53,7 +55,7 @@ export function ndjsonDecoder(options: NdjsonOptions = {}): TransformStream<Uint
             }
         }
         if (bytes.length && bytes[bytes.length - 1] === CR) bytes = bytes.subarray(0, bytes.length - 1);
-        const line = new TextDecoder().decode(bytes);
+        const line = decoder.decode(bytes);
         if (line.trim().length) controller.enqueue(line);
     };
 

@@ -74,11 +74,14 @@ describe('webSocketStreams', () => {
         await expect(writer.write(new Uint8Array([2]))).rejects.toThrow(/not open/);
     });
 
-    it('reads Blob-like frames; a failed read fails the readable instead of an unhandled rejection', async () => {
+    it('reads Blob-like frames in arrival order; a failed read fails the readable instead of an unhandled rejection', async () => {
         const ok = fakeSocket();
         const okReader = webSocketStreams(ok).readable.getReader();
-        ok.receive({ arrayBuffer: () => Promise.resolve(new TextEncoder().encode('{"z":1}').buffer) });
+        // A slow Blob followed by a fast text frame must still come out first.
+        ok.receive({ arrayBuffer: () => new Promise((r) => setTimeout(() => r(new TextEncoder().encode('{"z":1}').buffer), 10)) });
+        ok.receive('{"z":2}');
         expect(new TextDecoder().decode((await okReader.read()).value)).toBe('{"z":1}');
+        expect(new TextDecoder().decode((await okReader.read()).value)).toBe('{"z":2}');
 
         const bad = fakeSocket();
         const removed: string[] = [];
