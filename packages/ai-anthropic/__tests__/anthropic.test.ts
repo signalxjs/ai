@@ -259,6 +259,23 @@ describe('@sigx/ai-anthropic', () => {
         });
         expect(calls[1]!.params.messages[2]).toEqual({ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: '{"city":"Oslo","tempC":3}' }] });
     });
+
+    it('sends tools and a JSON response format in ONE request (structured output inside the tool loop)', async () => {
+        const { client, calls } = fakeClient([
+            start(),
+            { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null, container: null, stop_details: null }, usage: { output_tokens: 1, input_tokens: null, cache_read_input_tokens: null, cache_creation_input_tokens: null, server_tool_use: null } } as unknown as MessageStreamEvent,
+            { type: 'message_stop' }
+        ]);
+        const req: ModelRequest = {
+            messages: [{ role: 'user', content: 'hi' }],
+            tools: [{ name: 'weather', description: 'w', inputSchema: { type: 'object' } }],
+            responseFormat: { type: 'json', schema: { type: 'object', properties: { ok: { type: 'boolean' } } }, name: 'verdict' }
+        };
+        await collect(anthropic({ client }).model('claude-opus-5').stream(req));
+        const { params } = calls[0] as { params: Record<string, unknown> };
+        expect(params.tools).toEqual([{ name: 'weather', description: 'w', input_schema: { type: 'object' } }]);
+        expect(params.output_config).toEqual({ format: { type: 'json_schema', schema: { type: 'object', properties: { ok: { type: 'boolean' } } } } });
+    });
 });
 
 describe.skipIf(!process.env.ANTHROPIC_API_KEY)('@sigx/ai-anthropic (live)', () => {
