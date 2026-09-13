@@ -18,6 +18,7 @@
       "@sigx/ai/testing": ["./packages/ai/src/testing/index.ts"],
       "@sigx/ai-agent": ["./packages/ai-agent/src/index.ts"],
       "@sigx/ai-agent/testing": ["./packages/ai-agent/src/testing/index.ts"],
+      "@sigx/ai-agent/harness": ["./packages/ai-agent/src/harness/index.ts"],
       "@sigx/ai-anthropic": ["./packages/ai-anthropic/src/index.ts"],
       "@sigx/ai-openai": ["./packages/ai-openai/src/index.ts"]
     }
