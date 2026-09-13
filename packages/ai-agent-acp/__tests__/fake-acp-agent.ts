@@ -120,10 +120,14 @@ export function fakeAcpAgent(options: FakeAcpOptions): FakeAcp {
         for (const update of options.history ?? []) await peer.notify(ACP_METHODS.sessionUpdate, { sessionId: params.sessionId, update });
         return rest;
     });
-    peer.onRequest(ACP_METHODS.sessionList, (params) => {
+    peer.onRequest<{ cursor?: string | null }>(ACP_METHODS.sessionList, (params) => {
         record(ACP_METHODS.sessionList)(params);
+        // Two per page, so a client that ignores `nextCursor` misses the rest.
         // The second session carries an unparseable timestamp on purpose.
-        return { sessions: sessions.map((sessionId, i) => ({ sessionId, cwd: '/repo', title: `Session ${sessionId}`, updatedAt: i === 0 ? '2026-09-13T12:00:00Z' : 'yesterday-ish' })) };
+        const all = sessions.map((sessionId, i) => ({ sessionId, cwd: '/repo', title: `Session ${sessionId}`, updatedAt: i === 0 ? '2026-09-13T12:00:00Z' : 'yesterday-ish' }));
+        const from = params?.cursor ? Number(params.cursor) : 0;
+        const page = all.slice(from, from + 2);
+        return { sessions: page, nextCursor: from + 2 < all.length ? String(from + 2) : null };
     });
     peer.onRequest<{ sessionId: string }>(ACP_METHODS.sessionClose, (params) => {
         record(ACP_METHODS.sessionClose)(params);
