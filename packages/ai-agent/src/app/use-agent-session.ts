@@ -14,7 +14,9 @@
  * SSR-safe: the subscription starts on MOUNT, so a server render folds
  * nothing and opens no queue. Unmount unsubscribes — and does NOT close the
  * session, which usually outlives the component (another tab, another
- * device, the server).
+ * device, the server). After unmount nothing here touches the view again:
+ * an action that settles late (a turn still running when the user navigated
+ * away) writes no state and fires no callback.
  *
  * Subscribing from `{ epoch: 0, seq: 0 }` by default makes a late joiner
  * replay the session from its start: a second tab reaches the same transcript
@@ -49,9 +51,9 @@ export interface UseAgentSessionOptions {
     readonly from?: EventCursor | 'live';
     /** Every event, after it has been folded. */
     readonly onEvent?: (event: AgentEvent) => void;
-    /** One completed turn, as `prompt()` resolves it. */
+    /** One completed turn, as `prompt()` resolves it. Not called after unmount. */
     readonly onTurnEnd?: (result: TurnResult) => void;
-    /** A failed action or a broken subscription. The same failure lands in `error`. */
+    /** A failed action or a broken subscription. The same failure lands in `error`. Not called after unmount. */
     readonly onError?: (error: Error) => void;
 }
 
@@ -101,7 +103,12 @@ export function useAgentSession(source: AgentSessionSource, options: UseAgentSes
     let stopped = false;
 
     /** A failure becomes the transcript's error, in the shape an `error` event has. */
-    function fail(e: unknown): Error {
+    function fail(e: unknown): void {
+        // An action can settle long after the view is gone (navigation away
+        // mid-turn). Unmount means NO further view-side effect: not a write,
+        // not a callback. Every action funnels its failure through here, so
+        // the guard lives in one place.
+        if (stopped) return;
         const error = e instanceof Error ? e : new Error(String(e));
         untrack(() => {
             transcript.error = {
@@ -111,7 +118,6 @@ export function useAgentSession(source: AgentSessionSource, options: UseAgentSes
             };
         });
         options.onError?.(error);
-        return error;
     }
 
     function follow(): void {
@@ -145,7 +151,7 @@ export function useAgentSession(source: AgentSessionSource, options: UseAgentSes
                     options.onEvent?.(event);
                 }
             } catch (e) {
-                if (!stopped) fail(e);
+                fail(e);
             } finally {
                 if (!stopped) {
                     untrack(() => {
@@ -214,7 +220,10 @@ export function useAgentSession(source: AgentSessionSource, options: UseAgentSes
                 // The subscription is what renders the turn; `result` is only
                 // its outcome, so nothing here iterates the turn twice.
                 const result = await source.prompt(input, promptOptions).result;
-                options.onTurnEnd?.(result);
+                // The caller still gets what it awaited — but a view that is
+                // gone gets no callback (see `fail`). The turn itself keeps
+                // running on the session, as it should.
+                if (!stopped) options.onTurnEnd?.(result);
                 return result;
             } catch (e) {
                 fail(e);

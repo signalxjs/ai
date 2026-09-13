@@ -105,9 +105,10 @@ permission prompt is an event with an id; answering it is a command. Nothing
 in the UI is stateful except the draft in the textarea.
 
 The corollary: **unmounting a view must not close the session.**
-`useAgentSession` unsubscribes on unmount and leaves the session alone; the
-connection belongs to whoever opened it (here, `App` closes it in
-`onUnmounted`).
+`useAgentSession` unsubscribes on unmount and leaves the session alone — a
+turn still running carries on, and nothing it does afterwards reaches the
+gone view. The connection belongs to whoever opened it (here, `App` closes it
+in `onUnmounted`).
 
 ## Things that will bite you
 

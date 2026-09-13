@@ -35,12 +35,16 @@ async function serveAsset(req, res, next) {
         return next();
     }
     if (!pathname.startsWith('/assets/')) return next();
-    // Join the RELATIVE remainder onto the assets dir (a leading slash is
-    // dropped so the intent is unambiguous), then normalize; anything that
-    // escapes the directory is a 404, never a read.
+    // Join the RELATIVE remainder onto the assets dir, then normalize;
+    // anything that escapes the directory is a 404, never a read. Leading
+    // separators are stripped first: `join()` treats an absolute-looking
+    // remainder as a path of its own, so `/assets//app.js` would 404 a file
+    // that is plainly there. Stripping cannot open an escape — `normalize`
+    // still resolves any `..` and the containment check below is what
+    // decides, on the final absolute path.
     let rel;
     try {
-        rel = decodeURIComponent(pathname.slice('/assets/'.length));
+        rel = decodeURIComponent(pathname.slice('/assets/'.length)).replace(/^[/\\]+/, '');
     } catch {
         // Malformed percent-encoding is a bad path, not a crash.
         res.writeHead(404, { 'content-type': 'text/plain' });

@@ -184,6 +184,9 @@ What it guarantees:
   nothing and opens no queue.
 - **Unmount unsubscribes; it does not close the session.** The session
   usually outlives the component — another tab, another device, the server.
+  After unmount nothing touches the view again: an action that settles late
+  (a turn still running when the user navigated away) writes no state and
+  fires no callback, while the turn itself carries on.
 - **Late join by default.** It subscribes from `{ epoch: 0, seq: 0 }`, so a
   second tab replays the conversation and then follows it live. Pass
   `{ from: 'live' }` or an explicit cursor to start elsewhere.

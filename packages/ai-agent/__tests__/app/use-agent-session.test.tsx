@@ -265,6 +265,38 @@ describe('useAgentSession', () => {
         expect(after.view.messages.length).toBe(4);
     });
 
+    it('a turn that settles after unmount touches nothing — no callback, no write', async () => {
+        const session = await openSession([[{ text: 'a slow answer indeed', delayMs: 10 }]]);
+        const ends: unknown[] = [];
+        const errors: Error[] = [];
+        const m = mount(session, { onTurnEnd: (r) => ends.push(r), onError: (e) => errors.push(e) });
+        await tick();
+
+        const done = m.view.prompt('go');
+        // Navigate away mid-turn: the turn keeps running on the session.
+        await tick(5);
+        m.unmount();
+        const before = m.view.messages.length;
+
+        const result = await done;
+        await tick(50);
+
+        // The caller still gets what it awaited…
+        expect(result?.stopReason).toBe('end_turn');
+        // …but the view is gone: no callback, no folded `turn-end`, no deltas.
+        expect(ends).toEqual([]);
+        expect(errors).toEqual([]);
+        expect(m.view.turn?.stopReason).toBeUndefined();
+        expect(m.view.error).toBeUndefined();
+        expect(m.view.messages.length).toBe(before);
+        expect(m.view.live).toBe(false);
+
+        // A failing action after unmount is just as silent.
+        await m.view.configure({ mode: 'deep' });
+        expect(errors).toEqual([]);
+        expect(m.view.error).toBeUndefined();
+    });
+
     it('subscribes on mount, not during setup — the SSR guard', async () => {
         const session = await openSession([[{ text: 'hi' }]]);
         let subscribes = 0;

@@ -58,7 +58,8 @@ follow [SemVer](https://semver.org/).
   `config`, `error`, `live`, `capabilities`, and the actions `prompt`,
   `respond`, `cancel`, `configure`. Folds in place (a `part-delta` writes one
   part's `text`), subscribes on mount (SSR-safe), unsubscribes on unmount
-  without closing the session, replays from `{ epoch: 0, seq: 0 }` so a late
+  without closing the session — and after unmount writes no state and fires no
+  callback, however late an action settles — replays from `{ epoch: 0, seq: 0 }` so a late
   joiner catches up, and takes the same `extensions` the headless reducer does.
   Peers on `@sigx/reactivity` and `@sigx/runtime-core`; the other entries do
   not.
