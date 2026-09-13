@@ -12,8 +12,10 @@ export interface CoalesceOptions {
     readonly maxDelayMs?: number;
     /** Flush once the merged delta reaches this many characters. Default 4096. */
     readonly maxBytes?: number;
-    /** Timer hook — tests inject a deterministic one. */
+    /** Timer hook — tests inject a deterministic one. Returns a handle for `cancel`. */
     readonly schedule?: (fn: () => void, ms: number) => unknown;
+    /** Cancels a timer `schedule` returned; default `clearTimeout`. */
+    readonly cancel?: (handle: unknown) => void;
 }
 
 type EventFrame = Extract<WireFrame, { kind: 'event' }>;
@@ -23,6 +25,7 @@ export async function* coalesceFrames(frames: AsyncIterable<WireFrame>, options:
     const maxDelayMs = options.maxDelayMs ?? 16;
     const maxBytes = options.maxBytes ?? 4096;
     const schedule = options.schedule ?? ((fn, ms) => setTimeout(fn, ms));
+    const cancel = options.cancel ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
 
     let pending: { frame: EventFrame; event: DeltaEvent; seqFrom: number; delta: string } | undefined;
     const flush = (): WireFrame | undefined => {
@@ -37,17 +40,20 @@ export async function* coalesceFrames(frames: AsyncIterable<WireFrame>, options:
     try {
         for (;;) {
             let timedOut = false;
+            let timer: unknown;
             const next = pending
                 ? await Promise.race([
                       iterator.next(),
                       new Promise<'timeout'>((resolve) => {
-                          schedule(() => {
+                          timer = schedule(() => {
                               timedOut = true;
                               resolve('timeout');
                           }, maxDelayMs);
                       })
                   ])
                 : await iterator.next();
+            // The next frame won the race: its timer would only wake the loop for nothing.
+            if (!timedOut && timer !== undefined) cancel(timer);
             if (next === 'timeout' || timedOut) {
                 const flushed = flush();
                 if (flushed) yield flushed;

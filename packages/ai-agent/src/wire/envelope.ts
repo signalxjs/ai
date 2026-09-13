@@ -66,11 +66,11 @@ export type WireFrame =
 const COMMANDS: ReadonlySet<string> = new Set(['prompt', 'respond', 'cancel', 'configure', 'close']);
 const FRAMES: ReadonlySet<string> = new Set(['hello', 'event', 'gap']);
 
-/** Minimal shape check — enough to route a command, never a validator. */
+/** Minimal shape check — enough to route a command, never a validator. A blank `commandId` is refused: it is the idempotency key. */
 export function isWireCommand(value: unknown): value is WireCommand {
     if (typeof value !== 'object' || value === null) return false;
     const v = value as Record<string, unknown>;
-    return v.v === WIRE_PROTOCOL_VERSION && typeof v.commandId === 'string' && typeof v.type === 'string' && COMMANDS.has(v.type);
+    return v.v === WIRE_PROTOCOL_VERSION && typeof v.commandId === 'string' && v.commandId.trim() !== '' && typeof v.type === 'string' && COMMANDS.has(v.type);
 }
 
 export function isWireFrame(value: unknown): value is WireFrame {

@@ -157,6 +157,9 @@ describe('serveSession / connectSession', () => {
         await tick(5);
         expect(prompts).toBe(1);
         expect(await served.handleCommand({ nope: true } as unknown as WireCommand)).toMatchObject({ kind: 'error', code: 'invalid' });
+        // A blank commandId would collide in the idempotency cache: refused, and not cached.
+        expect(await served.handleCommand(cmd({ commandId: '  ', type: 'cancel' }))).toMatchObject({ kind: 'error', code: 'invalid' });
+        expect(await served.handleCommand(cmd({ commandId: '', type: 'cancel' }))).toMatchObject({ kind: 'error', code: 'invalid', commandId: '' });
         expect(await served.handleCommand(cmd({ commandId: 'c1', type: 'configure', patch: { a: 'b' } }), 'owner')).toMatchObject({ kind: 'ack' });
         expect(await served.handleCommand(cmd({ commandId: 'z', type: 'close' }), 'owner')).toMatchObject({ kind: 'ack' });
     });

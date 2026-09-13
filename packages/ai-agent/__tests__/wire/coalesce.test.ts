@@ -40,6 +40,18 @@ describe('coalesceFrames', () => {
         ]);
     });
 
+    it('a timer that lost the race to the next frame is cancelled', async () => {
+        seq = 0;
+        const scheduled: (() => void)[] = [];
+        const cancelled: unknown[] = [];
+        const frames = [delta('p', 'a'), delta('p', 'b'), delta('p', 'c'), frame({ type: 'part-end', turnId: 't', partId: 'p' } as never)];
+        const out = await collect(coalesceFrames(from(frames), { schedule: (fn) => (scheduled.push(fn), scheduled.length), cancel: (h) => cancelled.push(h) }));
+        // Three pending waits, each won by the next frame → three timers armed, three cancelled.
+        expect(scheduled).toHaveLength(3);
+        expect(cancelled).toEqual([1, 2, 3]);
+        expect(out.map((f) => (f.kind === 'event' ? f.event.type : f.kind))).toEqual(['part-delta', 'part-end']);
+    });
+
     it('a timer flushes a lone delta', async () => {
         seq = 0;
         const timers: (() => void)[] = [];
