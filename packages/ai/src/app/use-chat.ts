@@ -21,6 +21,7 @@
 
 import { signal, batch, untrack } from '@sigx/reactivity';
 import { getCurrentInstance } from '@sigx/runtime-core';
+import { DENIED_MESSAGE } from '../model/index.js';
 import { applyChunk } from '../protocol/index.js';
 import { createMessage, userMessage, type UIChunk, type UIMessage, type UIToolPart, type Usage } from '../protocol/index.js';
 
@@ -195,7 +196,7 @@ export function useChat(options: UseChatOptions): Chat {
     function deny(id: string, reason?: string): Promise<void> {
         return decide(id, (part) => {
             part.state = 'denied';
-            part.output = reason ?? 'Denied by the user.';
+            part.output = reason ?? DENIED_MESSAGE;
         });
     }
 

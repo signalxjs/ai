@@ -36,6 +36,13 @@ ends with the call `awaiting`, `useChat` reports `status: 'awaiting'` and
 `approvals`, and `approve(id)` / `deny(id, reason?)` send the transcript back
 so the same assistant message resumes where it stopped.
 
+The resumed transcript comes from the client, so in that flow the **client is
+the approver**: whoever holds the transcript can mark a call `approved`. Use
+it for tools the user is entitled to run on their own say-so. A tool that
+needs a server-side decision (a policy, a role check) gets it from
+`onToolApproval` on the server — pass one to `chatStream` and nothing is
+deferred.
+
 ## Install
 
 ```bash
