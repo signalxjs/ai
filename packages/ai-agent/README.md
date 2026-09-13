@@ -30,9 +30,46 @@ Three entries today (more land with the following milestones):
 
 | Entry | What |
 |---|---|
-| `@sigx/ai-agent` | the contract (`Agent`, `AgentSession`, `AgentTurn`), the event union, capabilities, the policy engine (`resolveRequest`, `allowAll`, `allowReadOnly`, `firstMatch`, …), and the session helpers adapters build on (`createEventLog`, `createTurn`, `createSessionCore`) |
+| `@sigx/ai-agent` | the contract (`Agent`, `AgentSession`, `AgentTurn`), the event union, capabilities, the policy engine (`resolveRequest`, `allowAll`, `allowReadOnly`, `firstMatch`, …), the session helpers adapters build on (`createEventLog`, `createTurn`, `createSessionCore`), the transcript reducer (`reduceAgentEvent`, `createReducer`) with its bridges to `@sigx/ai` (`toUIMessages`, `fromUIMessages`, `toChatStream`), and the store seams (`TranscriptStore`, `EventLogStore`) |
 | `@sigx/ai-agent/harness` | the protocol kit: `createJsonRpcPeer` (JSON-RPC 2.0 over Web Streams, both directions), NDJSON framing, `createMcpToolHandler` (client tools as an MCP server, Streamable HTTP), `webSocketStreams` |
-| `@sigx/ai-agent/testing` | `mockAgent` — a scripted, deterministic agent |
+| `@sigx/ai-agent/testing` | `mockAgent` — a scripted, deterministic agent — and `agentConformance`, the suite every adapter must pass |
+
+## Rendering a transcript
+
+Fold events into a transcript with `reduceAgentEvent` (in place, deterministic:
+replaying the same events from any snapshot gives the same result), then hand
+it to anything that already renders `@sigx/ai` messages:
+
+```ts
+import { createTranscript, reduceAgentEvent, toUIMessages } from '@sigx/ai-agent';
+
+const transcript = createTranscript(session.id);
+for await (const event of session.subscribe()) {
+    reduceAgentEvent(transcript, event);
+    render(toUIMessages(transcript)); // UIMessage[] — the shape useChat renders
+}
+```
+
+`toChatStream(turn)` is the read-only shortcut for a plain `useChat`: it turns
+one turn into `UIChunk`s.
+
+## Writing an adapter: run `agentConformance`
+
+An adapter is a mapping from a harness onto the contract; the conformance
+suite checks the contract's invariants (gapless `seq`, one `turn-end` per turn,
+every request resolved exactly once, replay equality, cancel → `cancelled`, …)
+through eleven scenarios. Each scenario tells your factory what the agent must
+do — for a real harness that is a recorded fixture or a fake peer; the suite
+plays the client. A case that needs a capability the agent lacks is skipped
+with the reason. No test-runner import: wire the cases into yours.
+
+```ts
+import { agentConformance } from '@sigx/ai-agent/testing';
+
+for (const c of agentConformance((scenario) => makeMyAgent(scenario), { capabilities: myAgent.capabilities })) {
+    it.skipIf(!!c.skip)(c.name, c.run);
+}
+```
 
 ## Protocol kit
 
