@@ -163,6 +163,32 @@ describe('serveSession / connectSession', () => {
         remote.disconnect();
     });
 
+    it('malformed frames from a transport are dropped, not applied', async () => {
+        const { served } = await serve([[{ text: 'ok' }]]);
+        const transport: SessionTransport = {
+            send: (c) => served.handleCommand(c),
+            events: (from, o) =>
+                (async function* () {
+                    for await (const f of served.events(from, o)) {
+                        yield f;
+                        if (f.kind === 'hello') {
+                            yield { v: 1, kind: 'event', epoch: 'x', seq: 99, event: { type: 'state' } } as unknown as WireFrame;
+                            yield { v: 1, kind: 'gap', from: {} } as unknown as WireFrame;
+                            yield { nope: true } as unknown as WireFrame;
+                        }
+                    }
+                })()
+        };
+        const remote = await connectSession(transport);
+        const { events, result } = await drain(remote.prompt('go'));
+        expect(result.stopReason).toBe('end_turn');
+        // Only genuine events arrived (the session's own `state` events fill the seq gaps).
+        expect(events.every((e, i) => i === 0 || e.seq > events[i - 1]!.seq)).toBe(true);
+        expect(events.some((e) => e.seq === 99)).toBe(false);
+        expect(remote.cursor!.seq).toBeLessThan(99);
+        remote.disconnect();
+    });
+
     it('a broken stream with reconnect: false ends the client', async () => {
         const { served } = await serve([[{ text: 'x' }]]);
         const transport: SessionTransport = {

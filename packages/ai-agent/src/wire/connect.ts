@@ -10,10 +10,10 @@
  */
 
 import type { AgentCapabilities, AgentEvent, Decision, PromptInput } from '../protocol/index.js';
-import { AgentError, SessionBusyError, toPromptParts } from '../protocol/index.js';
+import { AgentError, SessionBusyError, isAgentEvent, toPromptParts } from '../protocol/index.js';
 import type { AgentSession, AgentTurn, PromptOptions, SessionRef, TurnResult } from '../session/index.js';
 import { generateId } from '../utils/id.js';
-import { cursorBefore, WIRE_PROTOCOL_VERSION, type Cursor, type WireCommand, type WireCommandPayload, type WireFrame, type WireReply } from './envelope.js';
+import { cursorBefore, isWireFrame, WIRE_PROTOCOL_VERSION, type Cursor, type WireCommand, type WireCommandPayload, type WireFrame, type WireReply } from './envelope.js';
 import { createReplayBuffer } from './replay-buffer.js';
 
 /** How commands and frames travel — the app's transport, as two functions. */
@@ -69,6 +69,12 @@ export async function connectSession(transport: SessionTransport, options: Conne
     });
 
     const apply = (frame: WireFrame) => {
+        // Transports parse JSON from elsewhere: a malformed frame is dropped (and
+        // reported in dev) rather than allowed to corrupt the cursor.
+        if (!isWellFormedFrame(frame)) {
+            if (__DEV__) console.warn(`[sigx ai-agent] connectSession: dropped a malformed frame: ${safeJson(frame)}`);
+            return;
+        }
         switch (frame.kind) {
             case 'hello':
                 hello = frame;
@@ -167,6 +173,29 @@ export async function connectSession(transport: SessionTransport, options: Conne
         }
     };
     return client;
+}
+
+const isCursor = (v: unknown): v is Cursor => typeof v === 'object' && v !== null && Number.isInteger((v as Cursor).epoch) && Number.isInteger((v as Cursor).seq);
+
+/** Shape validation for frames from the wire — the envelope plus the fields the cursor logic relies on. */
+function isWellFormedFrame(frame: unknown): frame is WireFrame {
+    if (!isWireFrame(frame)) return false;
+    switch (frame.kind) {
+        case 'hello':
+            return typeof frame.sessionId === 'string' && typeof frame.agentId === 'string' && isCursor(frame.head) && typeof frame.capabilities === 'object' && frame.capabilities !== null && typeof frame.sessionRef === 'object' && frame.sessionRef !== null;
+        case 'event':
+            return Number.isInteger(frame.epoch) && Number.isInteger(frame.seq) && (frame.seqFrom === undefined || Number.isInteger(frame.seqFrom)) && isAgentEvent(frame.event) && frame.event.epoch === frame.epoch && frame.event.seq === frame.seq;
+        case 'gap':
+            return isCursor(frame.from) && isCursor(frame.resumeAt);
+    }
+}
+
+function safeJson(value: unknown): string {
+    try {
+        return JSON.stringify(value)?.slice(0, 200) ?? String(value);
+    } catch {
+        return String(value);
+    }
 }
 
 /**

@@ -108,16 +108,19 @@ export function serveSession(session: AgentSession, options: ServeSessionOptions
     const toFrame = (e: AgentEvent): WireFrame => ({ v: V, kind: 'event', epoch: e.epoch, seq: e.seq, event: e });
 
     async function* frames(from: Cursor | undefined, signal: AbortSignal | undefined): AsyncGenerator<WireFrame, void, undefined> {
-        yield { v: V, kind: 'hello', agentId: options.agentId, sessionId: session.id, sessionRef: session.ref, capabilities: options.capabilities, head };
+        // Subscribe BEFORE the `hello` goes out: a consumer may act on the hello
+        // (prompt, say) before it pulls the next frame, and nothing emitted in
+        // between may be lost.
         let source: AsyncIterable<AgentEvent>;
         let last: Cursor | undefined = from;
+        let evicted: { readonly live: ReturnType<typeof createQueue<AgentEvent>>; readonly release: () => void } | undefined;
         if (!from) source = session.subscribe();
         else {
             try {
                 source = session.subscribe(from);
             } catch (e) {
                 if (!(e instanceof AgentError) || e.code !== 'protocol_error') throw e;
-                // The buffer moved on: subscribe to the live tail first (nothing is
+                // The buffer moved on: subscribe to the live tail now (nothing is
                 // missed) and drain it into our own unbounded queue while the store
                 // fills the middle — a long replay must not overflow the session's
                 // per-subscriber backlog.
@@ -141,28 +144,40 @@ export function serveSession(session: AgentSession, options: ServeSessionOptions
                         live.fail(e);
                     }
                 })();
-                let handedOff = false;
-                try {
-                    if (options.eventLog) {
-                        for await (const e of options.eventLog.read(session.id, from)) {
-                            if (signal?.aborted) return;
-                            if (last && !cursorBefore(last, e)) continue;
-                            last = { epoch: e.epoch, seq: e.seq };
-                            yield toFrame(e);
-                        }
-                    } else {
-                        yield { v: V, kind: 'gap', from, resumeAt: head };
-                        last = head;
-                    }
-                    handedOff = true;
-                } finally {
-                    // Left before the tail took over (abort, a store error): release the live subscription.
-                    if (!handedOff) {
-                        live.end();
-                        release();
-                    }
-                }
+                evicted = { live, release };
                 source = live;
+            }
+        }
+        const hello: WireFrame = { v: V, kind: 'hello', agentId: options.agentId, sessionId: session.id, sessionRef: session.ref, capabilities: options.capabilities, head };
+        if (evicted) {
+            let handedOff = false;
+            try {
+                yield hello;
+                if (options.eventLog) {
+                    for await (const e of options.eventLog.read(session.id, from!)) {
+                        if (signal?.aborted) return;
+                        if (last && !cursorBefore(last, e)) continue;
+                        last = { epoch: e.epoch, seq: e.seq };
+                        yield toFrame(e);
+                    }
+                } else {
+                    yield { v: V, kind: 'gap', from: from!, resumeAt: head };
+                    last = head;
+                }
+                handedOff = true;
+            } finally {
+                // Left before the tail took over (abort, a store error): release the live subscription.
+                if (!handedOff) {
+                    evicted.live.end();
+                    evicted.release();
+                }
+            }
+        } else {
+            try {
+                yield hello;
+            } catch (e) {
+                await source[Symbol.asyncIterator]().return?.();
+                throw e;
             }
         }
         const iterator = source[Symbol.asyncIterator]();
@@ -198,7 +213,12 @@ export function serveSession(session: AgentSession, options: ServeSessionOptions
                 return { v: V, kind: 'error', commandId: command.commandId, code: 'unauthorized', message: `command "${command.type}" is not allowed` };
             }
             const cached = replies.get(command.commandId);
-            if (cached) return cached;
+            if (cached) {
+                // Least recently USED: a retried command stays hot.
+                replies.delete(command.commandId);
+                replies.set(command.commandId, cached);
+                return cached;
+            }
             const reply = execute(command);
             remember(command.commandId, reply);
             return reply;

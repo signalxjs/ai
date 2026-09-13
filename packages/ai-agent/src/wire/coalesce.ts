@@ -41,19 +41,23 @@ export async function* coalesceFrames(frames: AsyncIterable<WireFrame>, options:
         for (;;) {
             let timedOut = false;
             let timer: unknown;
-            const next = pending
-                ? await Promise.race([
-                      iterator.next(),
-                      new Promise<'timeout'>((resolve) => {
-                          timer = schedule(() => {
-                              timedOut = true;
-                              resolve('timeout');
-                          }, maxDelayMs);
-                      })
-                  ])
-                : await iterator.next();
-            // The next frame won the race: its timer would only wake the loop for nothing.
-            if (!timedOut && timer !== undefined) cancel(timer);
+            let next: IteratorResult<WireFrame> | 'timeout';
+            try {
+                next = pending
+                    ? await Promise.race([
+                          iterator.next(),
+                          new Promise<'timeout'>((resolve) => {
+                              timer = schedule(() => {
+                                  timedOut = true;
+                                  resolve('timeout');
+                              }, maxDelayMs);
+                          })
+                      ])
+                    : await iterator.next();
+            } finally {
+                // The next frame won the race (or the source failed): the timer would only wake the loop for nothing.
+                if (!timedOut && timer !== undefined) cancel(timer);
+            }
             if (next === 'timeout' || timedOut) {
                 const flushed = flush();
                 if (flushed) yield flushed;
