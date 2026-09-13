@@ -39,6 +39,31 @@ describe('toModelMessages', () => {
         ]);
     });
 
+    it('keeps an all-text user message a string and passes image/file parts through in order', () => {
+        expect(toModelMessages([{ id: 'u', role: 'user', parts: [{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }] }])).toEqual([{ role: 'user', content: 'ab' }]);
+        const out = toModelMessages([
+            {
+                id: 'u',
+                role: 'user',
+                parts: [
+                    { type: 'text', text: 'What is this?' },
+                    { type: 'image', mediaType: 'image/png', data: 'AAAA' },
+                    { type: 'file', mediaType: 'application/pdf', url: 'https://x.test/a.pdf', filename: 'a.pdf' }
+                ]
+            }
+        ]);
+        expect(out).toEqual([
+            {
+                role: 'user',
+                content: [
+                    { type: 'text', text: 'What is this?' },
+                    { type: 'image', mediaType: 'image/png', data: 'AAAA' },
+                    { type: 'file', mediaType: 'application/pdf', url: 'https://x.test/a.pdf', filename: 'a.pdf' }
+                ]
+            }
+        ]);
+    });
+
     it('omits a pending tool call from the results message', () => {
         const out = toModelMessages([
             { id: 'a', role: 'assistant', parts: [{ type: 'tool', id: 'c', name: 't', input: {}, state: 'pending' }] }
