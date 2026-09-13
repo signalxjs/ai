@@ -74,11 +74,11 @@ export function toolState(p: ToolPartState): UIToolState {
     switch (p.status) {
         case 'pending':
         case 'in_progress':
-            return p.requestId !== undefined ? ('awaiting' as UIToolState) : 'pending';
+            return p.requestId !== undefined ? 'awaiting' : 'pending';
         case 'completed':
             return 'done';
         case 'denied':
-            return 'denied' as UIToolState;
+            return 'denied';
         case 'failed':
         case 'cancelled':
             return 'error';

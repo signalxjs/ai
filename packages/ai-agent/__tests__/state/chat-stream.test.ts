@@ -25,7 +25,7 @@ describe('toChatStream', () => {
         ]);
     });
 
-    it('a denied tool call is an error result; the request itself is not rendered', async () => {
+    it('a permission request becomes tool-approval-request; a denial is a denied tool result', async () => {
         const agent = mockAgent({ script: [[{ tool: { name: 'rm' } }]] });
         const session = await agent.session();
         // A client answers through the session; here a side task plays the client.
@@ -39,8 +39,8 @@ describe('toChatStream', () => {
         })();
         const chunks = await collect(toChatStream(session.prompt('go')));
         await client;
-        expect(chunks.map((c) => c.type)).toEqual(['start', 'tool-call', 'tool-result', 'finish']);
-        expect(chunks[2]).toEqual({ type: 'tool-result', id: 'call_1', output: 'not today', isError: true });
+        expect(chunks.map((c) => c.type)).toEqual(['start', 'tool-call', 'tool-approval-request', 'tool-result', 'finish']);
+        expect(chunks[3]).toEqual({ type: 'tool-result', id: 'call_1', output: 'not today', isError: true, denied: true });
     });
 
     it('a failed turn ends with exactly one error chunk; a cancelled one finishes with other', async () => {

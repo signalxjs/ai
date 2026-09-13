@@ -57,6 +57,15 @@ describe('agentConformance', () => {
         for (const c of cases) it.skipIf(!!c.skip)(c.name, c.run, 15_000);
     });
 
+    it("'resume: local' in needs accepts portable; other capability values must match exactly", () => {
+        const portable = agentConformance(() => mockAgent(), { capabilities: { ...MOCK_CAPABILITIES, resume: 'portable' } });
+        expect(portable.find((c) => c.name === 'conformance: resume')!.skip).toBeUndefined();
+        const local = agentConformance(() => mockAgent(), { capabilities: { ...MOCK_CAPABILITIES, resume: 'local' } });
+        expect(local.find((c) => c.name === 'conformance: resume')!.skip).toBeUndefined();
+        const none = agentConformance(() => mockAgent(), { capabilities: { ...MOCK_CAPABILITIES, resume: false } });
+        expect(none.find((c) => c.name === 'conformance: resume')!.skip).toMatch(/resume/);
+    });
+
     it('fails loudly when an agent breaks a scenario', async () => {
         // A mock that never calls the guarded tool.
         const cases = agentConformance(() => mockAgent({ script: [[{ text: 'nope' }]] }), { capabilities: MOCK_CAPABILITIES });

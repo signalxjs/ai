@@ -134,11 +134,11 @@ export const CONFORMANCE_SCENARIOS: readonly ConformanceScenario[] = [
     { name: 'busy-session', description: 'Reply with text (the suite prompts twice at once).', prompt: 'Say hello.', tools: [], interactive: false, needs: {} }
 ];
 
-/** `resume: 'local'` in `needs` means "any resume"; other values must match exactly. */
+/** `resume: 'local'` in `needs` means "any resume" (`portable` satisfies it too); every other value must match exactly. */
 function missingCapability(needs: Partial<AgentCapabilities>, caps: AgentCapabilities): string | undefined {
     for (const [key, value] of Object.entries(needs) as [keyof AgentCapabilities, unknown][]) {
         const actual = caps[key];
-        if (key === 'resume') {
+        if (key === 'resume' && value === 'local') {
             if (!actual) return `needs the resume capability (agent has resume: false)`;
             continue;
         }
