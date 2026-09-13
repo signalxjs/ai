@@ -15,7 +15,7 @@
  * ```
  */
 
-import { defineTool, type AnyTool, type JsonSchema } from '@sigx/ai';
+import { defineTool, type AnyTool, type JsonSchema, type StandardSchemaV1, type ToolContext } from '@sigx/ai';
 import type { AgentCapabilities, AgentEvent, StopReason } from '../protocol/index.js';
 import { SessionBusyError } from '../protocol/index.js';
 import { allowAll, type Policy } from '../policy/index.js';
@@ -55,16 +55,15 @@ export interface ConformanceOptions {
     readonly timeoutMs?: number;
 }
 
-const anySchema = { '~standard': { version: 1 as const, vendor: 'sigx-ai-agent', validate: (value: unknown) => ({ value }) } };
+/** Accepts any input — the scenarios exercise the loop, not argument validation. */
+const anySchema: StandardSchemaV1<unknown, unknown> = { '~standard': { version: 1, vendor: 'sigx-ai-agent', validate: (value) => ({ value }) } };
 const objectSchema: JsonSchema = { type: 'object', additionalProperties: true };
-const tool = (name: string, description: string, execute: (input: unknown, ctx: { signal: AbortSignal }) => unknown, annotations?: { readOnly?: boolean }): AnyTool =>
-    defineTool({ name, description, input: anySchema, jsonSchema: objectSchema, execute, ...(annotations ? { annotations } : {}) } as Parameters<typeof defineTool>[0]);
+const tool = (name: string, description: string, execute: (input: unknown, ctx: ToolContext) => unknown): AnyTool =>
+    defineTool({ name, description, input: anySchema, jsonSchema: objectSchema, execute });
 
 export const CONFORMANCE_TOOLS = {
     /** Returns `{ ok: true }`. */
     guarded: tool('guarded', 'A tool that needs permission; returns { ok: true }.', () => ({ ok: true })),
-    /** Read-only, returns `'fine'`. */
-    lookup: tool('lookup', 'A read-only lookup; returns "fine".', () => 'fine', { readOnly: true }),
     /** Always throws. */
     failing: tool('failing', 'A tool that always fails.', () => {
         throw new Error('the tool failed on purpose');

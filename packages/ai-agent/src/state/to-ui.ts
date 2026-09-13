@@ -17,7 +17,6 @@ import type { AgentMessage, AgentTranscript, ToolPartState } from './transcript.
 
 export function toUIMessages(transcript: AgentTranscript): UIMessage[] {
     const out: UIMessage[] = [];
-    const byId = new Map<string, UIMessage>();
     const parentOfCall = new Map<string, UIMessage>();
 
     for (const m of transcript.messages) {
@@ -33,7 +32,6 @@ export function toUIMessages(transcript: AgentTranscript): UIMessage[] {
         }
         const ui: UIMessage = { id: m.id, role: m.role, parts: m.role === 'user' ? userParts(m) : assistantParts(m) };
         out.push(ui);
-        byId.set(m.id, ui);
         for (const p of m.parts) if (p.type === 'tool') parentOfCall.set(p.callId, ui);
     }
     return out;

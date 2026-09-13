@@ -3,10 +3,9 @@
  *
  * A read-only bridge from agent events to `UIChunk`s: one `start`, text and
  * reasoning deltas, tool calls and results, exactly one terminal chunk
- * (`finish`, or `error` when the turn ended in error). Requests become
- * `tool-approval-request` chunks so the UI can show the wait; answering them
- * still goes through `session.respond()`. Nested (subagent) events are
- * skipped — `useChat` has no place for them.
+ * (`finish`, or `error` when the turn ended in error). Requests are not
+ * rendered (answering them goes through `session.respond()`); nested
+ * (subagent) events are skipped — `useChat` has no place for them.
  */
 
 import type { FinishReason, UIChunk } from '@sigx/ai';
@@ -39,11 +38,13 @@ export async function* toChatStream(events: AsyncIterable<AgentEvent>): AsyncGen
                 break;
             case 'tool-update':
                 if (e.status === 'completed') yield { type: 'tool-result', id: e.callId, output: e.output ?? (e.content ? contentToOutput(e.content) : null) };
-                else if (e.status === 'denied') yield { type: 'tool-result', id: e.callId, output: e.error ?? 'Denied.', isError: true, denied: true } as unknown as UIChunk;
-                else if (e.status === 'failed' || e.status === 'cancelled') yield { type: 'tool-result', id: e.callId, output: e.error ?? (e.status === 'cancelled' ? 'Cancelled.' : 'Failed.'), isError: true };
-                break;
-            case 'request':
-                if (e.kind === 'permission' && e.callId !== undefined) yield { type: 'tool-approval-request', id: e.callId } as unknown as UIChunk;
+                // A denial is an error result for now; the dedicated `denied` flag
+                // and the `tool-approval-request` chunk arrive with the core's
+                // approval protocol (signalxjs/ai#37) and are wired in #42.
+                else if (e.status === 'denied' || e.status === 'failed' || e.status === 'cancelled') {
+                    const fallback = e.status === 'denied' ? 'Denied.' : e.status === 'cancelled' ? 'Cancelled.' : 'Failed.';
+                    yield { type: 'tool-result', id: e.callId, output: e.error ?? fallback, isError: true };
+                }
                 break;
             case 'turn-end':
                 if (e.stopReason === 'error') {
