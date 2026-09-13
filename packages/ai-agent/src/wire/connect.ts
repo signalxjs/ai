@@ -99,6 +99,7 @@ export async function connectSession(transport: SessionTransport, options: Conne
 
     const follow = async () => {
         let attempt = 0;
+        let lastError: unknown;
         while (!stopped) {
             controller = new AbortController();
             try {
@@ -109,10 +110,9 @@ export async function connectSession(transport: SessionTransport, options: Conne
                     apply(frame);
                 }
             } catch (e) {
-                if (!hello) {
-                    rejectHello(e);
-                    return;
-                }
+                // A failure before the first hello goes through the same reconnect
+                // policy as a later one — an initial connection is what fails most.
+                lastError = e;
             }
             connected = false;
             if (stopped || !reconnect) break;
@@ -121,8 +121,8 @@ export async function connectSession(transport: SessionTransport, options: Conne
             await new Promise((r) => setTimeout(r, reconnect.backoffMs(attempt)));
         }
         buffer.close();
-        // A stream that ended (or was given up on) before any hello is a failed connection, not a hang.
-        if (!hello) rejectHello(new AgentError('protocol_error', `[sigx ai-agent] connectSession: the event stream ended before a hello frame${stopped ? ' (disconnected)' : ''}`));
+        // A stream that ended or failed (and was given up on) before any hello is a failed connection, not a hang.
+        if (!hello) rejectHello(lastError ?? new AgentError('protocol_error', `[sigx ai-agent] connectSession: the event stream ended before a hello frame${stopped ? ' (disconnected)' : ''}`));
     };
     void follow();
     const first = await firstHello;

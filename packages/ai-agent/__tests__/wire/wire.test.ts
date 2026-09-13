@@ -190,6 +190,7 @@ describe('serveSession / connectSession', () => {
     });
 
     it('a stream that ends before any hello fails the connection instead of hanging', async () => {
+        // A stream that ends without an error has none to report: the generic protocol error stands in.
         const empty: SessionTransport = { send: () => Promise.reject(new Error('unused')), events: () => (async function* () {})() };
         await expect(connectSession(empty, { reconnect: false })).rejects.toThrow(/ended before a hello/);
         let attempts = 0;
@@ -202,6 +203,49 @@ describe('serveSession / connectSession', () => {
         };
         await expect(connectSession(flaky, { reconnect: { maxAttempts: 2, backoffMs: () => 1 } })).rejects.toThrow(/ended before a hello/);
         expect(attempts).toBe(3);
+    });
+
+    it('a stream that fails before any hello is retried; once attempts run out the original error surfaces', async () => {
+        // An initial connection is what fails most, so a pre-hello failure follows the
+        // same reconnect policy as a later one rather than rejecting on the first try.
+        const { served } = await serve([[{ text: 'after a retry' }]]);
+        let calls = 0;
+        const refusedOnce: SessionTransport = {
+            send: (c) => served.handleCommand(c),
+            events: (from, o) =>
+                (async function* () {
+                    if (++calls === 1) throw new Error('connection refused');
+                    yield* served.events(from, o);
+                })()
+        };
+        const remote = await connectSession(refusedOnce, { reconnect: { backoffMs: () => 1 } });
+        expect(calls).toBe(2);
+        expect(remote.connected).toBe(true);
+        const { events, result } = await drain(remote.prompt('go'));
+        expect(textOf(events)).toBe('after a retry');
+        expect(result.stopReason).toBe('end_turn');
+        remote.disconnect();
+
+        // Every attempt fails: the transport's own error surfaces, not the generic placeholder.
+        let attempts = 0;
+        const down: SessionTransport = {
+            send: () => Promise.reject(new Error('unused')),
+            events: () =>
+                (async function* () {
+                    attempts++;
+                    throw new AgentError('process_exited', 'the agent host is down');
+                })()
+        };
+        const err = await connectSession(down, { reconnect: { maxAttempts: 2, backoffMs: () => 1 } }).catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(AgentError);
+        expect((err as AgentError).code).toBe('process_exited');
+        expect((err as AgentError).message).toBe('the agent host is down');
+        expect(attempts).toBe(3);
+
+        // With reconnect: false there is no retry — the one failure surfaces as it is.
+        attempts = 0;
+        await expect(connectSession(down, { reconnect: false })).rejects.toThrow('the agent host is down');
+        expect(attempts).toBe(1);
     });
 
     it('a stalled store replay cannot grow the live tail without limit: the stream fails', async () => {
