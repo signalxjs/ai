@@ -18,6 +18,10 @@ follow [SemVer](https://semver.org/).
   every adapter shares instead of Codex's own spellings:
   `reasoningOutputTokens` → `reasoningTokens`, `cachedInputTokens` →
   `cacheReadInputTokens`, `cacheWriteInputTokens` → `cacheCreationInputTokens`.
+- Steering (`steer: true`): `prompt()` while a turn runs is sent as
+  `turn/steer` on the running Codex turn and shows up as a further
+  `user-message` of that turn; the returned handle is the running turn's. A
+  refused steer is a recoverable `error` inside the turn.
 
 ### Fixed
 

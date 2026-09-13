@@ -6,7 +6,7 @@
  */
 
 import { validateWith, type AnyTool, type JsonSchema, type StandardSchemaV1 } from '@sigx/ai';
-import type { AgentSession, ConfigOption, PromptInput, PromptOptions, SessionRef, TurnDriver, TurnContext } from '@sigx/ai-agent';
+import type { AgentSession, ConfigOption, PromptInput, PromptOptions, PromptPart, SessionRef, TurnDriver, TurnContext } from '@sigx/ai-agent';
 import { AgentError, createEventLog, createSessionCore } from '@sigx/ai-agent';
 import type { JsonRpcPeer, RequestContext } from '@sigx/ai-agent/harness';
 import { approveCommand, approveFileChange, approvePermissions, askUserInput } from './approvals.js';
@@ -25,6 +25,8 @@ import type {
     ToolRequestUserInputParams,
     TurnStartParams,
     TurnStartResponse,
+    TurnSteerParams,
+    TurnSteerResponse,
     UserInput
 } from './schema.js';
 import { CODEX_NS, createTurnMapper, type TurnMapper } from './stream.js';
@@ -115,7 +117,9 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
         ...(options.policy ? { policy: options.policy } : {}),
         interactive: options.interactive ?? true,
         ...(options.requestTimeoutMs !== undefined ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
-        ...(options.signal ? { signal: options.signal } : {})
+        ...(options.signal ? { signal: options.signal } : {}),
+        // A prompt during a turn is `turn/steer` on the running Codex turn.
+        steer: true
     });
 
     // Per-turn overrides `configure()` records and the next `turn/start` applies.
@@ -133,10 +137,45 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
         readonly ctx: TurnContext;
         readonly mapper: TurnMapper;
         codexTurnId?: string;
+        /** Codex's turn id once `turn/start` answered; rejects when it failed. */
+        readonly started: Promise<string>;
         /** Notifications that arrived before `turn/start` answered with Codex's turn id. */
         readonly early: { method: string; params: { readonly turnId?: string } & Record<string, unknown> }[];
+        /** Steering inputs delivered so far — numbers the extra `user-message`s. */
+        steers: number;
     }
     let active: ActiveTurn | undefined;
+
+    /**
+     * Steering input for the running turn: `turn/steer` against the Codex turn
+     * (waiting for `turn/start` to answer first), then the `user-message` the
+     * transcript shows. The core hands the caller the running turn's handle
+     * before this runs, so a refusal cannot fail that prompt — it is reported
+     * as a recoverable `error` inside the turn and the turn goes on.
+     */
+    const steer = async (turn: ActiveTurn, parts: readonly PromptPart[]): Promise<void> => {
+        const { driver } = turn;
+        let codexTurnId: string;
+        try {
+            codexTurnId = await turn.started;
+        } catch {
+            return; // the turn itself failed to start; its own error ends it
+        }
+        if (driver.ended) {
+            core.emit({ type: 'error', code: 'protocol_error', message: `[sigx ai-agent-codex] steering input arrived after turn "${driver.turnId}" ended and was not delivered`, recoverable: true });
+            return;
+        }
+        try {
+            const params: TurnSteerParams = { threadId, expectedTurnId: codexTurnId, input: toUserInput(parts) };
+            await peer.request<TurnSteerResponse>(CODEX_METHODS.turnSteer, params, { signal: driver.signal });
+            if (driver.ended) return;
+            driver.emit({ type: 'user-message', messageId: `u:${driver.turnId}:${++turn.steers}`, parts: [...parts] });
+        } catch (e) {
+            if (driver.signal.aborted || driver.ended) return;
+            const message = e instanceof Error ? e.message : String(e);
+            driver.emit({ type: 'error', code: 'protocol_error', message: `[sigx ai-agent-codex] turn/steer was refused: ${message}`, recoverable: true });
+        }
+    };
 
     const session: CodexSession = {
         id: threadId,
@@ -151,8 +190,16 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
                 const parts = typeof input === 'string' ? [{ type: 'text' as const, text: input }] : [...input];
                 driver.emit({ type: 'user-message', messageId: `u:${driver.turnId}`, parts });
                 const mapper = createTurnMapper(driver, { messageId: `a:${driver.turnId}:0` });
-                const turn: ActiveTurn = { driver, ctx, mapper, early: [] };
+                let startedOk!: (id: string) => void;
+                let startedFailed!: (e: unknown) => void;
+                const started = new Promise<string>((resolve, reject) => {
+                    startedOk = resolve;
+                    startedFailed = reject;
+                });
+                started.catch(() => {}); // observed by `steer` only when there is one
+                const turn: ActiveTurn = { driver, ctx, mapper, started, early: [], steers: 0 };
                 active = turn;
+                ctx.onSteer((parts) => void steer(turn, parts));
                 const output = outputSchemaOf(promptOptions);
                 const params: TurnStartParams = {
                     threadId,
@@ -164,11 +211,13 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
                     ...(overrides.effort !== undefined ? { effort: overrides.effort } : {})
                 };
                 try {
-                    const started = await peer.request<TurnStartResponse>(CODEX_METHODS.turnStart, params, { signal: driver.signal });
-                    turn.codexTurnId = started.turn.id;
-                    driver.emit({ type: 'ext', ns: CODEX_NS, name: 'turn', data: { turnId: started.turn.id } });
+                    const response = await peer.request<TurnStartResponse>(CODEX_METHODS.turnStart, params, { signal: driver.signal });
+                    turn.codexTurnId = response.turn.id;
+                    driver.emit({ type: 'ext', ns: CODEX_NS, name: 'turn', data: { turnId: response.turn.id } });
                     for (const n of turn.early.splice(0)) if (n.params.turnId === undefined || n.params.turnId === turn.codexTurnId) mapper.notify(n.method, n.params);
+                    startedOk(response.turn.id);
                 } catch (e) {
+                    startedFailed(e);
                     if (driver.signal.aborted) return;
                     throw e;
                 }

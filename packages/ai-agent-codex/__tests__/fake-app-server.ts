@@ -6,7 +6,7 @@
  */
 import { createJsonRpcPeer, type JsonRpcPeer, type RequestContext } from '@sigx/ai-agent/harness';
 import type { CodexTransport } from '@sigx/ai-agent-codex';
-import type { ThreadStartResponse, Turn, UserInput } from '../src/schema';
+import type { ThreadStartResponse, Turn, TurnSteerParams, TurnSteerResponse, UserInput } from '../src/schema';
 
 export interface TurnProgramContext {
     readonly threadId: string;
@@ -16,6 +16,8 @@ export interface TurnProgramContext {
     /** Resolves when the client interrupts this turn. */
     readonly interrupted: Promise<void>;
     readonly isInterrupted: () => boolean;
+    /** The next `turn/steer` input for this turn (already-arrived input resolves at once). */
+    nextSteer(): Promise<UserInput[]>;
     notify(method: string, params: unknown): Promise<void>;
     request<R = unknown>(method: string, params: unknown): Promise<R>;
     /** `item/started` + `item/completed` helpers keep programs short. */
@@ -34,6 +36,8 @@ export interface FakeAppServerOptions {
     readonly threadId?: string;
     /** Fields merged over the default `thread/start` response (an unusual approval policy or sandbox). */
     readonly thread?: Partial<Omit<ThreadStartResponse, 'thread'>>;
+    /** Replace the `turn/steer` handler (throw to refuse). The default accepts input for the active turn only. */
+    readonly steer?: (params: TurnSteerParams) => TurnSteerResponse;
 }
 
 export interface FakeAppServer {
@@ -102,6 +106,18 @@ export function fakeAppServer(options: FakeAppServerOptions): FakeAppServer {
         interrupts.get(p.turnId)?.();
         return {};
     });
+    // Steering: input queued per active turn; a program takes it with `nextSteer()`.
+    const steers = new Map<string, { queue: UserInput[][]; waiters: ((input: UserInput[]) => void)[] }>();
+    peer.onRequest('turn/steer', (p: TurnSteerParams) => {
+        record('turn/steer')(p);
+        if (options.steer) return options.steer(p);
+        const entry = steers.get(p.expectedTurnId);
+        if (!entry) throw Object.assign(new Error(`turn ${p.expectedTurnId} is not the active turn`), { code: -32602 });
+        const waiter = entry.waiters.shift();
+        if (waiter) waiter(p.input);
+        else entry.queue.push(p.input);
+        return { turnId: p.expectedTurnId };
+    });
     peer.onRequest('turn/start', (p: Record<string, unknown>, _ctx: RequestContext) => {
         record('turn/start')(p);
         const threadId = p.threadId as string;
@@ -115,6 +131,8 @@ export function fakeAppServer(options: FakeAppServerOptions): FakeAppServer {
             };
         });
         interrupts.set(turnId, fire);
+        const steer = { queue: [] as UserInput[][], waiters: [] as ((input: UserInput[]) => void)[] };
+        steers.set(turnId, steer);
         const ctx: TurnProgramContext = {
             threadId,
             turnId,
@@ -122,10 +140,17 @@ export function fakeAppServer(options: FakeAppServerOptions): FakeAppServer {
             params: p,
             interrupted,
             isInterrupted: () => interruptedFlag,
+            nextSteer: () => {
+                const queued = steer.queue.shift();
+                return queued ? Promise.resolve(queued) : new Promise((resolve) => steer.waiters.push(resolve));
+            },
             notify: (method, params) => peer.notify(method, params),
             request: (method, params) => peer.request(method, params),
             item: (item, phase) => peer.notify(phase === 'started' ? 'item/started' : 'item/completed', { item, threadId, turnId }),
-            complete: (status = 'completed', error = null) => peer.notify('turn/completed', { threadId, turn: { id: turnId, status, error, items: [] } })
+            complete: (status = 'completed', error = null) => {
+                steers.delete(turnId);
+                return peer.notify('turn/completed', { threadId, turn: { id: turnId, status, error, items: [] } });
+            }
         };
         // The response goes out first; the program runs on the next tick.
         setTimeout(() => {

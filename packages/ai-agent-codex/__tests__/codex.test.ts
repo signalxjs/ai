@@ -337,6 +337,74 @@ describe('@sigx/ai-agent-codex', () => {
         expect(updates(events, 'slow').at(-1)).toMatch(/failed|cancelled/);
     });
 
+    it('a prompt during a turn steers it: turn/steer names the active Codex turn and the input lands as a user-message of the same turn', async () => {
+        const fake = fakeAppServer({
+            onTurn: async (ctx) => {
+                const extra = await ctx.nextSteer();
+                await say(`Got: ${extra.map((i) => (i.type === 'text' ? i.text : '')).join('')}`)(ctx);
+            }
+        });
+        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        const first = session.prompt('go');
+        // Sent before `turn/start` has answered: the adapter waits for the Codex turn id.
+        const second = session.prompt('also B');
+        expect(second.id).toBe(first.id);
+        const { events, result } = await drain(first);
+        const codexTurn = (events.find((e) => e.type === 'ext' && e.name === 'turn') as { data: { turnId: string } }).data.turnId;
+        expect(fake.requests.find((r) => r.method === 'turn/steer')?.params).toEqual({ threadId: session.id, expectedTurnId: codexTurn, input: [{ type: 'text', text: 'also B', text_elements: [] }] });
+        const users = events.filter((e): e is Extract<AgentEvent, { type: 'user-message' }> => e.type === 'user-message');
+        expect(users.map((u) => u.messageId)).toEqual([`u:${first.id}`, `u:${first.id}:1`]);
+        expect(users[1]).toMatchObject({ turnId: first.id, parts: [{ type: 'text', text: 'also B' }] });
+        expect(textOf(events)).toBe('Got: also B');
+        expect(result).toMatchObject({ stopReason: 'end_turn' });
+        expect(await second.result).toEqual(result);
+        expect(fake.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+    });
+
+    it('a steer sent once the turn is under way lands the same way', async () => {
+        const fake = fakeAppServer({
+            onTurn: async (ctx) => {
+                await ctx.nextSteer();
+                await say('ok')(ctx);
+            }
+        });
+        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        const first = session.prompt('go');
+        let second: ReturnType<typeof session.prompt> | undefined;
+        const { events } = await drain(first, (e) => {
+            if (e.type === 'ext' && e.name === 'turn') second = session.prompt('later');
+        });
+        expect(second?.id).toBe(first.id);
+        expect(events.filter((e) => e.type === 'user-message')).toHaveLength(2);
+        expect(fake.requests.filter((r) => r.method === 'turn/steer')).toHaveLength(1);
+    });
+
+    it('a turn/steer Codex refuses surfaces as a recoverable error inside the turn, which goes on', async () => {
+        let release!: () => void;
+        const gate = new Promise<void>((r) => (release = r));
+        const fake = fakeAppServer({
+            steer: () => {
+                throw Object.assign(new Error('turn mismatch'), { code: -32602 });
+            },
+            onTurn: async (ctx) => {
+                await gate;
+                await say('Hello')(ctx);
+            }
+        });
+        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        const first = session.prompt('go');
+        const second = session.prompt('nope');
+        const { events, result } = await drain(first, (e) => {
+            if (e.type === 'error') release();
+        });
+        const error = events.find((e): e is Extract<AgentEvent, { type: 'error' }> => e.type === 'error');
+        expect(error).toMatchObject({ code: 'protocol_error', recoverable: true, turnId: first.id });
+        expect(error?.message).toMatch(/turn\/steer.*turn mismatch/);
+        expect(events.filter((e) => e.type === 'user-message')).toHaveLength(1);
+        expect(result).toMatchObject({ stopReason: 'end_turn' });
+        expect(await second.result).toEqual(result);
+    });
+
     it('failed turns carry the error code; error notifications with willRetry are recoverable', async () => {
         const cases: [unknown, string][] = [
             ['contextWindowExceeded', 'context_exceeded'],
