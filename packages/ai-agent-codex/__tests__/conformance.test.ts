@@ -36,6 +36,9 @@ function programFor(scenario: ConformanceScenario): TurnProgram {
             };
         case 'structured-output':
             return say('{"ok":true}');
+        case 'steer':
+            // The suite steers while the client tool runs; the adapter sends turn/steer and the fake accepts it for the active turn.
+            return callTool('delayed', say('Done.'));
         case 'usage':
             return async (ctx) => {
                 const last = { totalTokens: 5, inputTokens: 3, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 2, reasoningOutputTokens: 0 };
@@ -47,10 +50,15 @@ function programFor(scenario: ConformanceScenario): TurnProgram {
     }
 }
 
-/** Codex has no handoff concept, so the non-coding support flow does not apply; the fake lists one fixed thread, never the ones it started. */
+/**
+ * Codex has no handoff concept, so the non-coding support flow does not apply; the fake lists one
+ * fixed thread, never the ones it started; and a spawned sub-agent's own transcript (its child
+ * thread) is not routed into the parent session until #100, so `delegate-tree` cannot see nested text.
+ */
 const skip = (s: ConformanceScenario) => {
     if (s.name === 'support-agent') return 'Codex emits no agent.handoff extension (its ext namespace is codex)';
     if (s.name === 'list-sessions') return 'the fake app-server answers thread/list with a fixed thread, not the ones it started';
+    if (s.name === 'delegate-tree') return 'the child thread’s transcript is not routed into the parent session yet (#100)';
     return undefined;
 };
 
@@ -60,7 +68,7 @@ describe('agentConformance: codex(fake app-server)', () => {
         skip,
         sessionOptions: { cwd: '/repo' }
     });
-    it('skips the every-call permission scenarios (Codex is harness-filtered), portable resume, the support-agent flow and the fixed session listing', () => {
+    it('skips the every-call permission scenarios (Codex is harness-filtered), portable resume, the support-agent flow, the fixed session listing and sub-agent control (observe only)', () => {
         expect(cases.filter((c) => c.skip).map((c) => c.name)).toEqual([
             'conformance: tool-permission',
             'conformance: headless-deny',
@@ -68,7 +76,10 @@ describe('agentConformance: codex(fake app-server)', () => {
             'conformance: session-grant',
             'conformance: request-timeout',
             'conformance: list-sessions',
-            'conformance: portable-resume'
+            'conformance: portable-resume',
+            'conformance: delegate-tree',
+            'conformance: delegate-cancel',
+            'conformance: delegate-request'
         ]);
     });
     for (const c of cases) it.skipIf(!!c.skip)(c.name, c.run, 15_000);

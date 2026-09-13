@@ -428,11 +428,12 @@ step, and the rest of the script continues in that message.
 An adapter is a mapping from a harness onto the contract; the conformance
 suite checks the contract's invariants (gapless `seq`, one `turn-end` per turn,
 every request resolved exactly once, replay equality, cancel → `cancelled`, …)
-through twenty-one scenarios: `text`, `tool-permission`, `headless-deny`,
+through twenty-five scenarios: `text`, `tool-permission`, `headless-deny`,
 `tool-error`, `slow-tool`, `model-error`, `resume`, `input-request`,
 `structured-output`, `support-agent`, `busy-session`, `session-grant`,
 `request-timeout`, `configure`, `fork`, `list-sessions`, `late-join`,
-`portable-resume`, `prompt-after-close`, `respond-unknown` and `usage`. Each
+`portable-resume`, `prompt-after-close`, `respond-unknown`, `usage`,
+`delegate-tree`, `delegate-cancel`, `delegate-request` and `steer`. Each
 scenario tells your factory what the agent must do — for a real harness that is
 a recorded fixture or a fake peer; the suite plays the client. A case that needs
 a capability the agent lacks is skipped with the reason (pass `capabilities` so
@@ -441,6 +442,28 @@ agent cannot run passes as a no-op). `late-join` replays the session from
 `{ epoch: 0, seq: 0 }` and holds it to `checkEventInvariants(events, { fromStart:
 true })` — gapless from seq 1 in every epoch. No test-runner import: wire the
 cases into yours.
+
+The sub-agent and steering scenarios pin what the capabilities promise. With
+`subagents: 'observe'` (or `control`), `delegate-tree` expects one `agent-start`
+bound to a `tool-call` emitted before it, the sub-agent's text nested under that
+call (`part-delta` with `parentCallId`), exactly one terminal `agent-update`
+(`completed`) and the call completed — a harness that shows a sub-agent's
+lifecycle but not its transcript does not qualify. With `subagents: 'control'`,
+`delegate-cancel` calls `cancel({ agentId })` on the first `agent-update
+running` and expects that agent to end `cancelled` once while the turn goes on
+to `end_turn`; `delegate-request` allows every permission request it sees and
+expects the one raised inside the sub-agent (`request` with `parentCallId`) to
+be resolved `by: 'client'` with the same `parentCallId`, the nested tool
+completed and the sub-agent completed. With `steer`, the suite prompts again
+while the `delayed` tool runs and expects the second `prompt()` to resolve with
+the running turn's result under the running turn's id, exactly one
+`user-message` carrying the steer (no `parentCallId`, after the tool call) and
+an assistant part after it; `busy-session` then asserts the same one-turn
+semantics instead of `SessionBusyError`. The `delegate`, `delegateSlow` and
+`delegateAsking` tools are `agentTool`s over scripted `mockAgent`s, so a host
+with in-process tools (our engine) spawns a real sub-agent; a native-tool
+harness scripts its own spawn for these scenarios, as its fake does for
+`guarded` and the others.
 
 Capabilities are enforced where the helpers can: `createSessionCore({ promptParts })`
 fails a prompt that carries a part beyond the declared level before any event

@@ -28,6 +28,14 @@ function scriptFor(scenario: ConformanceScenario): MockStep[] {
             return [{ text: '{"ok":true}' }, { output: { ok: true } }];
         case 'support-agent':
             return [{ request: { kind: 'input', message: 'Which plan?' } }, { ext: { ns: 'agent', name: 'handoff', data: { to: 'billing' } } }, { text: 'Handing over.' }, { output: { ok: true } }];
+        case 'delegate-tree':
+            return [{ agent: { name: 'delegate', steps: [{ text: 'Delegate reply.' }] } }, { text: 'Done.' }];
+        case 'delegate-cancel':
+            return [{ agent: { name: 'delegateSlow', steps: [{ tool: { name: 'slow', delayMs: 60_000 } }] } }, { text: 'Moving on.' }];
+        case 'delegate-request':
+            return [{ agent: { name: 'delegateAsking', source: 'client', steps: [{ tool: { name: 'guarded', source: 'client', output: { ok: true } } }, { text: 'Delegate done.' }] } }, { text: 'Done.' }];
+        case 'steer':
+            return [{ tool: { name: 'delayed', input: {}, output: { ok: true }, delayMs: 200, source: 'client' } }, { text: 'Done.' }];
         default:
             return [{ text: 'Hello!' }];
     }
