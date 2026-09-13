@@ -26,3 +26,8 @@ follow [SemVer](https://semver.org/).
 - `@sigx/ai-agent/testing`: `agentConformance`, `CONFORMANCE_SCENARIOS`,
   `CONFORMANCE_TOOLS` and the invariant checks `checkEventInvariants`,
   `checkReplayEquality`, `checkResultMatchesTurnEnd`.
+- `@sigx/ai-agent/wire`: the versioned envelope (`WireCommand`, `WireReply`,
+  `WireFrame`, `WIRE_PROTOCOL_VERSION`), `serveSession` (idempotent commands,
+  per-principal `authorize`, replay from the buffer, an `EventLogStore`, or a
+  `gap`), `connectSession` (an `AgentSessionClient` that reconnects from its
+  last cursor) and `coalesceFrames`.

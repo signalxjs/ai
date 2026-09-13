@@ -26,12 +26,49 @@ const { stopReason } = await turn.result; // 'end_turn'
 console.log(text); // 'Hello from the agent.'
 ```
 
-Two entries today (more land with the following milestones):
+Three entries today (more land with the following milestones):
 
 | Entry | What |
 |---|---|
 | `@sigx/ai-agent` | the contract (`Agent`, `AgentSession`, `AgentTurn`), the event union, capabilities, the policy engine (`resolveRequest`, `allowAll`, `allowReadOnly`, `firstMatch`, …), the session helpers adapters build on (`createEventLog`, `createTurn`, `createSessionCore`), the transcript reducer (`reduceAgentEvent`, `createReducer`) with its bridges to `@sigx/ai` (`toUIMessages`, `fromUIMessages`, `toChatStream`), and the store seams (`TranscriptStore`, `EventLogStore`) |
+| `@sigx/ai-agent/wire` | `serveSession` / `connectSession` — a session served in one place and used from another over any transport, with a versioned envelope and replay for late joiners and reconnects |
 | `@sigx/ai-agent/testing` | `mockAgent` — a scripted, deterministic agent — and `agentConformance`, the suite every adapter must pass |
+
+## Remote sessions: `serveSession` / `connectSession`
+
+The library defines the envelope (commands with a `commandId`, one reply each,
+`hello` / `event` / `gap` frames) and the semantics (idempotent commands, gapless
+replay from any `(epoch, seq)`, reconnects); the app chooses the topology. A
+transport is two functions — the same shape `useChat`'s `stream` option has.
+
+```ts
+// Server — wherever the session lives.
+import { serveSession } from '@sigx/ai-agent/wire';
+const served = serveSession(session, { agentId: agent.id, capabilities: agent.capabilities, eventLog });
+
+// Client — anywhere: a browser, a phone, another process.
+import { connectSession } from '@sigx/ai-agent/wire';
+const remote = await connectSession({ send: (command) => post(command), events: (from) => stream(from) });
+const turn = remote.prompt('Summarise the incidents.'); // an AgentSession, indistinguishable from a local one
+```
+
+**`serverStream` + `serverFn` recipe** (`@sigx/server`): a `serverFn` whose
+handler calls `served.handleCommand(command, rq.principal)` and a
+`serverStream` whose handler yields `served.events(from, { signal: rq.abortSignal })`;
+their client stubs are `(input) => Promise<R>` and `(input) => AsyncIterable<T>`,
+so `connectSession({ send: (c) => agentCommand({ sessionId, command: c }), events: (from) => agentEvents({ sessionId, from }) })`
+is the whole client.
+
+**WebSocket recipe**: on the socket server, JSON messages with a `commandId`
+go to `handleCommand` and the reply is sent back; a `subscribe { from }`
+message starts `for await (const frame of served.events(from)) ws.send(JSON.stringify(frame))`.
+On the client, `send` posts a command and awaits the matching reply,
+`events(from)` yields the frames received after a `subscribe`.
+
+Coalescing (`coalesce: { maxDelayMs, maxBytes }`) merges runs of text deltas
+into one frame each to limit traffic; off by default. Without an `eventLog`, a
+client whose cursor has left the in-memory buffer receives a `gap` frame and
+continues from the head — a `TranscriptStore` snapshot is the app's way to fill it.
 
 ## Rendering a transcript
 

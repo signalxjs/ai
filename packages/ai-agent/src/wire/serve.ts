@@ -1,0 +1,174 @@
+/**
+ * `serveSession` — expose one `AgentSession` to remote clients.
+ *
+ * Commands come in through `handleCommand` (idempotent by `commandId`, run
+ * through `authorize` first), events go out through `events(from)`: a
+ * `hello`, a replay from the session's buffer — or from an `EventLogStore`
+ * when the buffer has moved on, or a `gap` when there is none — then live.
+ * Topology (WebSocket, `serverStream`, a relay) is the app's business.
+ */
+
+import type { AgentCapabilities, AgentEvent } from '../protocol/index.js';
+import { AgentError, SessionBusyError } from '../protocol/index.js';
+import type { AgentSession } from '../session/index.js';
+import type { EventLogStore } from '../store/index.js';
+import { coalesceFrames, type CoalesceOptions } from './coalesce.js';
+import { cursorBefore, isWireCommand, WIRE_PROTOCOL_VERSION, type Cursor, type WireCommand, type WireErrorCode, type WireFrame, type WireReply } from './envelope.js';
+
+export interface ServeSessionOptions {
+    readonly agentId: string;
+    readonly capabilities: AgentCapabilities;
+    /** Durable events for replay beyond the in-memory buffer; every event is appended as it happens. */
+    readonly eventLog?: EventLogStore;
+    /** Per-principal command authorization; runs before idempotency, so a replayed unauthorized command stays refused. */
+    readonly authorize?: (command: WireCommand, principal: unknown) => boolean | Promise<boolean>;
+    /** Merge consecutive text deltas on the way out. Off by default. */
+    readonly coalesce?: CoalesceOptions | false;
+    /** Replies remembered for idempotent retries. Default 256. */
+    readonly commandCacheSize?: number;
+}
+
+export interface ServedSession {
+    readonly sessionId: string;
+    /** The last `(epoch, seq)` the session has emitted. */
+    readonly head: Cursor;
+    handleCommand(command: WireCommand, principal?: unknown): Promise<WireReply>;
+    events(from?: Cursor, options?: { readonly signal?: AbortSignal }): AsyncIterable<WireFrame>;
+    /** Stop serving (does not close the session). */
+    close(): Promise<void>;
+}
+
+const V = WIRE_PROTOCOL_VERSION;
+
+export function serveSession(session: AgentSession, options: ServeSessionOptions): ServedSession {
+    const cacheSize = options.commandCacheSize ?? 256;
+    const replies = new Map<string, Promise<WireReply>>();
+    let head: Cursor = { epoch: 0, seq: 0 };
+    let serving = true;
+
+    // Track the head (and feed the store) from everything the session has buffered.
+    const tracker = (async () => {
+        try {
+            for await (const e of session.subscribe({ epoch: 0, seq: 0 })) {
+                head = { epoch: e.epoch, seq: e.seq };
+                if (options.eventLog) await options.eventLog.append(e);
+            }
+        } catch {
+            // The session closed or the subscription was dropped; serving ends with it.
+        }
+    })();
+
+    const remember = (commandId: string, reply: Promise<WireReply>) => {
+        replies.set(commandId, reply);
+        if (replies.size > cacheSize) replies.delete(replies.keys().next().value as string);
+    };
+
+    const execute = async (command: WireCommand): Promise<WireReply> => {
+        const ack = (turnId?: string): WireReply => ({ v: V, kind: 'ack', commandId: command.commandId, ...(turnId !== undefined ? { turnId } : {}) });
+        const error = (code: WireErrorCode, message: string): WireReply => ({ v: V, kind: 'error', commandId: command.commandId, code, message });
+        try {
+            switch (command.type) {
+                case 'prompt': {
+                    const turn = session.prompt(command.input, { turnId: command.turnId, ...(command.output ? { output: command.output } : {}) });
+                    // A busy session surfaces on the turn's result; anything else is the client's to observe.
+                    const busy = await Promise.race([turn.result.then(() => undefined, (e: unknown) => e), Promise.resolve().then(() => undefined)]);
+                    if (busy instanceof SessionBusyError) return error('busy', busy.message);
+                    if (busy instanceof Error) return error(busy instanceof AgentError && busy.code === 'protocol_error' && /closed/.test(busy.message) ? 'closed' : 'internal', busy.message);
+                    turn.result.catch(() => {});
+                    return ack(turn.id);
+                }
+                case 'respond':
+                    await session.respond(command.requestId, command.decision);
+                    return ack();
+                case 'cancel':
+                    await session.cancel();
+                    return ack();
+                case 'configure':
+                    if (!session.configure) return error('unsupported', `session "${session.id}" does not support configure()`);
+                    await session.configure(command.patch);
+                    return ack();
+                case 'close':
+                    await session.close();
+                    return ack();
+            }
+        } catch (e) {
+            return error('internal', e instanceof Error ? e.message : String(e));
+        }
+        return error('invalid', `unknown command type "${String((command as { type: unknown }).type)}"`);
+    };
+
+    const toFrame = (e: AgentEvent): WireFrame => ({ v: V, kind: 'event', epoch: e.epoch, seq: e.seq, event: e });
+
+    async function* frames(from: Cursor | undefined, signal: AbortSignal | undefined): AsyncGenerator<WireFrame, void, undefined> {
+        yield { v: V, kind: 'hello', agentId: options.agentId, sessionId: session.id, sessionRef: session.ref, capabilities: options.capabilities, head };
+        let source: AsyncIterable<AgentEvent>;
+        let last: Cursor | undefined = from;
+        if (!from) source = session.subscribe();
+        else {
+            try {
+                source = session.subscribe(from);
+            } catch (e) {
+                if (!(e instanceof AgentError) || e.code !== 'protocol_error') throw e;
+                // The buffer moved on: the live tail first (nothing is missed), then the store fills the middle.
+                const live = session.subscribe();
+                if (options.eventLog) {
+                    for await (const e of options.eventLog.read(session.id, from)) {
+                        if (signal?.aborted) return;
+                        if (last && !cursorBefore(last, e)) continue;
+                        last = { epoch: e.epoch, seq: e.seq };
+                        yield toFrame(e);
+                    }
+                } else {
+                    yield { v: V, kind: 'gap', from, resumeAt: head };
+                    last = head;
+                }
+                source = live;
+            }
+        }
+        const iterator = source[Symbol.asyncIterator]();
+        const onAbort = () => {
+            void iterator.return?.();
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+        try {
+            for (;;) {
+                const next = await iterator.next();
+                if (next.done || signal?.aborted) return;
+                const e = next.value;
+                if (last && !cursorBefore(last, e)) continue; // already delivered from the store
+                last = { epoch: e.epoch, seq: e.seq };
+                yield toFrame(e);
+            }
+        } finally {
+            signal?.removeEventListener('abort', onAbort);
+            await iterator.return?.();
+        }
+    }
+
+    return {
+        sessionId: session.id,
+        get head() {
+            return head;
+        },
+        async handleCommand(command, principal) {
+            if (!serving) return { v: V, kind: 'error', commandId: (command as { commandId?: string }).commandId ?? '', code: 'closed', message: `session "${session.id}" is no longer served` };
+            if (!isWireCommand(command)) return { v: V, kind: 'error', commandId: (command as { commandId?: string })?.commandId ?? '', code: 'invalid', message: 'not a wire command' };
+            if (options.authorize && !(await options.authorize(command, principal))) {
+                return { v: V, kind: 'error', commandId: command.commandId, code: 'unauthorized', message: `command "${command.type}" is not allowed` };
+            }
+            const cached = replies.get(command.commandId);
+            if (cached) return cached;
+            const reply = execute(command);
+            remember(command.commandId, reply);
+            return reply;
+        },
+        events(from, o) {
+            const stream = frames(from, o?.signal);
+            return options.coalesce ? coalesceFrames(stream, options.coalesce) : stream;
+        },
+        async close() {
+            serving = false;
+            await Promise.race([tracker, Promise.resolve()]);
+        }
+    };
+}
