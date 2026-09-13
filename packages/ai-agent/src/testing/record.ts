@@ -13,7 +13,7 @@
 import type { JsonSchema } from '@sigx/ai';
 import type { AgentCapabilities, AgentEvent, Decision, PromptPart, UnstampedEvent } from '../protocol/index.js';
 import { AgentError, toPromptParts } from '../protocol/index.js';
-import type { Agent, AgentSession, AgentTurn, EventCursor, PromptOptions, SessionOptions, SessionRef, SessionSummary } from '../session/index.js';
+import type { Agent, AgentSession, AgentTurn, CancelTarget, EventCursor, PromptOptions, SessionOptions, SessionRef, SessionSummary } from '../session/index.js';
 import { createEventLog, createSessionCore, failedTurn } from '../session/index.js';
 import type { TurnDriver } from '../session/index.js';
 import { jsonEqual, jsonRoundTrip } from '../utils/json.js';
@@ -37,7 +37,7 @@ export interface FixtureSessionOptions {
 export type FixtureCommand =
     | { readonly kind: 'prompt'; readonly turnId: string; readonly input: readonly PromptPart[]; readonly output?: JsonSchema }
     | { readonly kind: 'respond'; readonly requestId: string; readonly decision: Decision }
-    | { readonly kind: 'cancel' }
+    | { readonly kind: 'cancel'; readonly agentId?: string }
     | { readonly kind: 'configure'; readonly patch: Readonly<Record<string, string>> }
     | { readonly kind: 'close' };
 
@@ -165,6 +165,7 @@ export function recordAgent(agent: Agent, options: RecordAgentOptions = {}): Rec
                     return real.ref;
                 },
                 prompt(input, promptOptions) {
+                    // A steer comes back as the running turn's handle, so its command names that turn.
                     const turn = real.prompt(input, promptOptions);
                     const schema = outputSchema(promptOptions);
                     command({ kind: 'prompt', turnId: turn.id, input: toPromptParts(input), ...(schema ? { output: schema } : {}) });
@@ -175,9 +176,9 @@ export function recordAgent(agent: Agent, options: RecordAgentOptions = {}): Rec
                     command({ kind: 'respond', requestId, decision });
                     return real.respond(requestId, decision);
                 },
-                cancel() {
-                    command({ kind: 'cancel' });
-                    return real.cancel();
+                cancel(target) {
+                    command(cancelCommand(target));
+                    return real.cancel(target);
                 },
                 ...(real.configure
                     ? {
@@ -264,7 +265,7 @@ export function replayAgent(fixture: AgentFixture, options: ReplayAgentOptions =
             }
             const firstEvent = recorded.log.find((e): e is { event: AgentEvent } => 'event' in e)?.event;
             const log = createEventLog({ sessionId: recorded.id, epoch: firstEvent?.epoch ?? 1 });
-            const core = createSessionCore({ id: recorded.id, log, interactive: sessionOptions.interactive ?? true, steer: fixture.agent.capabilities.steer });
+            const core = createSessionCore({ id: recorded.id, log, interactive: sessionOptions.interactive ?? true, steer: fixture.agent.capabilities.steer, subagents: fixture.agent.capabilities.subagents });
             let cursor = 0;
             let waiting: { expected: FixtureCommand; resolve: () => void } | undefined;
 
@@ -324,9 +325,20 @@ export function replayAgent(fixture: AgentFixture, options: ReplayAgentOptions =
                     return recorded.ref.final ?? recorded.ref.initial;
                 },
                 prompt(input, promptOptions) {
-                    if (!core.current || core.current.settled) advance(); // session-level events recorded before this prompt
-                    const expected = nextCommand();
                     const schema = outputSchema(promptOptions);
+                    const running = core.current && !core.current.settled ? core.current : undefined;
+                    if (running && fixture.agent.capabilities.steer) {
+                        // A steer: the recording expects a prompt into the running turn here; the
+                        // `user-message` it produced replays through the turn's own loop.
+                        const actual: FixtureCommand = { kind: 'prompt', turnId: running.id, input: toPromptParts(input), ...(schema ? { output: schema } : {}) };
+                        const expected = waiting?.expected ?? nextCommand();
+                        if (!expected || expected.kind !== 'prompt' || expected.turnId !== running.id || !sameCommand(expected, actual)) return failedTurn(running.id, new ReplayMismatchError(expected, actual));
+                        const handle = core.steer(input, promptOptions);
+                        issue(actual).catch(() => {});
+                        return handle;
+                    }
+                    if (!running) advance(); // session-level events recorded before this prompt
+                    const expected = nextCommand();
                     // A caller-supplied turnId must be the recorded one; otherwise the recorded id is used.
                     const turnId = promptOptions?.turnId ?? (expected?.kind === 'prompt' ? expected.turnId : '');
                     const actual: FixtureCommand = { kind: 'prompt', turnId, input: toPromptParts(input), ...(schema ? { output: schema } : {}) };
@@ -334,12 +346,15 @@ export function replayAgent(fixture: AgentFixture, options: ReplayAgentOptions =
                         return failedTurn(turnId || 'replay', new ReplayMismatchError(expected, actual));
                     }
                     cursor++;
-                    const turn: AgentTurn = core.startTurn(input, { ...promptOptions, turnId: actual.turnId }, async (driver) => {
+                    const turn: AgentTurn = core.startTurn(input, { ...promptOptions, turnId: actual.turnId }, async (driver, ctx) => {
+                        // Steering input is consumed here; the recorded `user-message` is what replays.
+                        ctx.onSteer(() => {});
                         for (;;) {
                             const next = advance(driver);
                             if (next === 'turn-end') return;
                             if (next === 'end') throw new ReplayMismatchError('turn-end', 'end of recording', 'the recorded turn to end');
-                            if (next.kind === 'prompt' || next.kind === 'close') throw new ReplayMismatchError('turn-end', next, 'the recorded turn to end before');
+                            // A prompt into this very turn is a steer the client still has to issue; another turn's prompt means this one should have ended.
+                            if (next.kind === 'close' || (next.kind === 'prompt' && next.turnId !== driver.turnId)) throw new ReplayMismatchError('turn-end', next, 'the recorded turn to end before');
                             await new Promise<void>((resolve) => {
                                 waiting = { expected: next, resolve };
                             });
@@ -348,7 +363,7 @@ export function replayAgent(fixture: AgentFixture, options: ReplayAgentOptions =
                     return turn;
                 },
                 respond: (requestId, decision) => issue({ kind: 'respond', requestId, decision }),
-                cancel: () => issue({ kind: 'cancel' }),
+                cancel: (target) => issue(cancelCommand(target)),
                 ...(fixture.agent.capabilities.config
                     ? {
                           configure: async (patch: Readonly<Record<string, string>>) => {
@@ -380,6 +395,10 @@ export function replayAgent(fixture: AgentFixture, options: ReplayAgentOptions =
             await Promise.all(sessions.map((s) => s.close()));
         }
     };
+}
+
+function cancelCommand(target: CancelTarget | undefined): FixtureCommand {
+    return { kind: 'cancel', ...(target?.agentId !== undefined ? { agentId: target.agentId } : {}) };
 }
 
 function sameCommand(a: FixtureCommand, b: FixtureCommand): boolean {

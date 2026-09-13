@@ -8,6 +8,25 @@ follow [SemVer](https://semver.org/).
 
 ### Added
 
+- `mockAgent`: an `agent` step (`MockAgentStep`) spawns a sub-agent — the
+  spawning `tool-call` through the policy, `agent-start` bound to it, the
+  nested `steps` played under the call with `parentCallId` (nested requests
+  answered through the session, nested `usage` on the agent's terminal
+  `agent-update`), and `cancel({ agentId })` cancelling that one agent while
+  the turn continues. A `steer` option scripts the reply to steering input,
+  which plays in a new assistant message before the next step (default: one
+  line of text). With `subagents: 'none'` an `agent` step runs as a plain
+  tool call.
+- `recordAgent` / `replayAgent` record a targeted cancel (`FixtureCommand`
+  `cancel.agentId`) and a steer (a prompt into the running turn), and replay
+  both.
+
+### Changed
+
+- `MOCK_CAPABILITIES` now declares `steer: true` and `subagents: 'control'`;
+  a test that relied on the mock rejecting a prompt during a turn passes
+  `capabilities: { steer: false }`.
+
 - The sub-agent tree in the transcript: `transcript.agents` (`AgentState` by
   id, folded from `agent-start` / `agent-update` — status, cumulative usage,
   output, the spawning `callId`, and `depth` / `parentAgentId` derived from the

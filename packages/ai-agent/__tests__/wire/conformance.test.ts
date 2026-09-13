@@ -49,8 +49,11 @@ function remote(local: Agent): Agent {
     };
 }
 
+// Steering over the wire lands with #93; until then the served mock does not steer, so `busy-session` expects busy.
+const WIRE_CAPABILITIES = { ...MOCK_CAPABILITIES, steer: false };
+
 describe('agentConformance: connectSession(serveSession(mockAgent))', () => {
-    const cases = agentConformance((s) => remote(mockAgent({ script: [scriptFor(s), scriptFor(s)] })), { capabilities: MOCK_CAPABILITIES });
+    const cases = agentConformance((s) => remote(mockAgent({ capabilities: { steer: false }, script: [scriptFor(s), scriptFor(s)] })), { capabilities: WIRE_CAPABILITIES });
     it('skips nothing', () => {
         expect(cases.filter((c) => c.skip)).toEqual([]);
     });

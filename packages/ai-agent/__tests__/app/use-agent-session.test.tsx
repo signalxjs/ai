@@ -7,7 +7,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { component, jsx, defineApp } from 'sigx';
 import { effect } from '@sigx/reactivity';
 import { useAgentSession, type AgentMessage, type AgentPart, type AgentSessionSource, type AgentSessionView, type UseAgentSessionOptions } from '@sigx/ai-agent/app';
-import { allowAll, type AgentSession, type SessionOptions } from '@sigx/ai-agent';
+import { allowAll, type AgentCapabilities, type AgentSession, type SessionOptions } from '@sigx/ai-agent';
 import { serveSession, connectSession, type SessionTransport } from '@sigx/ai-agent/wire';
 import { mockAgent, type MockStep } from '@sigx/ai-agent/testing';
 import { codingExtension, codingState } from '@sigx/ai-agent/coding';
@@ -67,8 +67,8 @@ function mount(source: AgentSessionSource, options?: UseAgentSessionOptions): Mo
     };
 }
 
-async function openSession(script: readonly (readonly MockStep[])[], options: SessionOptions = {}): Promise<AgentSession> {
-    const agent = mockAgent({ script: script as MockStep[][] });
+async function openSession(script: readonly (readonly MockStep[])[], options: SessionOptions = {}, capabilities: Partial<AgentCapabilities> = {}): Promise<AgentSession> {
+    const agent = mockAgent({ script: script as MockStep[][], capabilities });
     const session = await agent.session(options);
     closers.push(() => agent.dispose());
     return session;
@@ -332,13 +332,13 @@ describe('useAgentSession', () => {
     });
 
     it('a prompt that cannot run lands in error instead of rejecting', async () => {
-        const session = await openSession([[{ text: 'slow', delayMs: 30 }]]);
+        const session = await openSession([[{ text: 'slow', delayMs: 30 }]], {}, { steer: false });
         const m = mount(session);
         await tick();
 
         const first = m.view.prompt('one');
         await tick(1);
-        // A second prompt while the first runs: the mock has no `steer` capability.
+        // A second prompt while the first runs: this mock has no `steer` capability.
         const second = await m.view.prompt('two');
         expect(second).toBeUndefined();
         expect(m.view.error?.message).toMatch(/busy/);

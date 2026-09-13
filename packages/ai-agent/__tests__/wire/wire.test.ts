@@ -6,8 +6,11 @@ import { collect, drain, textOf, tick } from '../helpers';
 
 const inMemory = (served: ServedSession, principal?: unknown): SessionTransport => ({ send: (c) => served.handleCommand(c, principal), events: (from, o) => served.events(from, o) });
 
+// Steering over the wire lands with #93; until then the served mock does not steer, so a prompt during a turn is busy.
+const WIRE_CAPABILITIES = { ...MOCK_CAPABILITIES, steer: false };
+
 async function serve(script: MockStep[][], sessionOptions: Parameters<AgentSession['prompt']> extends never ? never : Record<string, unknown> = {}, serveOptions: Partial<Parameters<typeof serveSession>[1]> = {}) {
-    const agent = mockAgent({ script });
+    const agent = mockAgent({ script, capabilities: { steer: false } });
     const session = await agent.session(sessionOptions);
     const served = serveSession(session, { agentId: agent.id, capabilities: agent.capabilities, ...serveOptions });
     return { agent, session, served };
@@ -21,7 +24,7 @@ describe('serveSession / connectSession', () => {
         const remote = await connectSession(inMemory(served));
         expect(remote.id).toBe(session.id);
         expect(remote.agentId).toBe('mock');
-        expect(remote.capabilities).toEqual(MOCK_CAPABILITIES);
+        expect(remote.capabilities).toEqual(WIRE_CAPABILITIES);
         expect(remote.ref).toEqual(session.ref);
         expect(remote.connected).toBe(true);
         const turn = remote.prompt('hi', { turnId: 'client-turn-1' });
