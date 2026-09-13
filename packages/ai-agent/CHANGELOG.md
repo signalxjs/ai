@@ -19,12 +19,6 @@ follow [SemVer](https://semver.org/).
 - `toUIMessages(transcript, { subagents: 'flatten' | 'omit' })` — `omit` drops
   the messages produced inside a sub-agent (the default flattens them as
   before), and `promptPartsToUI` exposes the user half of the mapping.
-
-### Fixed
-
-- `modelAgent` fed a delegate's flattened text back to the host model as the
-  host's own words on the next turn; it now builds the conversation with
-  `toUIMessages(transcript, { subagents: 'omit' })`.
 - The contract: `Agent`, `AgentSession`, `AgentTurn`, `SessionOptions`,
   `SessionRef`, `TurnResult`, `PromptInput`.
 - The event union (`AgentEvent`) with `(epoch, seq)` stamps, `AgentCapabilities`,
@@ -133,6 +127,9 @@ follow [SemVer](https://semver.org/).
 
 ### Fixed
 
+- `modelAgent` fed a delegate's flattened text back to the host model as the
+  host's own words on the next turn; it now builds the conversation with
+  `toUIMessages(transcript, { subagents: 'omit' })`.
 - Session grants survive resume: `modelAgent` and `mockAgent` seed the session
   from the transcript's (or the ref's) grants, so a tool allowed for the session
   is not asked again after `resume`.
