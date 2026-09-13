@@ -38,7 +38,14 @@ export interface UIReasoningPart {
     providerData?: unknown;
 }
 
-export type UIToolState = 'pending' | 'done' | 'error';
+/**
+ * Where a tool call stands. `pending`: called, running or not yet decided.
+ * `awaiting`: needs approval, undecided. `approved`: the client said run it —
+ * only ever seen in a transcript sent back to the server, which runs the
+ * call and settles it. `done` / `error`: ran. `denied`: refused; `output`
+ * is the reason the model is told.
+ */
+export type UIToolState = 'pending' | 'awaiting' | 'approved' | 'done' | 'error' | 'denied';
 
 /** One tool call and, once it has run, its result — a single part, in place. */
 export interface UIToolPart {

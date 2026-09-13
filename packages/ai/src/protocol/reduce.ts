@@ -43,12 +43,24 @@ export function applyChunk(message: UIMessage, chunk: UIChunk): boolean {
         case 'tool-call':
             parts.push({ type: 'tool', id: chunk.id, name: chunk.name, input: chunk.input, state: 'pending' });
             return false;
+        case 'tool-approval-request': {
+            for (let i = parts.length - 1; i >= 0; i--) {
+                const p = parts[i]!;
+                if (p.type === 'tool' && p.id === chunk.id) {
+                    // A request re-sent for a call the client already settled
+                    // (a resumed turn) never reopens it.
+                    if (p.state === 'pending' || p.state === 'awaiting') p.state = 'awaiting';
+                    break;
+                }
+            }
+            return false;
+        }
         case 'tool-result': {
             for (let i = parts.length - 1; i >= 0; i--) {
                 const p = parts[i]!;
                 if (p.type === 'tool' && p.id === chunk.id) {
                     p.output = chunk.output;
-                    p.state = chunk.isError ? 'error' : 'done';
+                    p.state = chunk.denied ? 'denied' : chunk.isError ? 'error' : 'done';
                     break;
                 }
             }
@@ -60,14 +72,18 @@ export function applyChunk(message: UIMessage, chunk: UIChunk): boolean {
     }
 }
 
-/** Drain a chunk stream into a fresh assistant message. */
-export async function assembleMessage(chunks: AsyncIterable<UIChunk>): Promise<{ message: UIMessage; last: UIChunk | undefined }> {
+/**
+ * Drain a chunk stream into an assistant message — a fresh one, or `into`
+ * when the stream's `start` announces its id (a resumed turn continues the
+ * message it stopped on; see `streamText`).
+ */
+export async function assembleMessage(chunks: AsyncIterable<UIChunk>, into?: UIMessage): Promise<{ message: UIMessage; last: UIChunk | undefined }> {
     let message: UIMessage | undefined;
     let last: UIChunk | undefined;
     for await (const chunk of chunks) {
         last = chunk;
         if (chunk.type === 'start') {
-            message = createMessage('assistant', [], chunk.messageId);
+            message = into && into.id === chunk.messageId ? into : createMessage('assistant', [], chunk.messageId);
             continue;
         }
         message ??= createMessage('assistant');

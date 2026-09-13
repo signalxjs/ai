@@ -46,11 +46,14 @@ pnpm --filter chat-example start
 
 ## What to look at
 
-- **`src/ai.server.ts`** — the whole server side: two tools (`defineTool`
-  with a Zod schema), the model picked by env, and the endpoint: a
-  `serverStream` whose body is `yield* chatStream(...)`. `ChatInput`
-  validates the wire transcript; `rq.abortSignal` cancels the model call
-  when the tab closes.
+- **`src/ai.server.ts`** — the whole server side: three tools (`defineTool`
+  with a Zod schema; `send_email` has `needsApproval: true`), the model
+  picked by env, and the endpoint: a `serverStream` whose body is
+  `yield* chatStream(...)`. `ChatInput` validates the wire transcript;
+  `rq.abortSignal` cancels the model call when the tab closes. Say "email"
+  to see the approval flow: the turn stops `awaiting`, `App.tsx` renders
+  Approve / Deny from `thread.approvals`, and `approve()` / `deny()` send
+  the transcript back so the same assistant message resumes.
 - **`src/App.tsx`** — `useChat({ stream: (input) => chat(input) })`, and a
   view that just reads `thread.messages`. Each part is its own reactive
   object, and a text part is `<MarkdownView value={part.text} />` from

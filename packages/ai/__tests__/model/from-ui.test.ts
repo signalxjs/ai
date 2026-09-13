@@ -45,4 +45,25 @@ describe('toModelMessages', () => {
         ]);
         expect(out).toEqual([{ role: 'assistant', content: [{ type: 'tool-call', id: 'c', name: 't', input: {} }] }]);
     });
+    it('sends a denied call back as an error result and omits undecided ones', () => {
+        const out = toModelMessages([
+            {
+                id: 'a',
+                role: 'assistant',
+                parts: [
+                    { type: 'tool', id: 'c1', name: 't', input: {}, state: 'denied', output: 'no' },
+                    { type: 'tool', id: 'c2', name: 't', input: {}, state: 'denied' },
+                    { type: 'tool', id: 'c3', name: 't', input: {}, state: 'awaiting' },
+                    { type: 'tool', id: 'c4', name: 't', input: {}, state: 'approved' }
+                ]
+            }
+        ]);
+        expect(out[1]).toEqual({
+            role: 'tool',
+            content: [
+                { type: 'tool-result', toolCallId: 'c1', toolName: 't', output: 'no', isError: true },
+                { type: 'tool-result', toolCallId: 'c2', toolName: 't', output: expect.stringMatching(/denied/i), isError: true }
+            ]
+        });
+    });
 });

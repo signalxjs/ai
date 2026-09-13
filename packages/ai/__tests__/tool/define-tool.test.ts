@@ -43,4 +43,34 @@ describe('defineTool', () => {
         await expect(t.run({ city: 1 }, ctx)).rejects.toBeInstanceOf(SchemaValidationError);
         await expect(t.run({ city: 1 }, ctx)).rejects.toThrow(/Invalid arguments for tool "w"/);
     });
+    it('carries annotations and turns needsApproval into an approval check on the validated input', async () => {
+        const ctx = { signal: new AbortController().signal, toolCallId: 'c' };
+        const plain = defineTool({ name: 'p', description: 'p', input: citySchema, execute: () => 1 });
+        expect(plain.approval).toBeUndefined();
+        expect(plain.annotations).toBeUndefined();
+
+        const always = defineTool({ name: 'a', description: 'a', input: citySchema, needsApproval: true, annotations: { destructive: true }, execute: () => 1 });
+        expect(always.annotations).toEqual({ destructive: true });
+        await expect(always.approval!({ city: 'Oslo' }, ctx)).resolves.toBe(true);
+        // Bad arguments fail as a validation error before any approval UX.
+        await expect(always.approval!({ city: 1 }, ctx)).rejects.toBeInstanceOf(SchemaValidationError);
+
+        const seen: string[] = [];
+        const some = defineTool({
+            name: 's',
+            description: 's',
+            input: citySchema,
+            needsApproval: ({ city }) => {
+                seen.push(city);
+                return city === 'Oslo';
+            },
+            execute: () => 1
+        });
+        await expect(some.approval!({ city: 'Oslo' }, ctx)).resolves.toBe(true);
+        await expect(some.approval!({ city: 'Rome' }, ctx)).resolves.toBe(false);
+        await expect(some.approval!({ city: 1 }, ctx)).rejects.toBeInstanceOf(SchemaValidationError);
+        expect(seen).toEqual(['Oslo', 'Rome']);
+        // `false` is the same as not asking.
+        expect(defineTool({ name: 'n', description: 'n', input: citySchema, needsApproval: false, execute: () => 1 }).approval).toBeUndefined();
+    });
 });
