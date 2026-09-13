@@ -28,6 +28,7 @@ export type {
     AgentErrorCode,
     StopReason,
     ToolStatus,
+    AgentStatus,
     SessionState,
     ResolvedBy,
     RequestOutcome,
@@ -50,12 +51,14 @@ export { createGrants, resolveRequest, rule, allowAll, denyAll, allowReadOnly, a
 export type {
     SessionRef,
     SessionSummary,
+    AgentDefinition,
     SessionOptions,
     OutputSpec,
     PromptOptions,
     TurnResult,
     AgentTurn,
     EventCursor,
+    CancelTarget,
     AgentSession,
     Agent,
     SessionLog,
@@ -66,6 +69,7 @@ export type {
     ManagedTurn,
     SessionCoreOptions,
     TurnContext,
+    AttachedSession,
     SessionCore
 } from './session/index.js';
 export { createEventLog, createTurn, failedTurn, createSessionCore } from './session/index.js';

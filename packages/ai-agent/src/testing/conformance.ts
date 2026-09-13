@@ -427,14 +427,19 @@ async function runScenario(scenario: ConformanceScenario, agent: Agent, options:
                 await session.close();
                 await pump;
                 const other = await make(scenario);
-                const resumed = await other.session({ ...sessionOptions, resume: ref });
                 try {
-                    assert(resumed.id === session.id, 'a portable ref resumes the same session id on another instance');
-                    const second = await runTurn(resumed, scenario);
-                    assertStop(second.result, 'end_turn');
-                    assert(second.events[0]!.epoch > first.events[0]!.epoch, 'a resumed session must start a new epoch');
+                    const resumed = await other.session({ ...sessionOptions, resume: ref });
+                    try {
+                        assert(resumed.id === session.id, 'a portable ref resumes the same session id on another instance');
+                        const second = await runTurn(resumed, scenario);
+                        assertStop(second.result, 'end_turn');
+                        assert(second.events[0]!.epoch > first.events[0]!.epoch, 'a resumed session must start a new epoch');
+                    } finally {
+                        await resumed.close();
+                    }
                 } finally {
-                    await resumed.close();
+                    // The second instance is the suite's own: release whatever the adapter holds for it.
+                    await other.dispose().catch(() => {});
                 }
                 return;
             }
