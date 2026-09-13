@@ -80,6 +80,15 @@ describe('modelAgent agent definitions (defineAgents)', () => {
         expect(events.find((e) => e.type === 'agent-start')).toBeUndefined();
     });
 
+    it('a definition without a prompt runs with no system prompt — never the host’s', async () => {
+        const model = mockModel({ respond: (req) => (req.system === undefined ? { text: 'bare' } : afterTools(req) ? { text: 'Done.' } : { toolCalls: [{ name: 'helper', input: { task: 't' }, id: 'h1' }] }) });
+        const session = await modelAgent({ model, system: 'You are the host.' }).session({ policy: allowAll, agents: { helper: { description: 'x' } } });
+        const { stopReason } = await session.prompt('go').result;
+        expect(stopReason).toBe('end_turn');
+        expect(model.requests.map((r) => r.system)).toEqual(['You are the host.', undefined, 'You are the host.']);
+        await session.close();
+    });
+
     it('maxTurns bounds the delegate’s model rounds', async () => {
         const { model, events } = await run(
             (req) => (isDelegate(req) ? { toolCalls: [{ name: 'lookup', input: {} }] } : afterTools(req) ? { text: 'Done.' } : { toolCalls: [{ name: 'reviewer', input: { task: 'loop' }, id: 'r1' }] }),

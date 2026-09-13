@@ -162,8 +162,9 @@ export function modelAgent(options: ModelAgentOptions): Agent {
                   ...definitionTools(sessionOptions.agents, base, sessionOptions, {
                       id,
                       delegate: (name, definition, own) => {
-                          // Persistence is the host session's business, not a delegate's.
-                          const { store: _store, ...shared } = options;
+                          // Persistence is the host session's business, not a delegate's; and a
+                          // delegate's instructions are its definition's `prompt`, never the host's.
+                          const { store: _store, system: _system, ...shared } = options;
                           return modelAgent({
                               ...shared,
                               id: `${id}:${name}`,
