@@ -1,9 +1,30 @@
 import { describe, it, expect } from 'vitest';
 import { defineTool, type JsonSchema, type StandardSchemaV1 } from '@sigx/ai';
-import { mockModel } from '@sigx/ai/testing';
-import { agentTool, modelAgent, allowAll, createTranscript, reduceAgentEvent, type AgentEvent } from '@sigx/ai-agent';
-import { mockAgent } from '@sigx/ai-agent/testing';
+import { mockModel, type MockReply } from '@sigx/ai/testing';
+import { agentTool, modelAgent, allowAll, agentTree, createReducer, createTranscript, reduceAgentEvent, spawnedAgent, type AgentEvent, type AgentSession } from '@sigx/ai-agent';
+import { checkEventInvariants, checkReplayEquality, mockAgent } from '@sigx/ai-agent/testing';
 import { collect } from '../helpers';
+
+/** Run one host turn on `modelAgent` over `tools`, collecting the whole session log; `on` reacts to events as they stream. */
+async function hostTurn(tools: Parameters<typeof modelAgent>[0]['tools'], rounds: (round: number) => MockReply, on?: (e: AgentEvent, session: AgentSession) => Promise<void> | void) {
+    const model = mockModel({ respond: (_r, round) => rounds(round) });
+    const session = await modelAgent({ model, tools }).session({ policy: allowAll });
+    const all = collect(session.subscribe());
+    const turn = session.prompt('go');
+    const events: AgentEvent[] = [];
+    for await (const e of turn) {
+        events.push(e);
+        await on?.(e, session);
+    }
+    const result = await turn.result;
+    await session.close();
+    const log = await all;
+    checkEventInvariants(log, { fromStart: true });
+    checkReplayEquality(log, createReducer());
+    const t = createTranscript(session.id);
+    for (const e of log) reduceAgentEvent(t, e);
+    return { model, session, events, result, log, t };
+}
 
 function schema<T>(check: (v: unknown) => v is T, json: JsonSchema): StandardSchemaV1<T, T> {
     return { '~standard': { version: 1, vendor: 'test', validate: (v) => (check(v) ? { value: v } : { issues: [{ message: 'invalid' }] }), jsonSchema: { input: () => json, output: () => json } } };
@@ -51,7 +72,7 @@ describe('agentTool', () => {
         const session = await host.session({ policy: allowAll });
         const events = await collect(session.prompt('go'));
         const nested = events.filter((e) => e.parentCallId === 'host1');
-        expect(nested.map((e) => e.type)).toEqual(['part-start', 'part-delta', 'part-delta', 'part-end', 'tool-call', 'tool-update', 'request-resolved', 'tool-update', 'tool-update', 'ext']);
+        expect(nested.map((e) => e.type)).toEqual(['agent-start', 'agent-update', 'part-start', 'part-delta', 'part-delta', 'part-end', 'tool-call', 'tool-update', 'request-resolved', 'tool-update', 'tool-update', 'ext', 'agent-update']);
         expect(nested.every((e) => e.turnId === events[0]!.turnId)).toBe(true);
         expect(nested.find((e) => e.type === 'part-start')).toMatchObject({ actor: 'researcher' });
         // The host's transcript keeps the nested message under the call.
@@ -70,19 +91,108 @@ describe('agentTool', () => {
         expect(onEvent.map((e) => e.type)).toContain('turn-end');
     });
 
-    // Pinned red: the delegate's `usage` events are forwarded into the host turn and summed into the
-    // host session's totals. #92 attributes them to the sub-agent instead and flips this to `it`.
-    it.fails('child usage is attributed to the delegate, not summed into the host session totals', async () => {
-        const delegate = mockAgent({ script: [[{ text: 'x' }, { usage: { inputTokens: 100, outputTokens: 50 } }]] });
+    it('child usage is attributed to the delegate, not summed into the host session totals', async () => {
+        const delegate = mockAgent({ script: [[{ text: 'x' }, { usage: { inputTokens: 100, outputTokens: 50 }, costUsd: 0.5 }]] });
         const ask = agentTool(delegate, { name: 'ask', description: 'x', input: question, prompt: (i) => i.question });
-        const model = mockModel({ respond: (_r, round) => ({ ...(round === 0 ? { toolCalls: [{ name: 'ask', input: { question: 'q' }, id: 'host1' }] } : { text: 'Summary.' }), usage: { inputTokens: 10, outputTokens: 5 } }) });
-        const session = await modelAgent({ model, tools: [ask] }).session({ policy: allowAll });
-        const all = collect(session.subscribe());
-        await session.prompt('go').result;
-        await session.close();
-        const t = createTranscript(session.id);
-        for (const e of await all) reduceAgentEvent(t, e);
+        const { t, log } = await hostTurn([ask], (round) => ({ ...(round === 0 ? { toolCalls: [{ name: 'ask', input: { question: 'q' }, id: 'host1' }] } : { text: 'Summary.' }), usage: { inputTokens: 10, outputTokens: 5 } }));
         expect(t.usage).toEqual({ inputTokens: 20, outputTokens: 10 });
+        expect(log.filter((e) => e.type === 'usage' && e.parentCallId !== undefined)).toEqual([]);
+        const agent = spawnedAgent(t, 'host1')!;
+        expect(agent).toMatchObject({ status: 'completed', usage: { inputTokens: 100, outputTokens: 50 }, costUsd: 0.5, depth: 0 });
+    });
+
+    it('the delegate is a sub-agent of the host: agent-start / agent-update frame its nested events', async () => {
+        const delegate = mockAgent({ script: [[{ text: 'found it' }, { usage: { inputTokens: 7 } }]] });
+        const ask = agentTool(delegate, { name: 'ask', description: 'x', title: 'Researcher', input: question, prompt: (i) => i.question });
+        const { events, t, result } = await hostTurn([ask], (round) => (round === 0 ? { toolCalls: [{ name: 'ask', input: { question: 'life?' }, id: 'host1' }] } : { text: 'Summary.' }));
+        expect(result.stopReason).toBe('end_turn');
+        const agentId = delegate.sessions[0]!.id;
+        const nested = events.filter((e) => e.parentCallId === 'host1');
+        expect(nested.map((e) => e.type)).toEqual(['agent-start', 'agent-update', 'part-start', 'part-delta', 'part-delta', 'part-end', 'agent-update', 'agent-update']);
+        expect(nested[0]).toMatchObject({ type: 'agent-start', agentId, callId: 'host1', kind: 'ask', title: 'Researcher', description: 'life?' });
+        expect(nested[1]).toMatchObject({ type: 'agent-update', agentId, status: 'running' });
+        expect(nested[6]).toMatchObject({ type: 'agent-update', agentId, status: 'running', usage: { inputTokens: 7 } });
+        expect(nested[7]).toMatchObject({ type: 'agent-update', agentId, status: 'completed', usage: { inputTokens: 7 }, output: 'found it' });
+        // The host settles its own call after the agent settled.
+        const hostDone = events.find((e) => e.type === 'tool-update' && e.callId === 'host1' && e.status === 'completed')!;
+        expect(hostDone.seq).toBeGreaterThan(nested[7]!.seq);
+        expect(t.agents[agentId]).toMatchObject({ callId: 'host1', depth: 0, status: 'completed', kind: 'ask' });
+        expect(t.messages.find((m) => m.parentCallId === 'host1')?.parts.find((p) => p.type === 'text')).toMatchObject({ text: 'found it' });
+        const tool = t.messages.flatMap((m) => m.parts).find((p) => p.type === 'tool' && p.callId === 'host1');
+        expect(tool).toMatchObject({ agentId });
+    });
+
+    it('a delegate whose output does not validate ends failed; an erroring one too', async () => {
+        const bad = mockAgent({ script: [[{ output: { nope: 1 } }]] });
+        const ask = agentTool(bad, { name: 'ask', description: 'x', input: question, output: answer, prompt: (i) => i.question });
+        const { events, result } = await hostTurn([ask], (round) => (round === 0 ? { toolCalls: [{ name: 'ask', input: { question: 'q' }, id: 'host1' }] } : { text: 'Summary.' }));
+        expect(result.stopReason).toBe('end_turn');
+        const terminal = events.filter((e) => e.type === 'agent-update' && e.status !== 'running');
+        expect(terminal).toHaveLength(1);
+        expect(terminal[0]).toMatchObject({ status: 'failed', error: { code: 'provider_error', message: expect.stringContaining('does not match the schema') } });
+        expect(events.find((e) => e.type === 'tool-update' && e.callId === 'host1' && e.status === 'failed')).toBeDefined();
+
+        const failing = mockAgent({ script: [[{ error: { code: 'rate_limited', message: 'slow down' } }]] });
+        const ask2 = agentTool(failing, { name: 'ask', description: 'x', input: question, prompt: (i) => i.question });
+        const r2 = await hostTurn([ask2], (round) => (round === 0 ? { toolCalls: [{ name: 'ask', input: { question: 'q' }, id: 'host1' }] } : { text: 'Summary.' }));
+        expect(r2.events.filter((e) => e.type === 'agent-update' && e.status !== 'running')).toEqual([expect.objectContaining({ status: 'failed', error: { code: 'rate_limited', message: 'slow down' } })]);
+    });
+
+    it('a request raised inside the delegate is answered through the host session', async () => {
+        const delegate = mockAgent({ script: [[{ tool: { name: 'guarded', source: 'client', output: { ok: true } } }, { text: 'done' }]] });
+        const ask = agentTool(delegate, { name: 'ask', description: 'x', input: question, prompt: (i) => i.question, sessionOptions: { interactive: true } });
+        const { events, result, t } = await hostTurn(
+            [ask],
+            (round) => (round === 0 ? { toolCalls: [{ name: 'ask', input: { question: 'q' }, id: 'host1' }] } : { text: 'Summary.' }),
+            async (e, session) => {
+                if (e.type === 'request') {
+                    expect(e).toMatchObject({ parentCallId: 'host1', kind: 'permission', toolName: 'guarded' });
+                    await session.respond(e.requestId, { type: 'permission', outcome: 'allow', scope: 'once' });
+                }
+            }
+        );
+        expect(result.stopReason).toBe('end_turn');
+        expect(events.filter((e) => e.type === 'request')).toHaveLength(1);
+        expect(events.find((e) => e.type === 'request-resolved' && e.parentCallId === 'host1')).toMatchObject({ by: 'client', outcome: 'allow' });
+        expect(events.find((e) => e.type === 'tool-update' && e.parentCallId === 'host1' && e.status === 'completed')).toMatchObject({ output: { ok: true } });
+        expect(spawnedAgent(t, 'host1')).toMatchObject({ status: 'completed', output: 'done' });
+    });
+
+    it('cancel({ agentId }) cancels the delegate while the host turn goes on', async () => {
+        const slow = mockAgent({ script: [[{ tool: { name: 'slow', delayMs: 5000 } }]] });
+        const ask = agentTool(slow, { name: 'ask', description: 'x', input: question, sessionOptions: { policy: allowAll }, prompt: (i) => i.question });
+        let agentId: string | undefined;
+        const { events, result, t } = await hostTurn(
+            [ask],
+            (round) => (round === 0 ? { toolCalls: [{ name: 'ask', input: { question: 'q' }, id: 'host1' }] } : { text: 'Moving on.' }),
+            async (e, session) => {
+                if (e.type === 'agent-start') agentId = e.agentId;
+                if (e.type === 'tool-update' && e.parentCallId === 'host1' && e.status === 'in_progress') {
+                    await session.cancel({ agentId: 'no-such-agent' }); // a target that does not run is a no-op
+                    await session.cancel({ agentId: agentId! });
+                }
+            }
+        );
+        expect(result.stopReason).toBe('end_turn');
+        expect(events.filter((e) => e.type === 'agent-update' && e.status !== 'running')).toEqual([expect.objectContaining({ status: 'cancelled' })]);
+        expect(events.find((e) => e.type === 'tool-update' && e.parentCallId === 'host1' && e.status === 'cancelled')).toBeDefined();
+        expect(events.find((e) => e.type === 'tool-update' && e.callId === 'host1' && e.status === 'failed')).toMatchObject({ error: expect.stringContaining('cancelled') });
+        expect(spawnedAgent(t, 'host1')).toMatchObject({ status: 'cancelled' });
+    });
+
+    it('a delegate that delegates: the grandchild sits one level deeper in the tree', async () => {
+        const leafAgent = mockAgent({ script: [[{ text: 'leaf says hi' }]] });
+        const leaf = agentTool(leafAgent, { name: 'leaf', description: 'x', input: question, prompt: (i) => i.question });
+        const mid = modelAgent({ id: 'mid', model: mockModel({ respond: (_r, round) => (round === 0 ? { toolCalls: [{ name: 'leaf', input: { question: 'q' }, id: 'mid1' }] } : { text: 'mid done' }) }), tools: [leaf] });
+        const ask = agentTool(mid, { name: 'ask', description: 'x', input: question, prompt: (i) => i.question, sessionOptions: { policy: allowAll } });
+        const { t, result } = await hostTurn([ask], (round) => (round === 0 ? { toolCalls: [{ name: 'ask', input: { question: 'q' }, id: 'host1' }] } : { text: 'Summary.' }));
+        expect(result.stopReason).toBe('end_turn');
+        const tree = agentTree(t);
+        expect(tree).toHaveLength(1);
+        expect(tree[0]!.agent).toMatchObject({ kind: 'ask', callId: 'host1', depth: 0, status: 'completed' });
+        expect(tree[0]!.children).toHaveLength(1);
+        expect(tree[0]!.children[0]!.agent).toMatchObject({ kind: 'leaf', callId: 'mid1', depth: 1, status: 'completed', output: 'leaf says hi', parentAgentId: tree[0]!.agent.agentId });
+        expect(t.messages.find((m) => m.parentCallId === 'mid1')?.parts.find((p) => p.type === 'text')).toMatchObject({ text: 'leaf says hi' });
     });
 
     it('a plain defineTool still works as a host tool alongside agentTool', () => {

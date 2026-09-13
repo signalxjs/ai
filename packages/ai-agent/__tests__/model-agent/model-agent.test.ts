@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { defineTool, type StandardSchemaV1, type JsonSchema } from '@sigx/ai';
 import { mockModel, type MockModelOptions } from '@sigx/ai/testing';
-import { modelAgent, MODEL_AGENT_CAPABILITIES, agentTool, allowAll, allowReadOnly, firstMatch, memoryTranscriptStore, createTranscript, reduceAgentEvent, toUIMessages, type AgentEvent } from '@sigx/ai-agent';
-import { mockAgent } from '@sigx/ai-agent/testing';
+import { modelAgent, MODEL_AGENT_CAPABILITIES, agentTool, allowAll, allowReadOnly, firstMatch, memoryTranscriptStore, createReducer, createTranscript, reduceAgentEvent, toUIMessages, type AgentEvent } from '@sigx/ai-agent';
+import { checkEventInvariants, checkReplayEquality, mockAgent } from '@sigx/ai-agent/testing';
 import { collect, drain, types, textOf } from '../helpers';
 
 /** A dependency-free Standard Schema from a predicate + JSON Schema (as the core tests do). */
@@ -311,6 +311,70 @@ describe('modelAgent', () => {
         expect(r.events.find((e) => e.type === 'usage')).not.toHaveProperty('costUsd');
         const nan = agentWith({ script: [{ text: 'hi', usage: { outputTokens: 5 } }] }, { pricing: () => Number.NaN });
         expect((await (await nan.agent.session()).prompt('go').result).costUsd).toBeUndefined();
+    });
+
+    it('steer: a prompt during a running turn joins it — same id and result, one user-message, a second assistant message', async () => {
+        expect(MODEL_AGENT_CAPABILITIES.steer).toBe(true);
+        expect(MODEL_AGENT_CAPABILITIES.subagents).toBe('control');
+        const { agent, model } = agentWith({ respond: (_r, round) => (round === 0 ? { toolCalls: [{ name: 'echo', input: { a: 1 }, id: 'c1' }] } : { text: 'ok, and thanks' }) });
+        const session = await agent.session();
+        const all = collect(session.subscribe());
+        const first = session.prompt('go');
+        let second: ReturnType<typeof session.prompt> | undefined;
+        const seen: AgentEvent[] = [];
+        for await (const e of first) {
+            seen.push(e);
+            if (e.type === 'request') {
+                // The turn is provably running while its request is open.
+                second = session.prompt('also say thanks');
+                await session.respond(e.requestId, { type: 'permission', outcome: 'allow', scope: 'once' });
+            }
+        }
+        expect(second!.id).toBe(first.id);
+        expect(await second!.result).toEqual(await first.result);
+        expect((await first.result).stopReason).toBe('end_turn');
+        // Exactly one steering message, inside the turn, after the request, not nested.
+        const steers = seen.filter((e): e is Extract<AgentEvent, { type: 'user-message' }> => e.type === 'user-message' && e.messageId !== `u:${first.id}`);
+        expect(steers).toHaveLength(1);
+        expect(steers[0]).toMatchObject({ turnId: first.id, parts: [{ type: 'text', text: 'also say thanks' }] });
+        expect(steers[0]!.parentCallId).toBeUndefined();
+        expect(steers[0]!.seq).toBeGreaterThan(seen.find((e) => e.type === 'request')!.seq);
+        // The model saw it after the tool results, and answered in a second assistant message.
+        expect(model.requests[1]!.messages.at(-1)).toEqual({ role: 'user', content: 'also say thanks' });
+        expect(model.requests[1]!.messages.at(-2)!.role).toBe('tool');
+        const startsAfter = seen.filter((e): e is Extract<AgentEvent, { type: 'part-start' }> => e.type === 'part-start' && e.seq > steers[0]!.seq);
+        expect(startsAfter.map((e) => e.messageId)).toEqual([`a:${first.id}:1`]);
+        // The steer handle iterates from the steer on.
+        expect((await collect(second!))[0]).toMatchObject({ type: 'user-message', parts: [{ type: 'text', text: 'also say thanks' }] });
+        await session.close();
+        const events = await all;
+        checkEventInvariants(events, { fromStart: true });
+        checkReplayEquality(events, createReducer());
+        const t = (session.ref.data as { transcript: Parameters<typeof toUIMessages>[0] }).transcript;
+        expect(toUIMessages(t).map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
+    });
+
+    it('a steer the engine could not drain stays in the transcript and feeds the next turn', async () => {
+        const { agent, model } = agentWith({ script: [{ text: 'slow answer', chunkSize: 1, delayMs: 5 }, { text: 'next' }] }, { maxSteps: 1 });
+        const session = await agent.session();
+        const first = session.prompt('hi');
+        let steered = false;
+        for await (const e of first) {
+            if (e.type === 'part-delta' && !steered) {
+                steered = true;
+                // The last allowed round is running: the engine will not poll for it.
+                expect(session.prompt('and more').id).toBe(first.id);
+            }
+        }
+        expect((await first.result).stopReason).toBe('end_turn');
+        expect(model.requests).toHaveLength(1);
+        await session.prompt('again').result;
+        expect(model.requests[1]!.messages).toEqual([
+            { role: 'user', content: 'hi' },
+            { role: 'assistant', content: [{ type: 'text', text: 'slow answer' }] },
+            { role: 'user', content: 'and more' },
+            { role: 'user', content: 'again' }
+        ]);
     });
 
     it('prompt parts outside promptParts are refused before the turn starts', async () => {

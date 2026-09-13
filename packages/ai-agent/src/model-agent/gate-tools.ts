@@ -11,18 +11,27 @@
 import { validateWith, type AnyTool, type StreamTextOptions, type ToolContext } from '@sigx/ai';
 import type { UnstampedEvent } from '../protocol/index.js';
 import type { PolicyRequest, Resolved } from '../policy/index.js';
-import type { TurnDriver } from '../session/index.js';
+import type { AttachedSession, TurnDriver } from '../session/index.js';
 
-/** What a tool run by `modelAgent` receives — the core context plus a way to emit nested events. */
+/** What a tool run by `modelAgent` receives — the core context plus a way to emit nested events and to attach a sub-session. */
 export interface AgentToolContext extends ToolContext {
     /** Emit an event inside this call (stamped with the turn; `parentCallId` defaults to this call). */
     readonly emit: (event: UnstampedEvent) => void;
+    /**
+     * Attach a session this call opened (a delegate), so the host routes
+     * `respond()` and `cancel({ agentId })` into it; returns detach. A host
+     * without sub-agent control hands out a no-op.
+     */
+    readonly attach: (downstream: AttachedSession) => () => void;
 }
 
 export interface GateOptions {
     readonly driver: TurnDriver;
     readonly resolve: (request: PolicyRequest) => Promise<Resolved>;
+    readonly attach?: (downstream: AttachedSession) => () => void;
 }
+
+const noAttach = () => () => {};
 
 export interface GatedTools {
     readonly tools: AnyTool[];
@@ -49,7 +58,8 @@ export function gateTools(tools: readonly AnyTool[], options: GateOptions): Gate
                 ...ctx,
                 emit: (event) => {
                     driver.emit({ ...event, ...(event.parentCallId === undefined ? { parentCallId: ctx.toolCallId } : {}) });
-                }
+                },
+                attach: options.attach ?? noAttach
             };
             return tool.run(raw, nested);
         }
