@@ -1,8 +1,19 @@
 /** Request translation — our `ModelRequest` → `client.messages.stream` params. */
 
-import type { ContentBlockParam, MessageCreateParamsStreaming, MessageParam, Tool as AnthropicTool } from '@anthropic-ai/sdk/resources/messages';
-import type { ModelMessage, ModelRequest, ToolSpec } from '@sigx/ai';
+import type {
+    Base64ImageSource,
+    ContentBlockParam,
+    DocumentBlockParam,
+    ImageBlockParam,
+    MessageCreateParamsStreaming,
+    MessageParam,
+    Tool as AnthropicTool
+} from '@anthropic-ai/sdk/resources/messages';
+import { decodeBase64, type ModelFilePart, type ModelImagePart, type ModelMessage, type ModelRequest, type ModelUserPart, type ToolSpec } from '@sigx/ai';
 import type { AnthropicProviderOptions } from './options.js';
+
+const IMAGE_TYPES: readonly Base64ImageSource['media_type'][] = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+const DOCUMENT_TYPES = ['application/pdf', 'text/plain'] as const;
 
 export function toParams(modelId: string, request: ModelRequest, options: AnthropicProviderOptions): MessageCreateParamsStreaming {
     // Provider defaults first, then the request's — each layer merges
@@ -58,11 +69,36 @@ function toJson(value: unknown, what: string): string {
     }
 }
 
+/** A user part → an Anthropic content block; unsupported media types are refused before any request is made. */
+function toUserBlock(p: ModelUserPart): ContentBlockParam {
+    if (p.type === 'text') return { type: 'text', text: p.text };
+    if (p.type === 'image') return toImageBlock(p);
+    return toDocumentBlock(p);
+}
+
+function toImageBlock(p: ModelImagePart): ImageBlockParam {
+    if (p.url !== undefined) return { type: 'image', source: { type: 'url', url: p.url } };
+    if (!IMAGE_TYPES.includes(p.mediaType as Base64ImageSource['media_type'])) {
+        throw new Error(`[sigx ai-anthropic] image media type "${p.mediaType}" is not supported (${IMAGE_TYPES.join(', ')})`);
+    }
+    return { type: 'image', source: { type: 'base64', media_type: p.mediaType as Base64ImageSource['media_type'], data: p.data ?? '' } };
+}
+
+function toDocumentBlock(p: ModelFilePart): DocumentBlockParam {
+    const title = p.filename !== undefined ? { title: p.filename } : {};
+    if (p.url !== undefined) return { type: 'document', source: { type: 'url', url: p.url }, ...title };
+    if (p.mediaType === 'application/pdf') return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: p.data ?? '' }, ...title };
+    if (p.mediaType === 'text/plain') {
+        return { type: 'document', source: { type: 'text', media_type: 'text/plain', data: new TextDecoder().decode(decodeBase64(p.data ?? '')) }, ...title };
+    }
+    throw new Error(`[sigx ai-anthropic] document media type "${p.mediaType}" is not supported (${DOCUMENT_TYPES.join(', ')})`);
+}
+
 function toMessages(messages: readonly ModelMessage[]): MessageParam[] {
     const out: MessageParam[] = [];
     for (const m of messages) {
         if (m.role === 'user') {
-            out.push({ role: 'user', content: typeof m.content === 'string' ? m.content : m.content.map((p) => ({ type: 'text' as const, text: p.text })) });
+            out.push({ role: 'user', content: typeof m.content === 'string' ? m.content : m.content.map(toUserBlock) });
             continue;
         }
         if (m.role === 'assistant') {

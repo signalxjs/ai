@@ -1,7 +1,7 @@
 /** UI transcript → model messages. */
 
-import type { UIMessage, UIPart } from '../protocol/index.js';
-import type { ModelAssistantMessage, ModelMessage, ModelToolResultPart } from './message.js';
+import type { UIMessage } from '../protocol/index.js';
+import type { ModelAssistantMessage, ModelMessage, ModelToolResultPart, ModelUserPart } from './message.js';
 
 /** What the model is told about a refused call when the client gave no reason. */
 export const DENIED_MESSAGE = 'The user denied this tool call.';
@@ -11,17 +11,20 @@ export const DENIED_MESSAGE = 'The user denied this tool call.';
  * `tool-call` and a following `tool` message carrying the results, which is
  * the shape every provider wants (results in ONE message per turn). A
  * `denied` call is an error result carrying the reason; an undecided one
- * (`pending`, `awaiting`, `approved`) has no result yet.
+ * (`pending`, `awaiting`, `approved`) has no result yet. A user message that
+ * is all text stays a string; one with an image or file keeps its parts, in
+ * order.
  */
 export function toModelMessages(messages: readonly UIMessage[]): ModelMessage[] {
     const out: ModelMessage[] = [];
     for (const m of messages) {
         if (m.role === 'user') {
-            const text = m.parts
-                .filter((p): p is Extract<UIPart, { type: 'text' }> => p.type === 'text')
-                .map((p) => p.text)
-                .join('');
-            out.push({ role: 'user', content: text });
+            const parts: ModelUserPart[] = [];
+            for (const p of m.parts) {
+                if (p.type === 'text') parts.push({ type: 'text', text: p.text });
+                else if (p.type === 'image' || p.type === 'file') parts.push(p);
+            }
+            out.push({ role: 'user', content: parts.every((p) => p.type === 'text') ? parts.map((p) => (p as { text: string }).text).join('') : parts });
             continue;
         }
         const content: ModelAssistantMessage['content'][number][] = [];
@@ -31,7 +34,7 @@ export function toModelMessages(messages: readonly UIMessage[]): ModelMessage[] 
                 if (p.text) content.push({ type: 'text', text: p.text });
             } else if (p.type === 'reasoning') {
                 content.push({ type: 'reasoning', text: p.text, ...(p.providerData !== undefined ? { providerData: p.providerData } : {}) });
-            } else {
+            } else if (p.type === 'tool') {
                 content.push({ type: 'tool-call', id: p.id, name: p.name, input: p.input });
                 if (p.state === 'done' || p.state === 'error' || p.state === 'denied') {
                     results.push({

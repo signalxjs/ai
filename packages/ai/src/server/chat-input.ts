@@ -1,9 +1,9 @@
 /**
  * `ChatInput` — the wire schema for `{ messages: UIMessage[] }`. The
  * transcript is attacker-controlled, so it is checked structurally (shapes,
- * roles, part types, string sizes, a message-count cap) before the model
- * sees it. A dependency-free Standard Schema; bring your own (Zod, …) to add
- * fields.
+ * roles, part types, string sizes, a message-count cap, attachment media
+ * types and payload sizes) before the model sees it. A dependency-free
+ * Standard Schema; bring your own (Zod, …) to add fields.
  */
 
 import { DENIED_MESSAGE } from '../model/index.js';
@@ -20,7 +20,13 @@ const isToolState = (v: unknown): v is UIToolState => TOOL_STATES.includes(v as 
 const MAX_MESSAGES = 500;
 const MAX_TEXT = 200_000;
 const MAX_TOOL_JSON = 100_000;
+/** Base64 characters of an inline image or file (~7.5 MB of bytes). */
+const MAX_DATA = 10_000_000;
+const MAX_URL = 8192;
+const MAX_FILENAME = 255;
 const JSON_CAP_MESSAGE = `must be JSON-serializable and at most ${MAX_TOOL_JSON} characters as JSON`;
+const MEDIA_TYPE = /^[\w.+-]+\/[\w.+-]+$/;
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
 /**
  * `true` when `value` serializes to JSON within the cap; `false` when it is
@@ -41,13 +47,89 @@ function issue(path: (string | number)[], message: string): StandardSchemaV1.Iss
     return { message, path };
 }
 
-function checkPart(p: unknown, path: (string | number)[], issues: StandardSchemaV1.Issue[]): UIPart | undefined {
+/** An image or file part: a media type, exactly one of `data` (base64) / `url` (http[s]), an optional filename. */
+function checkAttachment(part: Record<string, unknown>, path: (string | number)[], issues: StandardSchemaV1.Issue[]): UIPart | undefined {
+    const type = part.type as 'image' | 'file';
+    if (typeof part.mediaType !== 'string' || !MEDIA_TYPE.test(part.mediaType)) {
+        issues.push(issue([...path, 'mediaType'], 'must be a media type like image/png'));
+        return undefined;
+    }
+    const hasData = part.data !== undefined;
+    const hasUrl = part.url !== undefined;
+    if (hasData === hasUrl) {
+        issues.push(issue(path, 'exactly one of data or url is required'));
+        return undefined;
+    }
+    if (hasData) {
+        if (typeof part.data !== 'string') {
+            issues.push(issue([...path, 'data'], 'must be a string'));
+            return undefined;
+        }
+        if (part.data.length > MAX_DATA) {
+            issues.push(issue([...path, 'data'], `longer than ${MAX_DATA} characters`));
+            return undefined;
+        }
+        if (!BASE64.test(part.data)) {
+            issues.push(issue([...path, 'data'], 'must be base64'));
+            return undefined;
+        }
+    } else {
+        if (typeof part.url !== 'string') {
+            issues.push(issue([...path, 'url'], 'must be a string'));
+            return undefined;
+        }
+        if (part.url.length > MAX_URL) {
+            issues.push(issue([...path, 'url'], `longer than ${MAX_URL} characters`));
+            return undefined;
+        }
+        if (!isHttpUrl(part.url)) {
+            issues.push(issue([...path, 'url'], 'must be an http(s) URL'));
+            return undefined;
+        }
+    }
+    let filename: string | undefined;
+    if (type === 'file' && part.filename !== undefined) {
+        if (typeof part.filename !== 'string') {
+            issues.push(issue([...path, 'filename'], 'must be a string'));
+            return undefined;
+        }
+        if (part.filename.length > MAX_FILENAME) {
+            issues.push(issue([...path, 'filename'], `longer than ${MAX_FILENAME} characters`));
+            return undefined;
+        }
+        filename = part.filename;
+    }
+    return {
+        type,
+        mediaType: part.mediaType,
+        ...(hasData ? { data: part.data as string } : { url: part.url as string }),
+        ...(filename !== undefined ? { filename } : {})
+    };
+}
+
+function isHttpUrl(value: string): boolean {
+    try {
+        const u = new URL(value);
+        return u.protocol === 'http:' || u.protocol === 'https:';
+    } catch {
+        return false;
+    }
+}
+
+function checkPart(p: unknown, role: unknown, path: (string | number)[], issues: StandardSchemaV1.Issue[]): UIPart | undefined {
     if (typeof p !== 'object' || p === null) {
         issues.push(issue(path, 'part must be an object'));
         return undefined;
     }
     const part = p as Record<string, unknown>;
     switch (part.type) {
+        case 'image':
+        case 'file':
+            if (role !== 'user') {
+                issues.push(issue([...path, 'type'], 'only user messages carry image or file parts'));
+                return undefined;
+            }
+            return checkAttachment(part, path, issues);
         case 'text':
         case 'reasoning': {
             if (typeof part.text !== 'string') {
@@ -122,7 +204,7 @@ function checkMessage(m: unknown, path: (string | number)[], issues: StandardSch
     }
     const parts: UIPart[] = [];
     msg.parts.forEach((p, i) => {
-        const part = checkPart(p, [...path, 'parts', i], issues);
+        const part = checkPart(p, msg.role, [...path, 'parts', i], issues);
         if (part) parts.push(part);
     });
     if (issues.length) return undefined;

@@ -192,6 +192,15 @@ describe('useChat', () => {
         expect(model.rounds).toBe(0);
         expect(chat.messages).toHaveLength(0);
     });
+
+    it('sends a message that carries only an image', async () => {
+        const { model, stream } = mockStream({ script: [{ text: 'A cat.' }] });
+        const { chat } = mountChat(stream);
+        await chat.send({ id: 'u1', role: 'user', parts: [{ type: 'image', mediaType: 'image/png', data: 'iVBORw0KGgo=' }] });
+        expect(model.rounds).toBe(1);
+        expect(model.requests[0]!.messages[0]).toEqual({ role: 'user', content: [{ type: 'image', mediaType: 'image/png', data: 'iVBORw0KGgo=' }] });
+        expect(chat.messages.map((m) => m.role)).toEqual(['user', 'assistant']);
+    });
 });
 
 describe('useChat tool approval', () => {

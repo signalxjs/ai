@@ -10,7 +10,13 @@ import { describe, it, expect } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import type { MessageStreamEvent } from '@anthropic-ai/sdk/resources/messages';
 import { anthropic } from '@sigx/ai-anthropic';
-import { generateText, streamText, userMessage, type ModelEvent, type ModelRequest, type StandardSchemaV1 } from '@sigx/ai';
+import { generateText, streamText, userMessage, type ModelEvent, type ModelRequest, type StandardSchemaV1, type UIChunk } from '@sigx/ai';
+
+async function collectChunks(it: AsyncIterable<UIChunk>): Promise<UIChunk[]> {
+    const out: UIChunk[] = [];
+    for await (const c of it) out.push(c);
+    return out;
+}
 
 function fakeClient(events: MessageStreamEvent[]): { client: Anthropic; calls: unknown[] } {
     const calls: unknown[] = [];
@@ -146,6 +152,56 @@ describe('@sigx/ai-anthropic', () => {
             const events = await collect(anthropic({ client }).model().stream({ messages: [{ role: 'user', content: 'x' }] }));
             expect(events.at(-1)).toMatchObject({ type: 'finish', reason });
         }
+    });
+
+    it('translates image and file parts: base64 and URL sources, documents with a title, text files as text', async () => {
+        const { client, calls } = fakeClient([start(), { type: 'message_stop' }]);
+        await collect(
+            anthropic({ client })
+                .model()
+                .stream({
+                    messages: [
+                        {
+                            role: 'user',
+                            content: [
+                                { type: 'text', text: 'Compare these.' },
+                                { type: 'image', mediaType: 'image/png', data: 'iVBORw0KGgo=' },
+                                { type: 'image', mediaType: 'image/jpeg', url: 'https://x.test/a.jpg' },
+                                { type: 'file', mediaType: 'application/pdf', data: 'JVBERi0=', filename: 'report.pdf' },
+                                { type: 'file', mediaType: 'application/pdf', url: 'https://x.test/b.pdf' },
+                                { type: 'file', mediaType: 'text/plain', data: 'aGVsbG8=', filename: 'notes.txt' }
+                            ]
+                        }
+                    ]
+                })
+        );
+        expect((calls[0] as { params: { messages: unknown[] } }).params.messages).toEqual([
+            {
+                role: 'user',
+                content: [
+                    { type: 'text', text: 'Compare these.' },
+                    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } },
+                    { type: 'image', source: { type: 'url', url: 'https://x.test/a.jpg' } },
+                    { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERi0=' }, title: 'report.pdf' },
+                    { type: 'document', source: { type: 'url', url: 'https://x.test/b.pdf' } },
+                    { type: 'document', source: { type: 'text', media_type: 'text/plain', data: 'hello' }, title: 'notes.txt' }
+                ]
+            }
+        ]);
+    });
+
+    it('rejects an unsupported image or document media type at request time, surfacing as one error chunk', async () => {
+        const { client } = fakeClient([start(), { type: 'message_stop' }]);
+        const model = anthropic({ client }).model();
+        await expect(collect(model.stream({ messages: [{ role: 'user', content: [{ type: 'image', mediaType: 'image/bmp', data: 'AAAA' }] }] }))).rejects.toThrow(
+            /\[sigx ai-anthropic\] image media type "image\/bmp" is not supported \(image\/jpeg, image\/png, image\/gif, image\/webp\)/
+        );
+        await expect(collect(model.stream({ messages: [{ role: 'user', content: [{ type: 'file', mediaType: 'text/csv', data: 'AAAA' }] }] }))).rejects.toThrow(
+            /\[sigx ai-anthropic\] document media type "text\/csv" is not supported \(application\/pdf, text\/plain\)/
+        );
+        const chunks = await collectChunks(streamText({ model, messages: [{ id: 'u', role: 'user', parts: [{ type: 'image', mediaType: 'image/bmp', data: 'AAAA' }] }] }));
+        expect(chunks.map((c) => c.type)).toEqual(['start', 'error']);
+        expect(chunks[1]).toMatchObject({ type: 'error', message: expect.stringContaining('image/bmp') });
     });
 
     it('names an unserializable tool result instead of throwing bare', async () => {

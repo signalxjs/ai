@@ -20,11 +20,34 @@ export interface UIMessage {
     createdAt?: number;
 }
 
-export type UIPart = UITextPart | UIReasoningPart | UIToolPart;
+/** Image and file parts appear on user messages only; the assistant side stays text, reasoning and tools. */
+export type UIPart = UITextPart | UIReasoningPart | UIToolPart | UIImagePart | UIFilePart;
 
 export interface UITextPart {
     readonly type: 'text';
     text: string;
+}
+
+/**
+ * An image the user attached: exactly one of `data` (standard base64 — see
+ * `encodeBase64`) or `url`. Base64 keeps the part plain JSON; a provider
+ * that only takes one form converts or rejects at request time.
+ */
+export interface UIImagePart {
+    readonly type: 'image';
+    /** An IANA media type, e.g. `image/png`. */
+    readonly mediaType: string;
+    readonly data?: string;
+    readonly url?: string;
+}
+
+/** A file the user attached (a PDF, a text document): exactly one of `data` (base64) or `url`. */
+export interface UIFilePart {
+    readonly type: 'file';
+    readonly mediaType: string;
+    readonly data?: string;
+    readonly url?: string;
+    readonly filename?: string;
 }
 
 export interface UIReasoningPart {
