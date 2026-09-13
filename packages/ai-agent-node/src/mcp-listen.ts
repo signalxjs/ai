@@ -86,10 +86,12 @@ export function listenMcp(handler: (request: Request) => Promise<Response>, opti
     const path = options.path ?? '/mcp';
     const token = options.token ?? randomBytes(32).toString('hex');
 
+    // An IPv6 host needs brackets in a URL (`http://[::1]`).
+    const base = `http://${host.includes(':') && !host.startsWith('[') ? `[${host}]` : host}`;
     const server = createServer((req, res) => {
         void (async () => {
             try {
-                const url = new URL(req.url ?? '/', `http://${host}`);
+                const url = new URL(req.url ?? '/', base);
                 if (url.pathname !== path) {
                     res.writeHead(404).end();
                     return;
@@ -98,7 +100,7 @@ export function listenMcp(handler: (request: Request) => Promise<Response>, opti
                     res.writeHead(401, { 'www-authenticate': 'Bearer' }).end();
                     return;
                 }
-                const response = await handler(toRequest(req, `http://${host}`));
+                const response = await handler(toRequest(req, base));
                 await sendResponse(response, res);
             } catch (e) {
                 if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' });

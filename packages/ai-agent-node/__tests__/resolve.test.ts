@@ -89,7 +89,8 @@ describe('resolveExecutable', () => {
 
     it('falls back to cmd.exe for a shim it cannot parse', async () => {
         const r = await resolveExecutable('weird', { env: { PATH: join(root, 'bin with space'), ComSpec: 'C:\\W\\cmd.exe' }, platform: 'win32' });
-        expect(r).toEqual({ path: join(root, 'bin with space', 'weird.cmd'), command: 'C:\\W\\cmd.exe', args: [join(root, 'bin with space', 'weird.cmd')], kind: 'cmd-shim' });
+        // The shim stays the command: spawnAgentProcess wraps it in cmd.exe.
+        expect(r).toEqual({ path: join(root, 'bin with space', 'weird.cmd'), command: join(root, 'bin with space', 'weird.cmd'), args: [], kind: 'cmd-shim' });
         expect(await parseCmdShim(join(root, 'bin with space', 'weird.cmd'))).toBeUndefined();
         expect(await parseCmdShim(join(root, 'nope.cmd'))).toBeUndefined();
     });

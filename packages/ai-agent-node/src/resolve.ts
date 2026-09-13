@@ -19,7 +19,7 @@ export type ExecutableKind = 'native' | 'node-script' | 'cmd-shim';
 export interface ResolvedExecutable {
     /** The file that was found on disk. */
     readonly path: string;
-    /** What to spawn (the file itself, `process.execPath`, or `cmd.exe`). */
+    /** What to spawn: the file itself, or `process.execPath` for a script; for a `cmd-shim` the shim, which `spawnAgentProcess` runs through `cmd.exe`. */
     readonly command: string;
     /** Arguments to put BEFORE the caller's own. */
     readonly args: readonly string[];
@@ -56,7 +56,8 @@ async function exists(file: string, executable: boolean): Promise<boolean> {
     try {
         const s = await stat(file);
         if (!s.isFile()) return false;
-        if (executable) await access(file, constants.X_OK);
+        // A script runs under node; it needs no execute bit of its own.
+        if (executable && !SCRIPT_EXT.has(extname(file).toLowerCase())) await access(file, constants.X_OK);
         return true;
     } catch {
         return false;
@@ -111,7 +112,9 @@ async function classify(file: string, ctx: { win: boolean; nodePath: string; env
     if (ctx.win && (ext === '.cmd' || ext === '.bat')) {
         const shim = await parseCmdShim(file);
         if (shim) return { path: file, command: ctx.nodePath, args: [shim.script], ...(shim.env ? { env: shim.env } : {}), kind: 'node-script' };
-        return { path: file, command: envKey(ctx.env, 'ComSpec', 'win32') ? ctx.env[envKey(ctx.env, 'ComSpec', 'win32')!]! : 'C:\\Windows\\System32\\cmd.exe', args: [file], kind: 'cmd-shim' };
+        // `command` stays the shim: `spawnAgentProcess` wraps it in `cmd.exe /d /s /c`
+        // (so `spawnAgentProcess({ ...resolved, args: [...resolved.args, ...more] })` works).
+        return { path: file, command: file, args: [], kind: 'cmd-shim' };
     }
     return { path: file, command: file, args: [], kind: 'native' };
 }
@@ -134,7 +137,9 @@ export async function parseCmdShim(file: string): Promise<{ script: string; env?
         return undefined;
     }
     const dir = dirname(file);
-    const expand = (s: string) => s.replace(/%~dp0\\?/gi, dir + sep).replace(/%dp0%\\?/gi, dir + sep);
+    // The shim's own separators are backslashes; the host's may not be (the
+    // parser is exercised on every OS in tests), so both become the host's.
+    const expand = (s: string) => s.replace(/%~dp0\\?/gi, dir + sep).replace(/%dp0%\\?/gi, dir + sep).replace(/\\/g, sep);
     let script: string | undefined;
     for (const raw of text.split(/\r?\n/)) {
         const line = raw.trim();
