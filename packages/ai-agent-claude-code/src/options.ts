@@ -43,4 +43,11 @@ export interface ClaudeCodeSessionOptions extends CodingSessionOptions {
     readonly permissionMode?: PermissionMode;
     /** Append `system` to Claude Code's own preset instead of replacing it. */
     readonly systemPromptPreset?: boolean;
+    /**
+     * Forward a sub-agent's text and thinking as nested parts (`parentCallId`, `actor`).
+     * Default `true`; `false` keeps only its tool calls, the SDK's own default.
+     */
+    readonly subagentTranscript?: boolean;
+    /** Ask the CLI for model-written progress summaries on `agent-update` (costs extra model calls). Default `false`. */
+    readonly agentProgressSummaries?: boolean;
 }

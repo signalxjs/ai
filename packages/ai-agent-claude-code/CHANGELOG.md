@@ -8,6 +8,34 @@ versions follow [SemVer](https://semver.org/).
 
 ### Added
 
+- Sub-agents. Claude Code's task frames (`system/task_started`,
+  `task_progress`, `task_updated`, `task_notification`) and the Task tool's
+  `tool_use_result` become `agent-start` / `agent-update`: one start per agent
+  (`agentId` = the task id, `callId` = the spawning `tool_use_id`, `kind`
+  `'subagent'` or `'workflow'`, `title`, `description`, `depth`, `background`)
+  and exactly one terminal update, whichever frame ends the agent first. A
+  foreground agent still running at `result` ends `failed` (`cancelled` after
+  an interrupt); a background one ends when the session closes. Backgrounded
+  Bash, MCP and ambient tasks stay `ext`. Capability `subagents: 'control'`.
+- `cancel({ agentId })` → `Query.stopTask`; the `stopped` notification reads
+  `cancelled`. A target that is already over is a no-op; one the CLI rejects
+  is a `protocol_error`.
+- `session({ agents })` → the SDK's programmatic `agents` (`description`,
+  `prompt`, `tools`, `model`, `maxTurns`); capability `defineAgents: true`.
+- Session options `subagentTranscript` (default `true`: the SDK's
+  `forwardSubagentText`, so a sub-agent's text and thinking arrive as nested
+  parts) and `agentProgressSummaries` (default `false`: model-written
+  `summary` on progress updates).
+- `createAgentTracker`, `taskKind` and `toAgentDefinitions` are exported.
+
+### Changed
+
+- The `actor` on a nested part is the sub-agent type Claude Code named
+  (`Explore`, a custom agent name, …) when it is known; `'subagent'` otherwise.
+- `steer` is declared `false` on purpose, with the reason in the README: the
+  CLI, not the adapter, decides whether a mid-turn message folds into the
+  running turn. The live suite carries a probe that records the behaviour.
+
 - `claudeCode(options)` → an `Agent` on the official Claude Agent SDK: one
   `query()` per session with a streaming prompt, turns ending at `result`,
   permissions through the session policy (`canUseTool`), client tools over
