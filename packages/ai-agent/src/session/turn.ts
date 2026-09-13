@@ -180,7 +180,8 @@ export function createTurn(options: CreateTurnOptions): ManagedTurn {
     return turn;
 }
 
-async function* filterTurn(events: AsyncIterable<AgentEvent>, turnId: string): AsyncGenerator<AgentEvent> {
+/** The events of one turn, up to and including its `turn-end`. */
+export async function* filterTurn(events: AsyncIterable<AgentEvent>, turnId: string): AsyncGenerator<AgentEvent> {
     for await (const e of events) {
         if (e.turnId !== turnId) continue;
         yield e;
