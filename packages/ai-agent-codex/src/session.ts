@@ -119,7 +119,9 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
         ...(options.requestTimeoutMs !== undefined ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
         ...(options.signal ? { signal: options.signal } : {}),
         // A prompt during a turn is `turn/steer` on the running Codex turn.
-        steer: true
+        steer: true,
+        // Refused before any event, for prompts and steers alike.
+        promptParts: 'text+image'
     });
 
     // Per-turn overrides `configure()` records and the next `turn/start` applies.
@@ -155,23 +157,27 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
      */
     const steer = async (turn: ActiveTurn, parts: readonly PromptPart[]): Promise<void> => {
         const { driver } = turn;
+        // The turn is over (or was cancelled) before the input reached it: a
+        // session-level notice, since the turn can no longer carry events.
+        const undelivered = () => {
+            if (driver.signal.aborted) return;
+            core.emit({ type: 'error', code: 'protocol_error', message: `[sigx ai-agent-codex] steering input arrived after turn "${driver.turnId}" ended and was not delivered`, recoverable: true });
+        };
         let codexTurnId: string;
         try {
             codexTurnId = await turn.started;
         } catch {
             return; // the turn itself failed to start; its own error ends it
         }
-        if (driver.ended) {
-            core.emit({ type: 'error', code: 'protocol_error', message: `[sigx ai-agent-codex] steering input arrived after turn "${driver.turnId}" ended and was not delivered`, recoverable: true });
-            return;
-        }
+        if (driver.ended) return undelivered();
         try {
             const params: TurnSteerParams = { threadId, expectedTurnId: codexTurnId, input: toUserInput(parts) };
             await peer.request<TurnSteerResponse>(CODEX_METHODS.turnSteer, params, { signal: driver.signal });
-            if (driver.ended) return;
+            if (driver.ended) return undelivered();
             driver.emit({ type: 'user-message', messageId: `u:${driver.turnId}:${++turn.steers}`, parts: [...parts] });
         } catch (e) {
-            if (driver.signal.aborted || driver.ended) return;
+            if (driver.ended) return undelivered();
+            if (driver.signal.aborted) return;
             const message = e instanceof Error ? e.message : String(e);
             driver.emit({ type: 'error', code: 'protocol_error', message: `[sigx ai-agent-codex] turn/steer was refused: ${message}`, recoverable: true });
         }

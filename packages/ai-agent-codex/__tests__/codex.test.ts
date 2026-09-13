@@ -405,6 +405,40 @@ describe('@sigx/ai-agent-codex', () => {
         expect(await second.result).toEqual(result);
     });
 
+    it('a steer Codex answers after the turn already ended is reported at session level, not lost', async () => {
+        let started!: (ctx: Parameters<TurnProgram>[0]) => void;
+        const running = new Promise<Parameters<TurnProgram>[0]>((r) => (started = r));
+        const fake = fakeAppServer({
+            // Codex ends the turn before answering the steer: the response lands on an ended turn.
+            steer: async (p) => {
+                await (await running).complete();
+                return { turnId: p.expectedTurnId };
+            },
+            onTurn: (ctx) => {
+                started(ctx);
+                return new Promise(() => {});
+            }
+        });
+        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        const all: AgentEvent[] = [];
+        const notice = (async () => {
+            for await (const e of session.subscribe({ epoch: 0, seq: 0 })) {
+                all.push(e);
+                if (e.type === 'error' && e.turnId === undefined) return e;
+            }
+            return undefined;
+        })();
+        const first = session.prompt('go');
+        const { events, result } = await drain(first, (e) => {
+            if (e.type === 'ext' && e.name === 'turn') session.prompt('too late');
+        });
+        expect(result).toMatchObject({ stopReason: 'end_turn' });
+        expect(events.filter((e) => e.type === 'user-message')).toHaveLength(1);
+        const error = await notice;
+        expect(error).toMatchObject({ code: 'protocol_error', recoverable: true });
+        expect(error?.message).toMatch(/arrived after turn .* ended/);
+    });
+
     it('failed turns carry the error code; error notifications with willRetry are recoverable', async () => {
         const cases: [unknown, string][] = [
             ['contextWindowExceeded', 'context_exceeded'],
@@ -535,8 +569,9 @@ describe('@sigx/ai-agent-codex', () => {
         const agent = codex({ transport: fake.transport });
         await expect(agent.session({} as never)).rejects.toThrow(/cwd/);
         const session = await agent.session({ cwd: '/repo' });
-        const r = await drain(session.prompt([{ type: 'file', mediaType: 'application/pdf', data: 'AA==' }]));
-        expect(r.result).toMatchObject({ stopReason: 'error', error: { code: 'protocol_error' } });
+        // Refused by the core's promptParts gate before any event, so no turn starts.
+        await expect(session.prompt([{ type: 'file', mediaType: 'application/pdf', data: 'AA==' }]).result).rejects.toThrow(/promptParts "text\+image" — file part refused/);
+        expect(fake.requests.filter((r) => r.method === 'turn/start')).toHaveLength(0);
     });
 
     it('an npm codex.cmd shim resolves to bin/codex.js under process.execPath (Windows shape)', async () => {

@@ -21,7 +21,14 @@ follow [SemVer](https://semver.org/).
 - Steering (`steer: true`): `prompt()` while a turn runs is sent as
   `turn/steer` on the running Codex turn and shows up as a further
   `user-message` of that turn; the returned handle is the running turn's. A
-  refused steer is a recoverable `error` inside the turn.
+  refused steer is a recoverable `error` inside the turn; one Codex answers
+  after the turn already ended is a recoverable session-level `error`.
+
+### Changed
+
+- A prompt carrying a `file` or `resource` part is refused before any event
+  (`promptParts: 'text+image'` is enforced by the session core) — the turn used
+  to start, emit its `user-message`, and only then fail.
 
 ### Fixed
 

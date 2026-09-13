@@ -37,7 +37,7 @@ export interface FakeAppServerOptions {
     /** Fields merged over the default `thread/start` response (an unusual approval policy or sandbox). */
     readonly thread?: Partial<Omit<ThreadStartResponse, 'thread'>>;
     /** Replace the `turn/steer` handler (throw to refuse). The default accepts input for the active turn only. */
-    readonly steer?: (params: TurnSteerParams) => TurnSteerResponse;
+    readonly steer?: (params: TurnSteerParams) => TurnSteerResponse | Promise<TurnSteerResponse>;
 }
 
 export interface FakeAppServer {
