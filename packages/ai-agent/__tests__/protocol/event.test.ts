@@ -8,6 +8,8 @@ describe('protocol', () => {
     it('isAgentEvent accepts stamped events of a known type and rejects the rest', () => {
         expect(isAgentEvent({ ...base, type: 'state', value: 'idle' })).toBe(true);
         expect(isAgentEvent({ ...base, type: 'ext', ns: 'coding', name: 'diff', data: {} })).toBe(true);
+        expect(isAgentEvent({ ...base, type: 'agent-start', agentId: 'a1', callId: 'c1' })).toBe(true);
+        expect(isAgentEvent({ ...base, type: 'agent-update', agentId: 'a1', status: 'running' })).toBe(true);
         expect(isAgentEvent({ type: 'state', value: 'idle' })).toBe(false);
         expect(isAgentEvent({ ...base, type: 'nope' })).toBe(false);
         expect(isAgentEvent(null)).toBe(false);
@@ -20,6 +22,9 @@ describe('protocol', () => {
             { ...base, type: 'part-delta', turnId: 't1', partId: 'p', delta: 'héllo 🚀' },
             { ...base, type: 'tool-call', turnId: 't1', callId: 'c', name: 'read', input: { path: 'a' }, annotations: { readOnly: true }, category: 'read' },
             { ...base, type: 'tool-update', turnId: 't1', callId: 'c', status: 'completed', content: [{ type: 'json', value: { ok: true } }] },
+            { ...base, type: 'agent-start', turnId: 't1', parentCallId: 'c', agentId: 'a', callId: 'c', kind: 'reviewer', title: 'Review', description: 'Check the diff', model: 'claude-opus-5', depth: 1, background: false },
+            { ...base, type: 'agent-update', turnId: 't1', parentCallId: 'c', agentId: 'a', status: 'completed', summary: 'done', usage: { totalTokens: 12 }, costUsd: 0.001, output: { ok: true } },
+            { ...base, type: 'agent-update', turnId: 't1', agentId: 'b', status: 'failed', error: { code: 'provider_error', message: 'boom' } },
             { ...base, type: 'request', turnId: 't1', requestId: 'r', kind: 'permission', callId: 'c', toolName: 'read', permissionKey: 'read:a' },
             { ...base, type: 'request-resolved', turnId: 't1', requestId: 'r', outcome: 'allow', scope: 'once', by: 'policy', ruleId: 'allowAll', at: 1 },
             { ...base, type: 'turn-end', turnId: 't1', stopReason: 'end_turn', usage: { inputTokens: 1 }, costUsd: 0.01, output: { a: 1 } },
@@ -31,7 +36,8 @@ describe('protocol', () => {
 
     it('capabilities() layers a patch over NO_CAPABILITIES', () => {
         expect(capabilities()).toEqual(NO_CAPABILITIES);
-        expect(capabilities({ cancel: true, tools: 'mcp' })).toMatchObject({ cancel: true, tools: 'mcp', resume: false, permissions: 'none' });
+        expect(capabilities({ cancel: true, tools: 'mcp' })).toMatchObject({ cancel: true, tools: 'mcp', resume: false, permissions: 'none', subagents: 'none', defineAgents: false });
+        expect(capabilities({ subagents: 'control', defineAgents: true })).toMatchObject({ subagents: 'control', defineAgents: true });
     });
 
     it('prompt helpers', () => {
