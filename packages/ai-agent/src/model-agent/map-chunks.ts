@@ -105,12 +105,10 @@ export function createChunkMapper(driver: TurnDriver, options: { readonly messag
                     closePart();
                     settleOpenCalls();
                     if (chunk.usage) driver.emit({ type: 'usage', scope: 'turn', usage: chunk.usage });
-                    // `finish.output` is the structured result (signalxjs/ai#38).
-                    const output = (chunk as { readonly output?: unknown }).output;
                     driver.end({
                         stopReason: toStopReason(chunk.reason, hitStepLimit),
                         ...(chunk.usage ? { usage: chunk.usage } : {}),
-                        ...(output !== undefined ? { output } : {})
+                        ...(chunk.output !== undefined ? { output: chunk.output } : {})
                     });
                     break;
                 }
