@@ -88,6 +88,10 @@ describe('agentConformance', () => {
         const unbound: EventOf<'agent-start'> = { ...base, seq: 2, type: 'agent-start', agentId: 'a1', callId: 'nope' };
         const unboundDone: EventOf<'agent-update'> = { ...base, seq: 3, type: 'agent-update', agentId: 'a1', status: 'completed' };
         expect(() => checkEventInvariants([turnStart, unbound, unboundDone, { ...turnEnd, seq: 4 }])).toThrow(/agent "a1" .*callId "nope"/);
+        // Two agents bound to the same spawning call.
+        const twin: EventOf<'agent-start'> = { ...start, seq: 4, agentId: 'a2' };
+        const twinDone: EventOf<'agent-update'> = { ...done, seq: 6, agentId: 'a2' };
+        expect(() => checkEventInvariants([turnStart, call, start, twin, { ...done, seq: 5 }, twinDone, { ...settle, seq: 7 }, { ...turnEnd, seq: 8 }])).toThrow(/agent "a2" .*callId "c1", already bound to agent "a1"/);
         // Updated before it started.
         expect(() => checkEventInvariants([turnStart, call, { ...done, seq: 3 }, { ...settle, seq: 4 }, { ...turnEnd, seq: 5 }])).toThrow(/agent-update for unknown agentId "a1"/);
         // Never reached a terminal status.

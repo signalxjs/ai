@@ -24,6 +24,8 @@ export function checkEventInvariants(events: readonly AgentEvent[]): void {
     const turnEnds = new Map<string, number>();
     const calls = new Map<string, string>();
     const agents = new Map<string, string>();
+    /** callId → agentId: a spawning call binds at most one agent, or `spawnedAgent` is ambiguous. */
+    const spawnedBy = new Map<string, string>();
     const requests = new Map<string, number>();
     const resolved = new Map<string, number>();
 
@@ -59,7 +61,12 @@ export function checkEventInvariants(events: readonly AgentEvent[]): void {
                 break;
             case 'agent-start':
                 assert(!agents.has(e.agentId), `agent "${e.agentId}" started twice (seq ${e.seq})`);
-                if (e.callId !== undefined) assert(calls.has(e.callId), `agent "${e.agentId}" at seq ${e.seq} is bound to callId "${e.callId}" before its tool-call`);
+                if (e.callId !== undefined) {
+                    assert(calls.has(e.callId), `agent "${e.agentId}" at seq ${e.seq} is bound to callId "${e.callId}" before its tool-call`);
+                    const other = spawnedBy.get(e.callId);
+                    assert(other === undefined, `agent "${e.agentId}" at seq ${e.seq} is bound to callId "${e.callId}", already bound to agent "${other}"`);
+                    spawnedBy.set(e.callId, e.agentId);
+                }
                 agents.set(e.agentId, 'running');
                 break;
             case 'agent-update':
