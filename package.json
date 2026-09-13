@@ -17,6 +17,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:scripts": "node --test scripts/*.test.mjs scripts/lib/*.test.mjs",
     "typecheck": "tsgo --noEmit && pnpm --filter chat-example typecheck",
     "lint": "oxlint packages/ai/src packages/ai-agent/src packages/ai-anthropic/src packages/ai-openai/src examples/chat/src",
     "lint:fix": "oxlint --fix packages/ai/src packages/ai-agent/src packages/ai-anthropic/src packages/ai-openai/src examples/chat/src",

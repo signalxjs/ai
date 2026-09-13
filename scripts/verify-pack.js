@@ -8,6 +8,7 @@
  *   - broken `exports` map (every runtime subpath is imported)
  *   - dist/ produced by stale builds
  *   - a `workspace:` / `catalog:` range that survived into a tarball manifest
+ *   - an in-repo peer/runtime range left behind by a version bump
  *
  * What it does:
  *   1. Build the packages (delegates to `pnpm run build`).
@@ -28,6 +29,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync, readdirSync } from 'fs'
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { tmpdir } from 'os';
+import { assertInRepoRanges, isPackTimeSpecifier } from './lib/ranges.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, '..');
@@ -76,18 +78,23 @@ function packPackage(pkgPath) {
     return { name: pkgJson.name, version: pkgJson.version, tarball: join(tarballDir, match) };
 }
 
-/** A tarball manifest must carry concrete ranges — `pnpm pack` rewrites them, this proves it did. */
-function assertConcreteRanges(pkgPath) {
-    const pkg = readJson(join(rootDir, pkgPath, 'package.json'));
-    for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
-        for (const [dep, spec] of Object.entries(pkg[field] ?? {})) {
-            if (spec === 'workspace:*' || spec.startsWith('workspace:')) {
-                // `pnpm pack` rewrites workspace: ranges; catalog: too. Nothing to do here —
-                // the scratch install below fails loudly if the rewrite did not happen.
-                console.log(`   (${pkg.name} ${field}.${dep} = ${spec} — rewritten at pack time)`);
+/**
+ * A tarball manifest must carry concrete ranges. `workspace:` / `catalog:`
+ * are rewritten by `pnpm pack` (the scratch install below fails loudly if
+ * they were not); a literal in-repo range (`"@sigx/ai": "^0.1.0"`) is ours,
+ * and must satisfy the sibling version being packed — otherwise the family
+ * publishes as tarballs that cannot install together. `assertInRepoRanges`
+ * throws on the first stale one.
+ */
+function assertConcreteRanges(manifests) {
+    for (const pkg of manifests) {
+        for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
+            for (const [dep, spec] of Object.entries(pkg[field] ?? {})) {
+                if (isPackTimeSpecifier(spec)) console.log(`   (${pkg.name} ${field}.${dep} = ${spec} — rewritten at pack time)`);
             }
         }
     }
+    assertInRepoRanges(manifests);
 }
 
 function main() {
@@ -99,7 +106,7 @@ function main() {
     run('pnpm run build', { cwd: rootDir });
 
     step('Pack publishable packages');
-    for (const p of PACKAGES) assertConcreteRanges(p);
+    assertConcreteRanges(PACKAGES.map((p) => readJson(join(rootDir, p, 'package.json'))));
     const packed = PACKAGES.map(packPackage);
     for (const p of packed) {
         console.log(`   ${p.name}@${p.version}  ->  ${p.tarball}`);

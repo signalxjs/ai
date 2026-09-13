@@ -147,6 +147,7 @@ pnpm test -t "name of test"        # single test by name (vitest -t)
                                    # args natively; the `--` is npm-only.
 pnpm test:watch
 pnpm test:coverage
+pnpm test:scripts   # node:test suites for the release/tooling scripts under scripts/
 pnpm typecheck   # tsgo (a fast TS compiler) over the packages, then the example against its own tsconfig
 pnpm lint        # oxlint over the packages' and example's src
 pnpm lint:fix
