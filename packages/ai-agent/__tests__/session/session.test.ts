@@ -39,15 +39,143 @@ describe('createSessionCore', () => {
         expect((await third.result).stopReason).toBe('end_turn');
     });
 
-    it('with steer, concurrent prompts are allowed', async () => {
-        const { core: c } = core({ steer: true });
-        const a = c.startTurn('a', undefined, async (d) => {
-            await tick(5);
-            d.end({ stopReason: 'end_turn' });
+    describe('steer', () => {
+        it('a prompt while a turn runs steers it: same id and result, one turn, the parts reach onSteer', async () => {
+            const { core: c, log } = core({ steer: true });
+            const all = collect(log.subscribe());
+            const steered: string[] = [];
+            let release!: () => void;
+            const a = c.startTurn('a', undefined, async (d, ctx) => {
+                ctx.onSteer((parts) => {
+                    steered.push(parts.map((p) => (p.type === 'text' ? p.text : p.type)).join(''));
+                    d.emit({ type: 'user-message', messageId: `u:${d.turnId}:${steered.length}`, parts });
+                });
+                await new Promise<void>((r) => (release = r));
+                d.end({ stopReason: 'end_turn' });
+            });
+            await tick();
+            const b = c.startTurn('also b', { turnId: 'ignored', output: { schema: { type: 'object' } } }, async (d) => d.end({ stopReason: 'error' }));
+            expect(b.id).toBe(a.id);
+            expect(steered).toEqual(['also b']);
+            // The steer handle iterates the running turn from the steer on.
+            const seen = collect(b);
+            release();
+            expect(await b.result).toEqual(await a.result);
+            expect((await a.result).stopReason).toBe('end_turn');
+            expect(types(await seen)).toEqual(['user-message', 'turn-end']);
+            await c.close();
+            const events = await all;
+            expect(events.filter((e) => e.type === 'turn-start')).toHaveLength(1);
+            expect(events.filter((e) => e.type === 'turn-end')).toHaveLength(1);
+            expect(events.find((e) => e.type === 'user-message')).toMatchObject({ turnId: a.id, parts: [{ type: 'text', text: 'also b' }] });
         });
-        const b = c.startTurn('b', undefined, async (d) => d.end({ stopReason: 'end_turn' }));
-        expect((await b.result).stopReason).toBe('end_turn');
-        expect((await a.result).stopReason).toBe('end_turn');
+
+        it('a steer before onSteer is registered is queued and flushed on registration', async () => {
+            const { core: c } = core({ steer: true });
+            const steered: string[] = [];
+            let register!: () => void;
+            const a = c.startTurn('a', undefined, async (d, ctx) => {
+                await new Promise<void>((r) => (register = r));
+                ctx.onSteer((parts) => steered.push(parts.map((p) => (p.type === 'text' ? p.text : '')).join('')));
+                await tick();
+                d.end({ stopReason: 'end_turn' });
+            });
+            await tick();
+            c.startTurn('first', undefined, async (d) => d.end({ stopReason: 'end_turn' }));
+            c.startTurn('second', undefined, async (d) => d.end({ stopReason: 'end_turn' }));
+            expect(steered).toEqual([]);
+            register();
+            await a.result;
+            expect(steered).toEqual(['first', 'second']);
+        });
+
+        it('without the steer capability a prompt during a turn still rejects with SessionBusyError', async () => {
+            const { core: c } = core({ steer: false });
+            const a = c.startTurn('a', undefined, async (d) => {
+                await tick(5);
+                d.end({ stopReason: 'end_turn' });
+            });
+            await expect(c.startTurn('b', undefined, async (d) => d.end({ stopReason: 'end_turn' })).result).rejects.toBeInstanceOf(SessionBusyError);
+            await a.result;
+        });
+
+        it('steer() with no running turn fails; a steer is gated by promptParts like a prompt', async () => {
+            const { core: c } = core({ steer: true, promptParts: 'text' });
+            await expect(c.steer('nothing to join').result).rejects.toMatchObject({ code: 'protocol_error', message: expect.stringContaining('no turn is running') });
+            const steered: unknown[] = [];
+            let release!: () => void;
+            const a = c.startTurn('a', undefined, async (d, ctx) => {
+                ctx.onSteer((parts) => steered.push(parts));
+                await new Promise<void>((r) => (release = r));
+                d.end({ stopReason: 'end_turn' });
+            });
+            await tick();
+            const refused = c.startTurn([{ type: 'image', mediaType: 'image/png', data: 'AA==' }], undefined, async (d) => d.end({ stopReason: 'end_turn' }));
+            await expect(refused.result).rejects.toThrow(/image part/);
+            expect(steered).toEqual([]);
+            release();
+            await a.result;
+        });
+    });
+
+    describe('attach', () => {
+        it('respond() answers its own request first and forwards unknown ids to attachments', async () => {
+            const { core: c } = core();
+            const forwarded: string[] = [];
+            const detach = c.attach({ respond: async (requestId) => void forwarded.push(requestId) });
+            const turn = c.startTurn('hi', undefined, async (d, ctx) => {
+                await ctx.resolve({ kind: 'permission', toolName: 'rm', source: 'client' });
+                d.end({ stopReason: 'end_turn' });
+            });
+            for await (const e of turn) {
+                if (e.type === 'request') await c.respond(e.requestId, { type: 'permission', outcome: 'allow', scope: 'once' });
+            }
+            expect(forwarded).toEqual([]);
+            await c.respond('child-req', { type: 'cancel' });
+            expect(forwarded).toEqual(['child-req']);
+            detach();
+            await c.respond('after-detach', { type: 'cancel' });
+            expect(forwarded).toEqual(['child-req']);
+        });
+
+        it('cancel({ agentId }) forwards to attachments with subagents: control, and is refused otherwise', async () => {
+            const { core: c } = core({ subagents: 'control' });
+            const targets: string[] = [];
+            c.attach({ cancel: async (t) => void targets.push(t.agentId!) });
+            let cancelled = false;
+            const turn = c.startTurn('hi', undefined, async (d) => {
+                await new Promise<void>((r) => d.signal.addEventListener('abort', () => r(), { once: true }));
+                cancelled = true;
+                d.end({ stopReason: 'end_turn' });
+            });
+            await tick();
+            await c.cancel({ agentId: 'child' });
+            expect(targets).toEqual(['child']);
+            expect(cancelled).toBe(false);
+            // Naming the session itself is the plain cancel.
+            await c.cancel({ agentId: 's' });
+            expect((await turn.result).stopReason).toBe('cancelled');
+
+            const { core: observe } = core({ subagents: 'observe' });
+            await expect(observe.cancel({ agentId: 'child' })).rejects.toMatchObject({ code: 'protocol_error' });
+            const { core: none } = core();
+            await expect(none.cancel({ agentId: 'child' })).rejects.toMatchObject({ code: 'protocol_error' });
+            await expect(none.cancel()).resolves.toBeUndefined();
+        });
+
+        it('resolve() with a parentCallId stamps the request and its resolution', async () => {
+            const { core: c } = core();
+            const turn = c.startTurn('hi', undefined, async (d, ctx) => {
+                await ctx.resolve({ kind: 'permission', toolName: 'rm', source: 'client' }, { parentCallId: 'call_1' });
+                d.end({ stopReason: 'end_turn' });
+            });
+            const seen: AgentEvent[] = [];
+            for await (const e of turn) {
+                seen.push(e);
+                if (e.type === 'request') await c.respond(e.requestId, { type: 'permission', outcome: 'deny', scope: 'once' });
+            }
+            expect(seen.filter((e) => e.type === 'request' || e.type === 'request-resolved').map((e) => e.parentCallId)).toEqual(['call_1', 'call_1']);
+        });
     });
 
     it('resolve() asks the client, respond() answers, state goes awaiting and back', async () => {

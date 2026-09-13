@@ -27,11 +27,26 @@ export interface SessionSummary {
     readonly updatedAt?: number;
 }
 
+/** A sub-agent the session may spawn by name (`defineAgents` capability). */
+export interface AgentDefinition {
+    /** When to delegate to it — what the model reads. */
+    readonly description: string;
+    /** The sub-agent's system prompt. */
+    readonly prompt?: string;
+    /** Names of the session's tools it may use; default: all. */
+    readonly tools?: readonly string[];
+    readonly model?: string;
+    /** Model rounds per delegation (`maxSteps` on our engine, `maxTurns` on Claude Code). */
+    readonly maxTurns?: number;
+}
+
 /** Adapters extend this with typed options (`cwd`, an executable path, …). */
 export interface SessionOptions {
     readonly system?: string;
     readonly model?: string;
     readonly tools?: readonly AnyTool[];
+    /** Sub-agents the model may spawn, keyed by name (`defineAgents` capability). */
+    readonly agents?: Readonly<Record<string, AgentDefinition>>;
     readonly policy?: Policy;
     /** `false`: no human — `'ask'` falls back to deny. Default `true`. */
     readonly interactive?: boolean;
@@ -76,13 +91,27 @@ export interface EventCursor {
     readonly seq: number;
 }
 
+/** What `cancel` aims at: nothing (the running turn) or one sub-agent. */
+export interface CancelTarget {
+    /** A sub-agent's `agentId` (`subagents: 'control'`); the session's own id means the running turn. */
+    readonly agentId?: string;
+}
+
 export interface AgentSession {
     readonly id: string;
     readonly ref: SessionRef;
+    /**
+     * Run a turn — or, while one runs and the agent has `steer`, inject into it:
+     * the returned turn then has the RUNNING turn's `id` and `result` and
+     * iterates that turn's events from the steer on (`turnId` and `output`
+     * in `options` are ignored). Without `steer`, a prompt during a turn
+     * rejects with `SessionBusyError`.
+     */
     prompt(input: PromptInput, options?: PromptOptions): AgentTurn;
-    /** Answer an open `request`; a late answer resolves without effect. */
+    /** Answer an open `request` — at any depth with `subagents: 'control'`; a late answer resolves without effect. */
     respond(requestId: string, decision: Decision): Promise<void>;
-    cancel(): Promise<void>;
+    /** Cancel the running turn, or one sub-agent (`subagents: 'control'`). A target that no longer runs is a no-op. */
+    cancel(target?: CancelTarget): Promise<void>;
     /** Change a `config` option (`config` capability). */
     configure?(patch: Readonly<Record<string, string>>): Promise<void>;
     /** Every event from `from` (exclusive) on; without `from`, live from now. */

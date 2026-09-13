@@ -10,6 +10,7 @@ export { AgentError, SessionBusyError } from './errors.js';
 export type {
     StopReason,
     ToolStatus,
+    AgentStatus,
     SessionState,
     ResolvedBy,
     RequestOutcome,
