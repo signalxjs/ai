@@ -5,6 +5,20 @@
 
 export type FinishReason = 'stop' | 'length' | 'tool' | 'refusal' | 'error' | 'other';
 
+/**
+ * Token counts for a turn. `inputTokens` and `outputTokens` are the two every
+ * provider reports; the index signature carries whatever else one does.
+ *
+ * Extra keys are open, but the ones below are **well-known conventions**: an
+ * adapter that has the number reports it under this name, so a client can read
+ * it without knowing which provider produced it.
+ *
+ * | Key | Means |
+ * |---|---|
+ * | `reasoningTokens` | of `outputTokens`, how many were reasoning/thinking — a BREAKDOWN, never an addition. Anthropic's `output_tokens_details.thinking_tokens`, OpenAI's `output_tokens_details.reasoning_tokens`, ACP's `thoughtTokens`, Codex's `reasoningOutputTokens`. A harness that redacts reasoning text (Claude Code) may stream it as it goes, so it doubles as the one neutral "still thinking" signal. |
+ * | `cacheReadInputTokens` / `cacheCreationInputTokens` | prompt-cache reads and writes |
+ * | `totalTokens` | the provider's own total, when it reports one |
+ */
 export interface Usage {
     inputTokens?: number;
     outputTokens?: number;

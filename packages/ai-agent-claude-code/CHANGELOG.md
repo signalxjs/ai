@@ -24,3 +24,19 @@ versions follow [SemVer](https://semver.org/).
   `ASK_USER_QUESTION`, `parseQuestions`, `questionId`, `questionsSchema`,
   `questionOptions`, `questionsMessage` and `toAskAnswers` are exported for
   clients that want to render or replay the same shape.
+- Redacted thinking is visible without knowing the namespace. Claude Code does
+  not expose thinking TEXT: it streams `thinking_delta`s carrying `''` and
+  reports progress on its own `system/thinking_tokens` frames. An empty delta
+  is no longer emitted as a `part-delta` (the same guard applies to
+  `text_delta`), so a thinking block costs frames only when it says something;
+  and every progress frame now also goes out as `usage { scope: 'turn',
+  usage: { reasoningTokens } }` — turn-scope usage is additive and
+  `estimated_tokens_delta` is the increment, so the well-known
+  `Usage.reasoningTokens` key grows live while the block runs and any client
+  can show "thinking…". The raw frame still ships as
+  `ext { ns: 'claude-code', name: 'thinking_tokens' }`. The streamed figure is
+  the CLI's own estimate; the billed count (`usage.output_tokens_details
+  .thinking_tokens`, and `modelUsage[].thinkingTokens` for the session) now
+  lands on `turn-end` and on the session-scope `usage`, which assign and so
+  supersede it — it is deliberately left off the turn-scope event at `result`,
+  which would add it a second time.

@@ -54,7 +54,10 @@ export function toUsage(u: TokenUsageBreakdown): Usage {
         totalTokens: u.totalTokens,
         cachedInputTokens: u.cachedInputTokens,
         cacheWriteInputTokens: u.cacheWriteInputTokens,
-        reasoningOutputTokens: u.reasoningOutputTokens
+        // `reasoningTokens`, not Codex's own spelling: the well-known `Usage`
+        // key every adapter reports the reasoning breakdown under (see `Usage`
+        // in `@sigx/ai`).
+        reasoningTokens: u.reasoningOutputTokens
     };
 }
 

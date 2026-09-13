@@ -14,3 +14,6 @@ follow [SemVer](https://semver.org/).
   questions through the session policy, `defineTool` tools as dynamic tools,
   structured output via `outputSchema`, `coding.*` extension events for
   commands, patches and plans, `config` from `model/list`.
+- `thread/tokenUsage/updated`'s `reasoningOutputTokens` is reported as
+  `usage.reasoningTokens`, the well-known `Usage` key every adapter uses for
+  the reasoning breakdown, instead of Codex's own spelling.

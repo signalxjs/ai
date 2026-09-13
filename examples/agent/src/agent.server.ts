@@ -94,7 +94,14 @@ function demoModel(): LanguageModel {
             }
             const asked = last?.role === 'user' && typeof last.content === 'string' ? last.content : '';
             if (/incident|restart|deploy|outage|check/i.test(asked)) {
-                return { toolCalls: [{ name: 'list_incidents', input: {} }], delayMs: 30 };
+                // Reasoning the harness EXPOSES, so the transcript shows the
+                // other half of the story: Claude Code redacts its thinking
+                // and the view renders a live indicator instead (#77/#78).
+                return {
+                    reasoning: 'The operator wants the incident list. `list_incidents` is annotated read-only, so the policy lets it run unasked; anything that restarts a service has to stop and ask.',
+                    toolCalls: [{ name: 'list_incidents', input: {} }],
+                    delayMs: 30
+                };
             }
             return {
                 text: 'Hello from the scripted mock model. Ask about the incidents to see a read-only tool run unasked and a destructive one stop for your approval — or set ANTHROPIC_API_KEY / OPENAI_API_KEY for a real model.',

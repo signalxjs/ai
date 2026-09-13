@@ -153,10 +153,18 @@ export function createTurnMapper(options: TurnMapperOptions): TurnMapper {
                 const b = open.get(Number(event.index));
                 const delta = event.delta as Block;
                 if (!b) break;
-                if (delta.type === 'text_delta' && b.kind === 'text') driver.emit({ type: 'part-delta', partId: b.partId!, delta: String(delta.text), ...pc });
-                else if (delta.type === 'thinking_delta' && b.kind === 'thinking') {
-                    b.thinking = (b.thinking ?? '') + String(delta.thinking);
-                    driver.emit({ type: 'part-delta', partId: b.partId!, delta: String(delta.thinking), ...pc });
+                // An EMPTY delta is not an event: Claude Code redacts thinking
+                // text and still streams one `thinking_delta` per progress tick
+                // with `thinking: ''` (issue #77), which would cost a `seq`,
+                // replay and coalesce while saying nothing. The text is still
+                // accumulated, so a harness that does expose it is unaffected.
+                if (delta.type === 'text_delta' && b.kind === 'text') {
+                    const text = String(delta.text);
+                    if (text) driver.emit({ type: 'part-delta', partId: b.partId!, delta: text, ...pc });
+                } else if (delta.type === 'thinking_delta' && b.kind === 'thinking') {
+                    const text = String(delta.thinking);
+                    b.thinking = (b.thinking ?? '') + text;
+                    if (text) driver.emit({ type: 'part-delta', partId: b.partId!, delta: text, ...pc });
                 } else if (delta.type === 'signature_delta' && b.kind === 'thinking') b.signature = (b.signature ?? '') + String(delta.signature);
                 else if (delta.type === 'input_json_delta' && b.kind === 'tool_use') b.json = (b.json ?? '') + String(delta.partial_json);
                 break;
@@ -302,7 +310,12 @@ function emitResult(driver: TurnDriver, result: SDKResultMessage, options: TurnM
     const usage = toUsage(result.usage as unknown as Record<string, unknown> | undefined);
     const total = typeof result.total_cost_usd === 'number' ? result.total_cost_usd : undefined;
     const delta = total !== undefined ? Math.max(0, total - options.previousCostUsd()) : undefined;
-    if (usage) driver.emit({ type: 'usage', scope: 'turn', usage, ...(delta !== undefined ? { costUsd: delta } : {}) });
+    // A turn-scope `usage` event ADDS, and the estimate already streamed
+    // frame by frame while the thinking block ran — so the billed
+    // `reasoningTokens` is left out of this one and lands only where usage is
+    // ASSIGNED: the session-scope event below (which replaces the running
+    // estimate with the real figure) and the `turn-end` record.
+    if (usage) driver.emit({ type: 'usage', scope: 'turn', usage: withoutReasoning(usage), ...(delta !== undefined ? { costUsd: delta } : {}) });
     if (total !== undefined) driver.emit({ type: 'usage', scope: 'session', usage: sessionUsage(result), costUsd: total });
 
     let stopReason: StopReason;
@@ -343,7 +356,17 @@ function toUsage(u: Record<string, unknown> | undefined): Usage | undefined {
         const v = num(from);
         if (v !== undefined) out[to] = v;
     }
+    // The billed thinking tokens — a BREAKDOWN of `output_tokens`, not an
+    // addition to them, and the same key the Anthropic provider reports.
+    const thinking = (u.output_tokens_details as { thinking_tokens?: unknown } | undefined)?.thinking_tokens;
+    if (typeof thinking === 'number') out.reasoningTokens = thinking;
     return Object.keys(out).length ? out : undefined;
+}
+
+/** The same usage without the reasoning breakdown — for the additive turn-scope event. */
+function withoutReasoning(usage: Usage): Usage {
+    const { reasoningTokens: _streamed, ...rest } = usage;
+    return rest;
 }
 
 /** Cumulative tokens across every model call of the query (`modelUsage`), summed. */
@@ -351,7 +374,7 @@ function sessionUsage(result: SDKResultMessage): Usage {
     const out: Usage = {};
     const models = (result as { modelUsage?: Record<string, Record<string, unknown>> }).modelUsage ?? {};
     for (const m of Object.values(models)) {
-        for (const [k, to] of [['inputTokens', 'inputTokens'], ['outputTokens', 'outputTokens'], ['cacheReadInputTokens', 'cacheReadInputTokens'], ['cacheCreationInputTokens', 'cacheCreationInputTokens']] as const) {
+        for (const [k, to] of [['inputTokens', 'inputTokens'], ['outputTokens', 'outputTokens'], ['cacheReadInputTokens', 'cacheReadInputTokens'], ['cacheCreationInputTokens', 'cacheCreationInputTokens'], ['thinkingTokens', 'reasoningTokens']] as const) {
             if (typeof m[k] === 'number') out[to] = (out[to] ?? 0) + (m[k] as number);
         }
     }
@@ -381,6 +404,19 @@ export function mapSessionMessage(message: SDKMessage, emit: Emit): void {
                 if (m.state === 'requires_action') emit({ type: 'state', value: 'awaiting' });
             } else if (m.subtype === 'permission_denied') {
                 emit({ type: 'tool-update', callId: String(m.tool_use_id), status: 'denied', error: `Tool "${String(m.tool_name)}" was denied by Claude Code's settings.` });
+            } else if (m.subtype === 'thinking_tokens') {
+                // The ONLY live signal that a redacted thinking block is
+                // running. `estimated_tokens_delta` is this frame's increment
+                // and turn-scope usage is additive, so the neutral
+                // `reasoningTokens` key grows while the block streams and any
+                // client — not just one that knows this namespace — can show
+                // progress. It is the CLI's own estimate ("for spinners/pills",
+                // says the SDK); the billed count arrives with the result and
+                // supersedes it there (see `emitResult`). The raw frame still
+                // goes out as an `ext` for clients that want `estimated_tokens`.
+                const delta = (m as { estimated_tokens_delta?: unknown }).estimated_tokens_delta;
+                if (typeof delta === 'number' && delta > 0) emit({ type: 'usage', scope: 'turn', usage: { reasoningTokens: delta } });
+                emit({ type: 'ext', ns: CLAUDE_CODE_NS, name: m.subtype, data: strip(m) });
             } else emit({ type: 'ext', ns: CLAUDE_CODE_NS, name: m.subtype, data: strip(m) });
             break;
         }

@@ -84,7 +84,10 @@ export function createReducer(options: CreateReducerOptions = {}): AgentReducer 
             }
             case 'part-end': {
                 const part = findPart(t, e.partId);
-                if (part && part.type === 'reasoning' && e.providerData !== undefined) part.providerData = e.providerData;
+                if (part && part.type === 'reasoning') {
+                    part.done = true;
+                    if (e.providerData !== undefined) part.providerData = e.providerData;
+                }
                 break;
             }
             case 'tool-call': {
