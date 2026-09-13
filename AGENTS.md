@@ -271,9 +271,12 @@ its subpaths) and the provider packages to `packages/*/src`, so tests and
 typecheck run against source, not dist. A new entry or package is added to
 BOTH maps (plus `examples/chat/tsconfig.json` and
 `examples/agent/tsconfig.json`), to `.size-limit.json`, to the root
-`build`/`lint`/`typecheck` scripts, to `ENTRIES` in `scripts/verify-pack.js`,
-and — for a new package — to `PACKAGES` in `scripts/publish.js` and
-`scripts/verify-pack.js`.
+`build`/`lint`/`typecheck` scripts, and to `scripts/lib/packages.mjs` — the
+one list of published packages (`PACKAGES`, dependency order) and runtime
+entries (`ENTRIES`) that `scripts/publish.js` and `scripts/verify-pack.js`
+import. `scripts/lib/packages.test.mjs` (run by `pnpm test:scripts`) checks
+that list and `.size-limit.json` against every `package.json`, so a missed
+place fails CI rather than a release.
 
 Source layout (`packages/ai/src`):
 
