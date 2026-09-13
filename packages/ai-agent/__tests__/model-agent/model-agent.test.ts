@@ -277,6 +277,18 @@ describe('modelAgent', () => {
         // Without pricing there is no cost.
         const plain = agentWith({ script: [{ text: 'hi', usage: { outputTokens: 5 } }] });
         expect((await (await plain.agent.session()).prompt('go').result).costUsd).toBeUndefined();
+        // A pricing hook that throws or returns nonsense leaves the cost unknown; the turn still ends.
+        const throwing = agentWith({ script: [{ text: 'hi', usage: { outputTokens: 5 } }] }, {
+            pricing: () => {
+                throw new Error('no price list');
+            }
+        });
+        const r = await drain((await throwing.agent.session()).prompt('go'));
+        expect(r.result).toMatchObject({ stopReason: 'end_turn', usage: { outputTokens: 5 } });
+        expect(r.result.costUsd).toBeUndefined();
+        expect(r.events.find((e) => e.type === 'usage')).not.toHaveProperty('costUsd');
+        const nan = agentWith({ script: [{ text: 'hi', usage: { outputTokens: 5 } }] }, { pricing: () => Number.NaN });
+        expect((await (await nan.agent.session()).prompt('go').result).costUsd).toBeUndefined();
     });
 
     it('prompt parts outside promptParts are refused before the turn starts', async () => {

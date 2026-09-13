@@ -24,6 +24,18 @@ export interface ChunkMapperOptions {
 /** The engine's own message for calls it refused to run at the step limit. */
 const STEP_LIMIT = /was not run: step limit/;
 
+/** A pricing hook that throws or returns a non-number leaves the cost unknown — it must never cost the turn its `turn-end`. */
+function priceOf(usage: Usage, pricing: ChunkMapperOptions['pricing']): number | undefined {
+    if (!pricing) return undefined;
+    try {
+        const cost = pricing(usage);
+        return typeof cost === 'number' && Number.isFinite(cost) ? cost : undefined;
+    } catch (e) {
+        if (__DEV__) console.warn('[sigx ai-agent] pricing() threw; the turn cost is left unknown', e);
+        return undefined;
+    }
+}
+
 export function createChunkMapper(driver: TurnDriver, options: ChunkMapperOptions): ChunkMapper {
     const { messageId } = options;
     let partSeq = 0;
@@ -111,7 +123,7 @@ export function createChunkMapper(driver: TurnDriver, options: ChunkMapperOption
                 case 'finish': {
                     closePart();
                     settleOpenCalls();
-                    const costUsd = chunk.usage ? options.pricing?.(chunk.usage) : undefined;
+                    const costUsd = chunk.usage ? priceOf(chunk.usage, options.pricing) : undefined;
                     const cost = costUsd !== undefined ? { costUsd } : {};
                     if (chunk.usage) driver.emit({ type: 'usage', scope: 'turn', usage: chunk.usage, ...cost });
                     driver.end({
