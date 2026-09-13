@@ -73,6 +73,31 @@ describe('coalesceFrames', () => {
         void it.return?.();
     });
 
+    it('a timer flush never drops the pull that was already in flight (a slow model streams every delta)', async () => {
+        seq = 0;
+        // A real model pauses between deltas. Every gap here is longer than
+        // `maxDelayMs`, so the timer wins EVERY race — the pull racing against
+        // it is still owed a frame, and an async iterator delivers each value
+        // exactly once. Abandoning it drops the frame for good.
+        const frames = [frame({ type: 'part-start', turnId: 't', messageId: 'm', partId: 'p', kind: 'text' } as never), delta('p', 'p'), delta('p', 'on'), delta('p', 'g'), frame({ type: 'part-end', turnId: 't', partId: 'p' } as never)];
+        const slow: AsyncIterable<WireFrame> = {
+            async *[Symbol.asyncIterator]() {
+                for (const f of frames) {
+                    await new Promise((r) => setTimeout(r, 12));
+                    yield f;
+                }
+            }
+        };
+        const out = await collect(coalesceFrames(slow, { maxDelayMs: 1 }));
+        expect(out.map((f) => (f.kind === 'event' ? f.event.type : f.kind))).toEqual(['part-start', 'part-delta', 'part-delta', 'part-delta', 'part-end']);
+        expect(
+            out
+                .filter((f): f is Extract<WireFrame, { kind: 'event' }> => f.kind === 'event' && f.event.type === 'part-delta')
+                .map((f) => (f.event as { delta: string }).delta)
+                .join('')
+        ).toBe('pong');
+    });
+
     it('a coalesced stream reduces to the same transcript as the original', async () => {
         const agent = mockAgent({ script: [[{ reasoning: 'thinking hard', text: 'Hello brave new world, this is a longer reply.' }, { tool: { name: 't', output: 1 } }, { text: 'Bye now.' }]] });
         const session = await agent.session({ policy: (r) => (r.kind === 'permission' ? { type: 'permission', outcome: 'allow', scope: 'once' } : 'ask') });
