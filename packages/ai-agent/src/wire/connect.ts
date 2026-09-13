@@ -261,7 +261,7 @@ function createClientTurn(sessionId: string, turnId: string, events: AsyncIterab
                 own.push(e);
                 wake();
                 if (e.type === 'turn-end') {
-                    const { type: _t, sessionId: _s, epoch: _e, seq: _q, turnId: _i, parentCallId: _p, raw: _r, ...payload } = e;
+                    const { type: _t, sessionId: _s, epoch: _e, seq: _q, turnId: _i, parentCallId: _p, ...payload } = e;
                     resolveResult({ turnId, ...payload });
                     finish();
                     return;

@@ -70,6 +70,21 @@ describe('agentTool', () => {
         expect(onEvent.map((e) => e.type)).toContain('turn-end');
     });
 
+    // Pinned red: the delegate's `usage` events are forwarded into the host turn and summed into the
+    // host session's totals. #92 attributes them to the sub-agent instead and flips this to `it`.
+    it.fails('child usage is attributed to the delegate, not summed into the host session totals', async () => {
+        const delegate = mockAgent({ script: [[{ text: 'x' }, { usage: { inputTokens: 100, outputTokens: 50 } }]] });
+        const ask = agentTool(delegate, { name: 'ask', description: 'x', input: question, prompt: (i) => i.question });
+        const model = mockModel({ respond: (_r, round) => ({ ...(round === 0 ? { toolCalls: [{ name: 'ask', input: { question: 'q' }, id: 'host1' }] } : { text: 'Summary.' }), usage: { inputTokens: 10, outputTokens: 5 } }) });
+        const session = await modelAgent({ model, tools: [ask] }).session({ policy: allowAll });
+        const all = collect(session.subscribe());
+        await session.prompt('go').result;
+        await session.close();
+        const t = createTranscript(session.id);
+        for (const e of await all) reduceAgentEvent(t, e);
+        expect(t.usage).toEqual({ inputTokens: 20, outputTokens: 10 });
+    });
+
     it('a plain defineTool still works as a host tool alongside agentTool', () => {
         const plain = defineTool({ name: 'plain', description: 'x', input: question, execute: (i) => i.question });
         expect(plain.spec.name).toBe('plain');

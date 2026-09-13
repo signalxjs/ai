@@ -70,3 +70,23 @@ follow [SemVer](https://semver.org/).
   joiner catches up, and takes the same `extensions` the headless reducer does.
   Peers on `@sigx/reactivity` and `@sigx/runtime-core`; the other entries do
   not.
+- `modelAgent`: `session({ resume, fork: true })` — a new session over a copy
+  of the transcript (`fork: true`); `pricing(usage)` reports `costUsd` on the
+  `usage` event, `turn.result` and the transcript.
+- `createSessionCore({ promptParts })` fails a prompt carrying a part beyond
+  the declared level before any event is emitted; `mockAgent` and `modelAgent`
+  pass theirs.
+
+### Fixed
+
+- Session grants survive resume: `modelAgent` and `mockAgent` seed the session
+  from the transcript's (or the ref's) grants, so a tool allowed for the session
+  is not asked again after `resume`.
+- `mockAgent` honours `importTranscript` (`ref.data.messages` is replayed into
+  the log through `fromUIMessages`) and its `cancel()` is a no-op without the
+  `cancel` capability.
+
+### Removed
+
+- `SessionOptions.raw` / `EventContext.raw` — declared, never produced by any
+  agent; vendor detail travels as JSON under `error.data` / `ext.data`.
