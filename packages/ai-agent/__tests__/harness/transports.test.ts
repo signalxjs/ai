@@ -74,6 +74,20 @@ describe('webSocketStreams', () => {
         await expect(writer.write(new Uint8Array([2]))).rejects.toThrow(/not open/);
     });
 
+    it('reads Blob-like frames; a failed read fails the readable instead of an unhandled rejection', async () => {
+        const ok = fakeSocket();
+        const okReader = webSocketStreams(ok).readable.getReader();
+        ok.receive({ arrayBuffer: () => Promise.resolve(new TextEncoder().encode('{"z":1}').buffer) });
+        expect(new TextDecoder().decode((await okReader.read()).value)).toBe('{"z":1}');
+
+        const bad = fakeSocket();
+        const { readable, closed } = webSocketStreams(bad);
+        const reader = readable.getReader();
+        bad.receive({ arrayBuffer: () => Promise.reject(new Error('blob read failed')) });
+        await expect(reader.read()).rejects.toThrow('blob read failed');
+        await closed;
+    });
+
     it('a socket that is already closing or closed never hangs a write', async () => {
         for (const state of [2, 3]) {
             const ws = fakeSocket(state);

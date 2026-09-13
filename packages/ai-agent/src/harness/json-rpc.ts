@@ -215,6 +215,11 @@ export function createJsonRpcPeer(options: JsonRpcPeerOptions): JsonRpcPeer {
                 void handleRequest(m.id, m.method, m.params);
                 return;
             }
+            if ('id' in m && m.id !== undefined) {
+                // An id of the wrong type is a malformed request, answered so the caller never hangs.
+                void respond(null, { error: { code: JSON_RPC.INVALID_REQUEST, message: 'Invalid request id' } });
+                return;
+            }
             if (cancelMethod !== null && m.method === cancelMethod) {
                 const target = (m.params as { requestId?: unknown } | undefined)?.requestId;
                 if (isId(target)) inflight.get(target)?.abort();

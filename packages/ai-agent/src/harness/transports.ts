@@ -46,9 +46,18 @@ export function webSocketStreams(ws: WebSocketLike): WebSocketStreams {
                 else if (data instanceof ArrayBuffer) controller.enqueue(new Uint8Array(data));
                 else if (ArrayBuffer.isView(data)) controller.enqueue(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
                 else if (data && typeof (data as { arrayBuffer?: unknown }).arrayBuffer === 'function') {
-                    void (data as { arrayBuffer(): Promise<ArrayBuffer> }).arrayBuffer().then((buf) => {
-                        if (!done) controller.enqueue(new Uint8Array(buf));
-                    });
+                    // A Blob frame: read it; a failed read cannot be skipped (framing would drift), so it fails the stream.
+                    (data as { arrayBuffer(): Promise<ArrayBuffer> }).arrayBuffer().then(
+                        (buf) => {
+                            if (!done) controller.enqueue(new Uint8Array(buf));
+                        },
+                        (e: unknown) => {
+                            if (done) return;
+                            done = true;
+                            controller.error(e instanceof Error ? e : new Error(String(e)));
+                            resolveClosed();
+                        }
+                    );
                 }
             };
             const finish = () => {
