@@ -9,7 +9,7 @@
  * result is an `AgentSession` a UI cannot tell from a local one.
  */
 
-import type { AgentCapabilities, AgentEvent, Decision, PromptInput } from '../protocol/index.js';
+import type { AgentCapabilities, AgentEvent, Decision, PromptInput, PromptPart } from '../protocol/index.js';
 import { AgentError, SessionBusyError, isAgentEvent, toPromptParts } from '../protocol/index.js';
 import type { AgentSession, AgentTurn, CancelTarget, PromptOptions, SessionRef, TurnResult } from '../session/index.js';
 import { generateId } from '../utils/id.js';
@@ -232,8 +232,9 @@ export async function connectSession(transport: SessionTransport, options: Conne
             }
             // Subscribe before the command goes out, so nothing the turn emits can slip past.
             const events = buffer.subscribe(from);
-            const reply = send({ type: 'prompt', turnId, input: toPromptParts(input), ...(output ? { output } : {}) });
-            return createClientTurn(first.sessionId, turnId, events, reply);
+            const parts = toPromptParts(input);
+            const reply = send({ type: 'prompt', turnId, input: parts, ...(output ? { output } : {}) });
+            return createClientTurn(first.sessionId, turnId, parts, events, reply);
         },
         respond: (requestId: string, decision: Decision) => sendOrThrow({ type: 'respond', requestId, decision }),
         cancel: (target?: CancelTarget) => sendOrThrow({ type: 'cancel', ...(target?.agentId !== undefined ? { agentId: target.agentId } : {}) }),
@@ -291,10 +292,17 @@ function safeJson(value: unknown): string {
  * before the ack are staged and filtered once the target is known — a late
  * joiner that never saw the running turn's `turn-start` still gets a handle
  * with the right `id`, the right `result` and the events from its steer on.
+ * "From the steer on" is the contract's own boundary: the `user-message` the
+ * steer puts in the running turn, carrying the parts this client sent. The
+ * local subscription started at the client's cursor, which can trail the
+ * server, so what precedes that message is the running turn's past and is
+ * dropped; a `turn-end` is never dropped, so `result` settles regardless.
  */
-function createClientTurn(sessionId: string, turnId: string, events: AsyncIterable<AgentEvent>, reply: Promise<WireReply>): AgentTurn {
+function createClientTurn(sessionId: string, turnId: string, sent: readonly PromptPart[], events: AsyncIterable<AgentEvent>, reply: Promise<WireReply>): AgentTurn {
     let target = turnId;
     let acked = false;
+    /** `waiting`: a steer whose own `user-message` has not been seen yet. */
+    let boundary: 'none' | 'waiting' | 'seen' = 'none';
     const staged: AgentEvent[] = [];
     let resolveResult!: (r: TurnResult) => void;
     let rejectResult!: (e: unknown) => void;
@@ -326,6 +334,10 @@ function createClientTurn(sessionId: string, turnId: string, events: AsyncIterab
 
     const accept = (e: AgentEvent) => {
         if (done || e.turnId !== target) return;
+        if (boundary === 'waiting') {
+            if (e.type === 'user-message' && e.parentCallId === undefined && sameParts(e.parts, sent)) boundary = 'seen';
+            else if (e.type !== 'turn-end') return;
+        }
         own.push(e);
         wake();
         if (e.type === 'turn-end') {
@@ -344,6 +356,7 @@ function createClientTurn(sessionId: string, turnId: string, events: AsyncIterab
                 return;
             }
             target = r.turnId ?? turnId;
+            if (target !== turnId) boundary = 'waiting';
             acked = true;
             for (const e of staged.splice(0)) accept(e);
         },
@@ -403,6 +416,13 @@ function createClientTurn(sessionId: string, turnId: string, events: AsyncIterab
             };
         }
     };
+}
+
+/** The parts a steer sent, as the adapter echoes them on its `user-message` (plain JSON both ways). */
+function sameParts(a: readonly PromptPart[], b: readonly PromptPart[]): boolean {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (JSON.stringify(a[i]) !== JSON.stringify(b[i])) return false;
+    return true;
 }
 
 function failed(turnId: string, error: Error): AgentTurn {

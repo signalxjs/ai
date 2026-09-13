@@ -145,11 +145,12 @@ export function serveSession(session: AgentSession, options: ServeSessionOptions
                     await session.respond(command.requestId, command.decision);
                     return ack();
                 case 'cancel':
-                    if (command.agentId !== undefined) {
-                        // Refused here, not by the session: the capability is the served fact a client sees in `hello`.
-                        if (options.capabilities.subagents !== 'control') return error('unsupported', `session "${session.id}" cannot cancel a sub-agent (subagents: "${options.capabilities.subagents}")`);
-                        await session.cancel({ agentId: command.agentId });
-                    } else await session.cancel();
+                    // The session's own id targets the running turn, like no target at all. A sub-agent target is
+                    // refused here, not by the session: the capability is the served fact a client sees in `hello`.
+                    if (command.agentId !== undefined && command.agentId !== session.id && options.capabilities.subagents !== 'control') {
+                        return error('unsupported', `session "${session.id}" cannot cancel a sub-agent (subagents: "${options.capabilities.subagents}")`);
+                    }
+                    await session.cancel(command.agentId !== undefined ? { agentId: command.agentId } : undefined);
                     return ack();
                 case 'configure':
                     if (!session.configure) return error('unsupported', `session "${session.id}" does not support configure()`);

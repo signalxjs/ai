@@ -9,12 +9,14 @@ follow [SemVer](https://semver.org/).
 ### Added
 
 - Steering and sub-agent control over the wire: a `cancel` command carries an
-  optional `agentId` (`serveSession` answers `unsupported` unless the served
-  capabilities say `subagents: 'control'`, `invalid` for a malformed target;
-  `connectSession`'s `cancel({ agentId })` sends it). A prompt during a
-  running turn on a steering session joins that turn: the ack names the turn
-  it went into and the client handle retargets to it — same `id`, same
-  `result`, events from the steer on — so a late joiner steers without ever
+  optional `agentId` (`serveSession` answers `unsupported` for a sub-agent
+  target unless the served capabilities say `subagents: 'control'` — the
+  session's own id cancels the running turn like no target — and `invalid`
+  for a malformed target; `connectSession`'s `cancel({ agentId })` sends it).
+  A prompt during a running turn on a steering session joins that turn: the
+  ack names the turn it went into and the client handle retargets to it —
+  same `id`, same `result`, events from the steer's own `user-message` on,
+  however far the transport lags — so a late joiner steers without ever
   having seen the running turn's `turn-start`. The wire conformance suite
   runs the steering mock and skips nothing.
 

@@ -22,7 +22,7 @@ export interface WireOutputSpec {
 export type WireCommandPayload =
     | { readonly type: 'prompt'; readonly turnId: string; readonly input: readonly PromptPart[]; readonly output?: WireOutputSpec }
     | { readonly type: 'respond'; readonly requestId: string; readonly decision: Decision }
-    /** Without `agentId`: the running turn. With it: that sub-agent (`subagents: 'control'`), the turn continues. */
+    /** Without `agentId` — or with the session's own id — the running turn. With a sub-agent's id: that agent (`subagents: 'control'`), the turn continues. */
     | { readonly type: 'cancel'; readonly agentId?: string }
     | { readonly type: 'configure'; readonly patch: Readonly<Record<string, string>> }
     | { readonly type: 'close' };

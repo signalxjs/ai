@@ -528,12 +528,44 @@ describe('serveSession / connectSession', () => {
         remote.disconnect();
     });
 
-    it('cancel({ agentId }) against a session that cannot control sub-agents is refused as unsupported (#93)', async () => {
-        const { served } = await serve([[{ text: 'x' }]], {}, {}, { subagents: 'observe' });
+    it('cancel({ agentId }) against a session that cannot control sub-agents is refused as unsupported; its own id cancels the turn (#93)', async () => {
+        const { served } = await serve([[{ text: 'slow slow slow', delayMs: 60_000 }]], {}, {}, { subagents: 'observe' });
         const remote = await connectSession(inMemory(served));
         const err = await remote.cancel({ agentId: 'agent_1' }).catch((e: unknown) => e);
         expect(err).toBeInstanceOf(RemoteCommandError);
         expect(err).toMatchObject({ command: 'cancel', remote: 'unsupported' });
+        // The session's own id is the running turn, no sub-agent control needed.
+        const turn = remote.prompt('go');
+        await tick(5);
+        await remote.cancel({ agentId: remote.id });
+        expect((await turn.result).stopReason).toBe('cancelled');
+        remote.disconnect();
+    });
+
+    it('a steer handle over a lagging transport still starts at its own user-message, never at the turn past (#93)', async () => {
+        const { served } = await serve([[{ tool: { name: 'slow', input: {}, delayMs: 60, source: 'client' } }, { text: 'Done.' }]], { policy: allowAll, interactive: false });
+        // Every frame reaches the client a little late, so its cursor trails the server.
+        const lagging: SessionTransport = {
+            send: (c) => served.handleCommand(c),
+            events: (from, o) =>
+                (async function* () {
+                    for await (const f of served.events(from, o)) {
+                        await tick(4);
+                        yield f;
+                    }
+                })()
+        };
+        const remote = await connectSession(lagging);
+        const first = remote.prompt('go');
+        await tick(6);
+        // The running turn has emitted more than the client has applied by now.
+        expect(remote.cursor!.seq).toBeLessThan(served.head.seq);
+        const steer = remote.prompt('and this');
+        const seen = await collect(steer);
+        expect(seen[0]).toMatchObject({ type: 'user-message', turnId: first.id, parts: [{ type: 'text', text: 'and this' }] });
+        expect(seen.at(-1)).toMatchObject({ type: 'turn-end', turnId: first.id });
+        expect(steer.id).toBe(first.id);
+        expect(await steer.result).toEqual(await first.result);
         remote.disconnect();
     });
 

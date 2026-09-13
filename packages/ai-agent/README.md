@@ -124,8 +124,13 @@ names the turn it went into, so the client's handle takes that turn's `id`,
 settles with its `result` and yields its events from the steer on — a late
 joiner that never saw the running turn's `turn-start` gets the same. Without
 `steer` the reply is `busy` (`SessionBusyError`). `remote.cancel({ agentId })`
-carries the target as `cancel.agentId`; the server answers `unsupported`
-unless the served capabilities say `subagents: 'control'`.
+carries the target as `cancel.agentId`; for a sub-agent the server answers
+`unsupported` unless the served capabilities say `subagents: 'control'`, while
+the session's own id (`remote.id`) cancels the running turn like no target at
+all. Which events a steer handle yields is decided on the client by the
+contract's own boundary — the `user-message` the steer puts in the running turn
+— so a transport that lags behind the server does not leak pre-steer events
+into it.
 
 **Reconnects.** A broken stream is retried from the last cursor with backoff
 (`reconnect: { maxAttempts, backoffMs }`; default 10 attempts, exponential from
