@@ -153,8 +153,10 @@ export async function connectSession(transport: SessionTransport, options: Conne
             if (output && '~standard' in output.schema) {
                 return failed(turnId, new AgentError('protocol_error', '[sigx ai-agent] a remote prompt needs a JSON Schema for output; a Standard Schema cannot cross the wire'));
             }
+            // Subscribe before the command goes out, so nothing the turn emits can slip past.
+            const events = buffer.subscribe(from);
             const reply = send({ type: 'prompt', turnId, input: toPromptParts(input), ...(output ? { output } : {}) });
-            return createClientTurn(first.sessionId, turnId, buffer.subscribe(from), reply);
+            return createClientTurn(first.sessionId, turnId, events, reply);
         },
         respond: (requestId: string, decision: Decision) => sendOrThrow({ type: 'respond', requestId, decision }),
         cancel: () => sendOrThrow({ type: 'cancel' }),
