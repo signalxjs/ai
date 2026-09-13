@@ -36,6 +36,7 @@ await agent.dispose();
 | `tool_use` / `tool_result` / `tool_progress` | `tool-call` + `tool-update pending → in_progress → completed / failed / denied`; Edit, MultiEdit and Write add `coding.diff`, TodoWrite adds `coding.plan` |
 | `parent_tool_use_id` (subagents) | `parentCallId` and `actor: 'subagent'` |
 | `canUseTool` | `request` / `request-resolved` through `resolveRequest` — allow with the input unchanged, or deny with a message the model sees |
+| `AskUserQuestion` | `request { kind: 'input' }` carrying a `schema` (one property per question — an array for a multi-select, the labels as an `enum` branch beside an open string, since the tool always allows a free-text "Other"), the options flattened as `q<n>:<label>`, and the questions as `message`. `respond(id, { type: 'input', answers: { q1, q2, … } })` answers them: the answers ride back on `updatedInput`, keyed by question text, so the model sees "The user answered: …" — a question the operator did answer is never reported as a denial. Nobody to ask (a headless session, or a policy that declines) denies with "The questions were not answered." |
 | `result` | `usage` (turn, and the session's cumulative cost) + `turn-end` (`end_turn`, `max_tokens`, `max_turns`, `cancelled`, `error` incl. `context_exceeded`) |
 | `system/init` | `config` (model, permission mode); `configure({ model, permissionMode })` calls `setModel` / `setPermissionMode` |
 | auth and rate-limit frames | `error { code: 'auth_required' \| 'rate_limited' }`; everything else `ext { ns: 'claude-code' }` |

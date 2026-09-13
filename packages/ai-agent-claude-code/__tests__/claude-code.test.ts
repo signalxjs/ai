@@ -15,7 +15,25 @@ import { allowAll, allowReadOnly, denyAll, type AgentEvent, type AgentTurn } fro
 import { agentConformance, type ConformanceScenario } from '@sigx/ai-agent/testing';
 import { codingState, codingExtension } from '@sigx/ai-agent/coding';
 import { createReducer, createTranscript } from '@sigx/ai-agent';
-import { claudeCode, CLAUDE_CODE_CAPABILITIES, splitToolName, primaryArg, toUserMessage, spawnForSdk, startToolServer, bearerToken, sameToken, PERMISSION_MODES, type ListenFn } from '@sigx/ai-agent-claude-code';
+import {
+    claudeCode,
+    CLAUDE_CODE_CAPABILITIES,
+    splitToolName,
+    primaryArg,
+    toUserMessage,
+    spawnForSdk,
+    startToolServer,
+    bearerToken,
+    sameToken,
+    PERMISSION_MODES,
+    ASK_USER_QUESTION,
+    questionId,
+    parseQuestions,
+    questionsSchema,
+    questionOptions,
+    toAskAnswers,
+    type ListenFn
+} from '@sigx/ai-agent-claude-code';
 
 async function collect<T>(it: AsyncIterable<T>): Promise<T[]> {
     const out: T[] = [];
@@ -102,8 +120,9 @@ interface TurnCtx {
     readonly interrupted: () => boolean;
     readonly onInterrupt: Promise<void>;
     /** Ask the host's canUseTool the way the CLI would. */
-    ask(name: string, input: object, toolUseID?: string): Promise<{ behavior: 'allow' | 'deny'; message?: string }>;
+    ask(name: string, input: object, toolUseID?: string): Promise<{ behavior: 'allow' | 'deny'; message?: string; updatedInput?: Record<string, unknown> }>;
 }
+type AskResult = Awaited<ReturnType<TurnCtx['ask']>>;
 type TurnScript = (user: SDKUserMessage, turn: number, ctx: TurnCtx) => AsyncIterable<SDKMessage> | Iterable<SDKMessage> | Promise<Iterable<SDKMessage>>;
 
 interface FakeQuery {
@@ -135,9 +154,9 @@ function fakeQuery(turnScript: TurnScript, options: { init?: (cwd: string) => SD
                     onInterrupt,
                     ask: async (name, input, toolUseID) => {
                         const r = (await opts.canUseTool!(name, input as Record<string, unknown>, { signal: new AbortController().signal, suggestions: [], ...(toolUseID ? { toolUseID } : {}) } as never)) as unknown as
-                            | { behavior: 'allow' }
+                            | { behavior: 'allow'; updatedInput?: Record<string, unknown> }
                             | { behavior: 'deny'; message: string };
-                        return r.behavior === 'allow' ? { behavior: 'allow' } : { behavior: 'deny', message: r.message };
+                        return r.behavior === 'allow' ? { behavior: 'allow', ...(r.updatedInput ? { updatedInput: r.updatedInput } : {}) } : { behavior: 'deny', message: r.message };
                     }
                 };
                 const script = await turnScript(user, turn++, ctx);
@@ -343,6 +362,128 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
         for (const e of seen.events) reduce(t, e);
         expect(codingState(t)?.diffs.map((d) => d.callId)).toEqual(['toolu_1', 'toolu_2']);
         expect(codingState(t)?.filesChanged).toEqual(['C:\\work\\repo\\a.ts']);
+    });
+
+    it('AskUserQuestion becomes an input request, and the answers ride back on updatedInput keyed by question text', async () => {
+        // The input shape the real CLI sends (recorded against claude 2.1.270, no TTY).
+        const ASK_INPUT = {
+            questions: [
+                {
+                    question: 'Which framework should the toy TODO app use?',
+                    header: 'Framework',
+                    multiSelect: false,
+                    options: [
+                        { label: 'Vanilla HTML/JS', description: 'No build step.' },
+                        { label: 'React + Vite', description: 'Hot reload, npm install.' }
+                    ]
+                },
+                {
+                    question: 'Which features should the app have?',
+                    header: 'Features',
+                    multiSelect: true,
+                    options: [
+                        { label: 'Offline mode', description: 'Local storage.' },
+                        { label: 'Dark mode', description: 'A theme toggle.' },
+                        { label: 'Reminders', description: 'Due dates.' }
+                    ]
+                }
+            ]
+        };
+        /** The real CLI resolves the tool from the `answers` it finds on its own input. */
+        const askScript = (seen: AskResult[]) =>
+            async function* (_u: SDKUserMessage, _t: number, ctx: TurnCtx) {
+                yield messageStart();
+                yield* toolUseBlocks('toolu_q', 'AskUserQuestion', ASK_INPUT);
+                yield* messageStop();
+                const r = await ctx.ask('AskUserQuestion', ASK_INPUT, 'toolu_q');
+                seen.push(r);
+                const answers = (r.updatedInput?.answers ?? {}) as Record<string, string>;
+                const text = Object.keys(answers).length
+                    ? `The user answered: ${Object.entries(answers).map(([q, a]) => `"${q}"="${a}"`).join(', ')}.`
+                    : (r.message ?? 'The user did not answer the questions.');
+                yield toolResult('toolu_q', text, r.behavior === 'deny');
+                yield messageStart();
+                yield* textBlocks('Thanks.');
+                yield* messageStop();
+                yield RESULT();
+            };
+
+        const seen: AskResult[] = [];
+        const agent = claudeCode({ query: fakeQuery(askScript(seen)).query, listen: fakeListen });
+        const session = await agent.session({ cwd });
+        const { events, result } = await drain(session.prompt('help me decide'), async (e) => {
+            if (e.type === 'request') {
+                // A free-text answer the enum does not list: the tool allows "Other", so the schema must too.
+                await session.respond(e.requestId, { type: 'input', answers: { q1: 'Zorblax', q2: ['Offline mode', 'Dark mode'] } });
+            }
+        });
+        const request = events.find((e) => e.type === 'request') as Extract<AgentEvent, { type: 'request' }>;
+        expect(request).toMatchObject({ kind: 'input', toolName: 'AskUserQuestion', callId: 'toolu_q', message: 'Framework: Which framework should the toy TODO app use?\nFeatures: Which features should the app have?' });
+        expect(request.permissionKey).toBeUndefined();
+        expect(request.options).toEqual([
+            { id: 'q1:Vanilla HTML/JS', label: 'Vanilla HTML/JS', description: 'No build step.' },
+            { id: 'q1:React + Vite', label: 'React + Vite', description: 'Hot reload, npm install.' },
+            { id: 'q2:Offline mode', label: 'Offline mode', description: 'Local storage.' },
+            { id: 'q2:Dark mode', label: 'Dark mode', description: 'A theme toggle.' },
+            { id: 'q2:Reminders', label: 'Reminders', description: 'Due dates.' }
+        ]);
+        expect(request.schema).toEqual({
+            type: 'object',
+            additionalProperties: false,
+            required: ['q1', 'q2'],
+            properties: {
+                q1: { type: 'string', anyOf: [{ enum: ['Vanilla HTML/JS', 'React + Vite'] }, { type: 'string' }], title: 'Framework', description: 'Which framework should the toy TODO app use?' },
+                q2: { type: 'array', title: 'Features', description: 'Which features should the app have?', items: { type: 'string', anyOf: [{ enum: ['Offline mode', 'Dark mode', 'Reminders'] }, { type: 'string' }] } }
+            }
+        });
+        // The harness's own shape: question TEXT → answer, multi-select comma-separated.
+        expect(seen[0]).toEqual({
+            behavior: 'allow',
+            updatedInput: {
+                ...ASK_INPUT,
+                answers: { 'Which framework should the toy TODO app use?': 'Zorblax', 'Which features should the app have?': 'Offline mode, Dark mode' }
+            }
+        });
+        const resolved = events.find((e) => e.type === 'request-resolved') as Extract<AgentEvent, { type: 'request-resolved' }>;
+        expect(resolved).toMatchObject({ outcome: 'input', by: 'client', answers: { q1: 'Zorblax', q2: ['Offline mode', 'Dark mode'] } });
+        expect(events.filter((e): e is Extract<AgentEvent, { type: 'tool-update' }> => e.type === 'tool-update').map((u) => u.status)).toEqual(['pending', 'completed']);
+        expect(result.stopReason).toBe('end_turn');
+        await session.close();
+
+        // Nobody to ask: the tool is denied honestly, not answered on the operator's behalf.
+        const headlessSeen: AskResult[] = [];
+        const headless = claudeCode({ query: fakeQuery(askScript(headlessSeen)).query, listen: fakeListen });
+        const s2 = await headless.session({ cwd, interactive: false });
+        const run = await drain(s2.prompt('help me decide'));
+        expect(headlessSeen[0]).toEqual({ behavior: 'deny', message: 'The questions were not answered.' });
+        expect(run.events.some((e) => e.type === 'request')).toBe(false);
+        expect(run.events.filter((e): e is Extract<AgentEvent, { type: 'tool-update' }> => e.type === 'tool-update').map((u) => u.status)).toEqual(['pending', 'denied']);
+        expect((run.events.find((e) => e.type === 'request-resolved') as Extract<AgentEvent, { type: 'request-resolved' }>).outcome).toBe('cancel');
+        await s2.close();
+    });
+
+    it('question mapping tolerates input the tool never sends', () => {
+        expect(parseQuestions(undefined)).toBeUndefined();
+        expect(parseQuestions({})).toBeUndefined();
+        expect(parseQuestions({ questions: [] })).toBeUndefined();
+        expect(parseQuestions({ questions: [{ header: 'x' }] })).toBeUndefined();
+        // No options and no header: still a question, and the schema stays open.
+        const bare = parseQuestions({ questions: [{ question: 'Why?' }] })!;
+        expect(bare).toEqual([{ question: 'Why?', header: 'Why?', options: [], multiSelect: false }]);
+        // An EMPTY header is display text too: it would render a blank legend, so the question stands in.
+        expect(parseQuestions({ questions: [{ question: 'Why?', header: '' }] })).toEqual(bare);
+        // An option with no label is not a choice; one with no description keeps the key off.
+        expect(parseQuestions({ questions: [{ question: 'Why?', header: 'H', options: [{ label: '' }, { label: 'a' }, 'nope'] }] })).toEqual([
+            { question: 'Why?', header: 'H', options: [{ label: 'a' }], multiSelect: false }
+        ]);
+        expect(questionsSchema(bare)).toEqual({ type: 'object', additionalProperties: false, required: ['q1'], properties: { q1: { type: 'string', title: 'Why?', description: 'Why?' } } });
+        expect(questionOptions(bare)).toEqual([]);
+        // Unanswered questions are left out rather than reported as an empty answer.
+        expect(toAskAnswers(bare, { q1: '' })).toEqual({});
+        expect(toAskAnswers(bare, 'nonsense')).toEqual({});
+        expect(toAskAnswers(bare, { q1: ['a', '', 'b'] })).toEqual({ 'Why?': 'a, b' });
+        expect(questionId(3)).toBe('q4');
+        expect(ASK_USER_QUESTION).toBe('AskUserQuestion');
     });
 
     it('subagent frames carry parentCallId and actor; client tools arrive over MCP with the prefix stripped', async () => {
@@ -564,6 +705,19 @@ function scriptFor(scenario: ConformanceScenario): TurnScript {
             };
         case 'model-error':
             return () => [m({ type: 'assistant', ...base, message: { role: 'assistant', content: [] }, parent_tool_use_id: null, error: 'server_error' }), RESULT_ERROR('error_during_execution')];
+        case 'input-request':
+            return async function* (_u, _t, ctx) {
+                const input = { questions: [{ question: 'Yes or no?', header: 'Question', multiSelect: false, options: [{ label: 'Yes', description: 'Go ahead.' }, { label: 'No', description: 'Stop.' }] }] };
+                yield messageStart();
+                yield* toolUseBlocks('toolu_q', 'AskUserQuestion', input);
+                yield* messageStop();
+                const r = await ctx.ask('AskUserQuestion', input, 'toolu_q');
+                yield toolResult('toolu_q', r.behavior === 'allow' ? 'The user answered.' : (r.message ?? 'denied'), r.behavior === 'deny');
+                yield messageStart();
+                yield* textBlocks('Thanks.');
+                yield* messageStop();
+                yield RESULT();
+            };
         case 'structured-output':
             return () => [messageStart(), ...textBlocks('{"ok":true}'), ...messageStop(), RESULT({ structured_output: { ok: true } })];
         default:
@@ -575,10 +729,10 @@ describe('agentConformance: claudeCode(fake query)', () => {
     const cases = agentConformance((s) => claudeCode({ query: fakeQuery(scriptFor(s)).query, listen: fakeListen }), {
         capabilities: CLAUDE_CODE_CAPABILITIES,
         sessionOptions: { cwd },
-        skip: (s) => (s.name === 'input-request' || s.name === 'support-agent' ? 'the Claude Agent SDK has no input request the adapter could surface (canUseTool is the only question it asks)' : undefined)
+        skip: (s) => (s.name === 'support-agent' ? 'Claude Code emits no agent.handoff extension (its ext namespace is claude-code)' : undefined)
     });
     it('skips only what the harness cannot express (the permission scenarios need every-call; Claude Code is harness-filtered)', () => {
-        expect(cases.filter((c) => c.skip).map((c) => c.name)).toEqual(['conformance: tool-permission', 'conformance: headless-deny', 'conformance: input-request', 'conformance: support-agent']);
+        expect(cases.filter((c) => c.skip).map((c) => c.name)).toEqual(['conformance: tool-permission', 'conformance: headless-deny', 'conformance: support-agent']);
     });
     for (const c of cases) it.skipIf(!!c.skip)(c.name, c.run, 15_000);
 });
