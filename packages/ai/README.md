@@ -44,6 +44,29 @@ by itself: a resumed `approved` call goes through `onToolApproval` again with
 `ctx.approvedByClient` set, so a server-side handler (a policy, a role
 check) can veto it — and bare `streamText` with no handler denies it.
 
+## Steering a running turn
+
+`streamText({ steer })` injects user input into a turn that is already
+running. The engine polls `steer` between model rounds — after a round's
+tool results, and when a round answered without tool calls — and, when it
+returns anything, appends the messages and asks the model again:
+
+```ts
+import { streamText, type ModelUserMessage } from '@sigx/ai';
+
+const queued: ModelUserMessage[] = [];
+const stream = streamText({ model, messages, tools, steer: () => queued.splice(0) });
+// later, while the turn runs:
+queued.push({ role: 'user', content: 'Also check the staging cluster.' });
+```
+
+Every round counts against `maxSteps`, and `steer` is only polled while
+another round is allowed — so a drain like `queued.splice(0)` is safe: input
+still queued when the turn ends is never consumed, and the caller can carry
+it into the next turn. No chunk is yielded for the injected messages — the
+caller owns that part of the transcript. This is the seam an agent session's
+`prompt()`-while-running uses.
+
 ## A typed result from a tool-using turn
 
 `streamObject` / `generateObject` produce JSON without tools. For "use tools,
