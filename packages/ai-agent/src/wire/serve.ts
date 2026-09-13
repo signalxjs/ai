@@ -42,6 +42,55 @@ export interface ServedSession {
 }
 
 const V = WIRE_PROTOCOL_VERSION;
+const PART_TYPES: ReadonlySet<string> = new Set(['text', 'image', 'file', 'resource']);
+const DECISION_TYPES: ReadonlySet<string> = new Set(['permission', 'input', 'cancel']);
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** A `PromptPart` with the fields its variant requires: a `text` part its `text`, an `image` / `file` part a `mediaType` and exactly one of `data` / `url`, a `resource` part its `uri`. */
+function isPromptPart(p: unknown): boolean {
+    if (!isRecord(p) || typeof p.type !== 'string' || !PART_TYPES.has(p.type)) return false;
+    switch (p.type) {
+        case 'text':
+            return typeof p.text === 'string';
+        case 'image':
+        case 'file':
+            return typeof p.mediaType === 'string' && (typeof p.data === 'string') !== (typeof p.url === 'string');
+        default:
+            return typeof p.uri === 'string';
+    }
+}
+
+/** The shape each command must have before it may reach the session; the reason it does not, otherwise. */
+function validateCommand(command: WireCommand): string | undefined {
+    switch (command.type) {
+        case 'prompt': {
+            if (typeof command.turnId !== 'string' || command.turnId.trim() === '') return 'prompt.turnId must be a non-empty string';
+            const input: unknown = command.input;
+            if (!Array.isArray(input) || !input.every(isPromptPart)) return 'prompt.input must be an array of prompt parts (text with text; image/file with mediaType and one of data/url; resource with uri)';
+            const output: unknown = command.output;
+            if (output !== undefined && (!isRecord(output) || !isRecord(output.schema))) return 'prompt.output must carry a JSON Schema object';
+            return undefined;
+        }
+        case 'respond': {
+            if (typeof command.requestId !== 'string') return 'respond.requestId must be a string';
+            const decision: unknown = command.decision;
+            if (!isRecord(decision) || typeof decision.type !== 'string' || !DECISION_TYPES.has(decision.type)) return 'respond.decision must be a permission, input or cancel decision';
+            if (decision.type === 'permission' && ((decision.outcome !== 'allow' && decision.outcome !== 'deny') || (decision.scope !== 'once' && decision.scope !== 'session'))) {
+                return 'respond.decision: a permission decision needs outcome allow|deny and scope once|session';
+            }
+            if (decision.type === 'input' && !Object.hasOwn(decision, 'answers')) return 'respond.decision: an input decision needs answers';
+            return undefined;
+        }
+        case 'configure': {
+            const patch: unknown = command.patch;
+            if (!isRecord(patch) || !Object.values(patch).every((v) => typeof v === 'string')) return 'configure.patch must be an object of strings';
+            return undefined;
+        }
+        default:
+            return undefined;
+    }
+}
 
 export function serveSession(session: AgentSession, options: ServeSessionOptions): ServedSession {
     const cacheSize = options.commandCacheSize ?? 256;
@@ -213,6 +262,11 @@ export function serveSession(session: AgentSession, options: ServeSessionOptions
             const commandId = (command as { commandId?: string } | null | undefined)?.commandId ?? '';
             if (!serving) return { v: V, kind: 'error', commandId, code: 'closed', message: `session "${session.id}" is no longer served` };
             if (!isWireCommand(command)) return { v: V, kind: 'error', commandId, code: 'invalid', message: 'not a wire command' };
+            // Payloads come from a transport that parsed JSON from elsewhere: a
+            // malformed one is refused here, never handed to the session. Not cached,
+            // so the corrected command runs under the same id.
+            const invalid = validateCommand(command);
+            if (invalid) return { v: V, kind: 'error', commandId: command.commandId, code: 'invalid', message: invalid };
             if (options.authorize) {
                 // One structured reply per command, even when the app's authorizer fails.
                 let allowed: boolean;
