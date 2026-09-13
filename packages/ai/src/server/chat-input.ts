@@ -6,6 +6,7 @@
  * fields.
  */
 
+import { DENIED_MESSAGE } from '../model/index.js';
 import type { UIMessage, UIPart, UIToolState } from '../protocol/index.js';
 import type { StandardSchemaV1 } from '../schema/index.js';
 
@@ -86,13 +87,20 @@ function checkPart(p: unknown, path: (string | number)[], issues: StandardSchema
                 issues.push(issue([...path, 'input'], JSON_CAP_MESSAGE));
                 return undefined;
             }
+            // A settled call always has an output on the wire (the engine
+            // normalizes `undefined` to `null`); a denial the client gave no
+            // reason for gets the standard message the model is told.
             const settled = state === 'done' || state === 'error' || state === 'denied';
-            const hasOutput = settled && part.output !== undefined;
-            if (hasOutput && !withinJsonCap(part.output)) {
+            const output = state === 'denied' && part.output === undefined ? DENIED_MESSAGE : part.output;
+            if (settled && output === undefined) {
+                issues.push(issue([...path, 'output'], 'required once the call has settled'));
+                return undefined;
+            }
+            if (settled && !withinJsonCap(output)) {
                 issues.push(issue([...path, 'output'], JSON_CAP_MESSAGE));
                 return undefined;
             }
-            return { type: 'tool', id: part.id, name: part.name, input, state, ...(hasOutput ? { output: part.output } : {}) };
+            return { type: 'tool', id: part.id, name: part.name, input, state, ...(settled ? { output } : {}) };
         }
         default:
             issues.push(issue([...path, 'type'], 'unknown part type'));

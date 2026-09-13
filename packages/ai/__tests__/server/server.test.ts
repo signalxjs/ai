@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ChatInput, chatStream, toTextStream, type ChatInput as ChatInputType } from '@sigx/ai/server';
-import { userMessage, defineTool } from '@sigx/ai';
+import { userMessage, defineTool, DENIED_MESSAGE } from '@sigx/ai';
 import { mockModel } from '@sigx/ai/testing';
 import { collect, citySchema } from '../helpers';
 
@@ -78,6 +78,17 @@ describe('ChatInput', () => {
             { type: 'tool', id: 'c2', name: 't', input: {}, state: 'approved' },
             { type: 'tool', id: 'c3', name: 't', input: {}, state: 'denied', output: 'reason' }
         ]);
+    });
+
+    it('requires an output once a call has settled, and defaults a bare denial to the standard reason', () => {
+        for (const state of ['done', 'error']) {
+            expect(validate({ messages: [{ id: 'a', role: 'assistant', parts: [{ type: 'tool', id: 'c', name: 't', input: {}, state }] }] }).issues).toEqual([
+                { message: 'required once the call has settled', path: ['messages', 0, 'parts', 0, 'output'] }
+            ]);
+        }
+        const r = validate({ messages: [{ id: 'a', role: 'assistant', parts: [{ type: 'tool', id: 'c', name: 't', input: {}, state: 'denied' }] }] });
+        expect(r.issues).toBeUndefined();
+        expect((r.value as ChatInputType).messages[0]!.parts[0]).toEqual({ type: 'tool', id: 'c', name: 't', input: {}, state: 'denied', output: DENIED_MESSAGE });
     });
 
     it('caps reasoning replay data like a tool payload', () => {
