@@ -189,8 +189,10 @@ To run the example: `pnpm build` first (it resolves the packages from
   protocol kit protocol adapters build on: a JSON-RPC 2.0 peer over Web
   Streams (`createJsonRpcPeer`), NDJSON framing, an MCP tool handler
   (`createMcpToolHandler`, Streamable HTTP, tools only) and `webSocketStreams`;
-  `./testing` also ships `recordAgent` / `replayAgent`. Later milestones add
-  `./wire`, `./app`. Zero
+  `./testing` also ships `recordAgent` / `replayAgent`. `./wire` serves a
+  session in one place and uses it from another over any transport
+  (`serveSession` / `connectSession`, a versioned envelope, replay for late
+  joiners and reconnects). Later milestones add `./app`. Zero
   runtime dependencies; edge-safe (`node:`-free, no `process` / `Buffer`,
   enforced by `__tests__/package/edge-safety.test.ts`). Peers on `@sigx/ai`.
   Node-only building blocks live in `@sigx/ai-agent-node`; adapters are
@@ -213,6 +215,16 @@ To run the example: `pnpm build` first (it resolves the packages from
   protocol subset (the reference SDK is a devDependency for an assignability
   test only). Tests run against an in-memory fake agent over
   `createJsonRpcPeer`; live smokes are env-gated per preset.
+- `packages/ai-agent-claude-code` → `@sigx/ai-agent-claude-code` — **experimental**,
+  Claude Code as an `Agent` on the official `@anthropic-ai/claude-agent-sdk`
+  (peer, literal range). Layout `options ← request ← permissions ← tools ←
+  stream ← provider ← index`: one `query()` per session with a streaming
+  prompt, `canUseTool` → `resolveRequest`, client tools over HTTP MCP
+  (`createMcpToolHandler` + `listenMcp`), spawning through
+  `@sigx/ai-agent-node` (a regular dependency), `system/init` → `config`,
+  `result` → `usage` + `turn-end`. Tests replay recorded SDK messages through
+  a fake `query` injected via `claudeCode({ query })`; a live smoke is gated on
+  `SIGX_LIVE_CLAUDE_CODE=1`.
 - `packages/ai-anthropic` → `@sigx/ai-anthropic` — Claude on the official
   `@anthropic-ai/sdk` (a peer dependency, literal range): `anthropic()` →
   `.model(id)`. Streams `client.messages.stream`, maps text / thinking /

@@ -40,6 +40,7 @@ const PACKAGES = [
     'packages/ai-agent',
     'packages/ai-agent-node',
     'packages/ai-agent-acp',
+    'packages/ai-agent-claude-code',
     'packages/ai-anthropic',
     'packages/ai-openai',
 ];
