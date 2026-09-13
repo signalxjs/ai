@@ -29,8 +29,8 @@ import type { Usage } from '@sigx/ai';
 import type { AgentCapabilities, AgentEvent, ConfigOption, Decision, PromptInput, SessionState } from '../protocol/index.js';
 import { AgentError } from '../protocol/index.js';
 import type { AgentSession, EventCursor, PromptOptions, TurnResult } from '../session/index.js';
-import type { AgentMessage, AgentTranscript, OpenRequest, ReducerExtension, TranscriptError, TurnState } from '../state/index.js';
-import { createReducer, createTranscript } from '../state/index.js';
+import type { AgentMessage, AgentNode, AgentState, AgentTranscript, OpenRequest, ReducerExtension, TranscriptError, TurnState } from '../state/index.js';
+import { agentTree, createReducer, createTranscript } from '../state/index.js';
 import type { AgentSessionClient } from '../wire/index.js';
 
 /**
@@ -71,6 +71,10 @@ export interface AgentSessionView {
     readonly usage: Usage | undefined;
     readonly costUsd: number | undefined;
     readonly config: readonly ConfigOption[];
+    /** Sub-agents in start order — `transcript.agents` as a list. */
+    readonly agents: readonly AgentState[];
+    /** The same as a tree (`agentTree(transcript)`): root agents with their children. */
+    readonly agentTree: readonly AgentNode[];
     readonly error: TranscriptError | undefined;
     /** Following the session: false before mount (and during SSR), false again after unmount. */
     readonly live: boolean;
@@ -86,11 +90,20 @@ export interface AgentSessionView {
      * Run a turn. Resolves with its result — or `undefined` when it could not
      * run (a busy session, a broken transport), which lands in `error` and
      * `onError` instead of rejecting, so a click handler needs no `catch`.
+     *
+     * While a turn runs (`state` is `running` or `awaiting`) and the agent has
+     * the `steer` capability, the input steers that turn instead: it lands as
+     * a `user-message` inside it, `turn` stays the same turn, and the promise
+     * resolves with that turn's result. `onTurnEnd` fires once per turn,
+     * however many prompts steered it.
      */
     prompt(input: PromptInput, options?: PromptOptions): Promise<TurnResult | undefined>;
-    /** Answer an open `request`. A late answer resolves without effect. */
+    /** Answer an open `request` — one raised by a sub-agent too. A late answer resolves without effect. */
     respond(requestId: string, decision: Decision): Promise<void>;
+    /** Cancel the running turn. */
     cancel(): Promise<void>;
+    /** Cancel one sub-agent while the turn goes on (`subagents: 'control'`); fails (into `error`) otherwise. */
+    cancelAgent(agentId: string): Promise<void>;
     /** Change a `config` option; fails (into `error`) when the agent has no `config` capability. */
     configure(patch: Readonly<Record<string, string>>): Promise<void>;
     /** After a lost connection: follow the remote session again from where it stopped. A no-op for a local session or while connected. */
@@ -113,6 +126,9 @@ export function useAgentSession(source: AgentSessionSource, options: UseAgentSes
     let iterator: AsyncIterator<AgentEvent> | null = null;
     let stopped = false;
     let unwatch: (() => void) | undefined;
+    // Turns already reported through `onTurnEnd`: a steer resolves with the
+    // running turn's result, and that turn ends once.
+    const reported = new Set<string>();
 
     /** A failure becomes the transcript's error, in the shape an `error` event has. */
     function fail(e: unknown): void {
@@ -244,6 +260,12 @@ export function useAgentSession(source: AgentSessionSource, options: UseAgentSes
         get config() {
             return transcript.config;
         },
+        get agents() {
+            return Object.values(transcript.agents).sort((a, b) => a.seq - b.seq);
+        },
+        get agentTree() {
+            return agentTree(transcript);
+        },
         get error() {
             return transcript.error;
         },
@@ -260,11 +282,16 @@ export function useAgentSession(source: AgentSessionSource, options: UseAgentSes
             try {
                 // The subscription is what renders the turn; `result` is only
                 // its outcome, so nothing here iterates the turn twice.
-                const result = await source.prompt(input, promptOptions).result;
+                const turn = source.prompt(input, promptOptions);
+                const result = await turn.result;
                 // The caller still gets what it awaited — but a view that is
-                // gone gets no callback (see `fail`). The turn itself keeps
-                // running on the session, as it should.
-                if (!stopped) options.onTurnEnd?.(result);
+                // gone gets no callback (see `fail`), and a turn that several
+                // prompts steered ends once. Read the id AFTER the result: a
+                // remote handle learns which turn it joined from the ack.
+                if (!stopped && !reported.has(turn.id)) {
+                    reported.add(turn.id);
+                    options.onTurnEnd?.(result);
+                }
                 return result;
             } catch (e) {
                 fail(e);
@@ -281,6 +308,13 @@ export function useAgentSession(source: AgentSessionSource, options: UseAgentSes
         async cancel() {
             try {
                 await source.cancel();
+            } catch (e) {
+                fail(e);
+            }
+        },
+        async cancelAgent(agentId) {
+            try {
+                await source.cancel({ agentId });
             } catch (e) {
                 fail(e);
             }
