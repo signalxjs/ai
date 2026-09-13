@@ -209,8 +209,15 @@ export function serveSession(session: AgentSession, options: ServeSessionOptions
             const commandId = (command as { commandId?: string } | null | undefined)?.commandId ?? '';
             if (!serving) return { v: V, kind: 'error', commandId, code: 'closed', message: `session "${session.id}" is no longer served` };
             if (!isWireCommand(command)) return { v: V, kind: 'error', commandId, code: 'invalid', message: 'not a wire command' };
-            if (options.authorize && !(await options.authorize(command, principal))) {
-                return { v: V, kind: 'error', commandId: command.commandId, code: 'unauthorized', message: `command "${command.type}" is not allowed` };
+            if (options.authorize) {
+                // One structured reply per command, even when the app's authorizer fails.
+                let allowed: boolean;
+                try {
+                    allowed = await options.authorize(command, principal);
+                } catch (e) {
+                    return { v: V, kind: 'error', commandId: command.commandId, code: 'internal', message: `authorization failed: ${e instanceof Error ? e.message : String(e)}` };
+                }
+                if (!allowed) return { v: V, kind: 'error', commandId: command.commandId, code: 'unauthorized', message: `command "${command.type}" is not allowed` };
             }
             const cached = replies.get(command.commandId);
             if (cached) {

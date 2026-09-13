@@ -222,6 +222,9 @@ describe('serveSession / connectSession', () => {
         await tick(5);
         expect(prompts).toBe(1);
         expect(await served.handleCommand({ nope: true } as unknown as WireCommand)).toMatchObject({ kind: 'error', code: 'invalid' });
+        // An authorizer that throws still yields one structured reply.
+        const throwing = serveSession(session, { agentId: agent.id, capabilities: agent.capabilities, authorize: () => Promise.reject(new Error('auth backend down')) });
+        expect(await throwing.handleCommand(cmd({ commandId: 'a1', type: 'cancel' }))).toEqual({ v: 1, kind: 'error', commandId: 'a1', code: 'internal', message: 'authorization failed: auth backend down' });
         // A blank commandId would collide in the idempotency cache: refused, and not cached.
         expect(await served.handleCommand(cmd({ commandId: '  ', type: 'cancel' }))).toMatchObject({ kind: 'error', code: 'invalid' });
         expect(await served.handleCommand(cmd({ commandId: '', type: 'cancel' }))).toMatchObject({ kind: 'error', code: 'invalid', commandId: '' });
