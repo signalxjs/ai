@@ -27,24 +27,16 @@ import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
+import { PACKAGES } from './lib/packages.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, '..');
 
-// Packages in dependency order (dependencies first).
+// Packages in dependency order (dependencies first) — the one list in
+// `scripts/lib/packages.mjs`, guarded by `scripts/lib/packages.test.mjs`.
 // Other SignalX packages (router, store, ssg, daisyui, runtime-terminal, etc.)
 // live in their own repos under https://github.com/signalxjs and are published
 // from there.
-const PACKAGES = [
-    'packages/ai',
-    'packages/ai-agent',
-    'packages/ai-agent-node',
-    'packages/ai-agent-acp',
-    'packages/ai-agent-claude-code',
-    'packages/ai-agent-codex',
-    'packages/ai-anthropic',
-    'packages/ai-openai',
-];
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');

@@ -30,31 +30,13 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { tmpdir } from 'os';
 import { assertInRepoRanges, isPackTimeSpecifier } from './lib/ranges.mjs';
+import { PACKAGES, ENTRIES } from './lib/packages.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, '..');
 
-const PACKAGES = ['packages/ai', 'packages/ai-agent', 'packages/ai-agent-node', 'packages/ai-agent-acp', 'packages/ai-agent-claude-code', 'packages/ai-agent-codex', 'packages/ai-anthropic', 'packages/ai-openai'];
+// The package and entry lists live in one place; `scripts/lib/packages.test.mjs` guards them.
 
-/** Every runtime entry the tarballs expose, imported one by one. */
-const ENTRIES = [
-    '@sigx/ai',
-    '@sigx/ai/server',
-    '@sigx/ai/app',
-    '@sigx/ai/testing',
-    '@sigx/ai-agent',
-    '@sigx/ai-agent/testing',
-    '@sigx/ai-agent/coding',
-    '@sigx/ai-agent/harness',
-    '@sigx/ai-agent/wire',
-    '@sigx/ai-agent/app',
-    '@sigx/ai-agent-node',
-    '@sigx/ai-agent-acp',
-    '@sigx/ai-agent-claude-code',
-    '@sigx/ai-agent-codex',
-    '@sigx/ai-anthropic',
-    '@sigx/ai-openai',
-];
 
 const sandbox = join(tmpdir(), `sigx-ai-verify-pack-${Date.now()}`);
 const tarballDir = join(sandbox, 'tarballs');
