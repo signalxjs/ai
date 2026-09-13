@@ -9,9 +9,10 @@
  * carries it when there is none).
  */
 
-import { streamText, toModelMessages, type AnyTool, type JsonSchema, type LanguageModel, type StandardSchemaV1, type UIMessage } from '@sigx/ai';
+import { streamText, toModelMessages, type AnyTool, type JsonSchema, type LanguageModel, type StandardSchemaV1, type UIMessage, type Usage } from '@sigx/ai';
 import type { AgentCapabilities, PromptInput } from '../protocol/index.js';
 import { AgentError, capabilities } from '../protocol/index.js';
+import { createGrants } from '../policy/index.js';
 import type { Agent, AgentSession, OutputSpec, PromptOptions, SessionLog, SessionOptions, SessionRef } from '../session/index.js';
 import { createEventLog, createSessionCore } from '../session/index.js';
 import type { AgentTranscript, ReducerExtension } from '../state/index.js';
@@ -35,6 +36,12 @@ export interface ModelAgentOptions {
     readonly store?: TranscriptStore;
     /** Reducer plugins for the session transcript (e.g. `codingExtension()`). */
     readonly extensions?: readonly ReducerExtension[];
+    /**
+     * A turn's cost in USD from its usage — the `LanguageModel` seam carries no
+     * price list, so the app is the honest source. Without it no `costUsd` is
+     * reported.
+     */
+    readonly pricing?: (usage: Usage) => number | undefined;
     /** Default `'sigx'`. */
     readonly id?: string;
 }
@@ -48,6 +55,7 @@ export interface ModelAgentRefData {
 
 export const MODEL_AGENT_CAPABILITIES: AgentCapabilities = capabilities({
     resume: 'portable',
+    fork: true,
     cancel: true,
     structuredOutput: true,
     promptParts: 'text+image+file',
@@ -64,6 +72,16 @@ function toEngineOutput(spec: OutputSpec | undefined): { schema: StandardSchemaV
     const schema = spec.schema;
     if ('~standard' in schema) return { schema: schema as StandardSchemaV1, ...(spec.name !== undefined ? { name: spec.name } : {}) };
     return { schema: passthrough, jsonSchema: schema as JsonSchema, ...(spec.name !== undefined ? { name: spec.name } : {}) };
+}
+
+/**
+ * A fork is a NEW session over a copy of the conversation: it gets its own id,
+ * starts at epoch 0, and carries no open requests and no session grants (a
+ * grant is scoped to the session that gave it).
+ */
+function forkTranscript(source: AgentTranscript, sessionId: string): AgentTranscript {
+    const { turn: _turn, error: _error, ...rest } = structuredClone(source);
+    return { ...rest, sessionId, epoch: 0, seq: 0, state: 'idle', requests: {}, grants: [] };
 }
 
 /** A log whose every stamped event is also reduced into `transcript`, synchronously. */
@@ -101,11 +119,14 @@ export function modelAgent(options: ModelAgentOptions): Agent {
         const resume = sessionOptions.resume;
         if (resume) {
             if (resume.agent !== id) throw new AgentError('protocol_error', `[sigx ai-agent] session ref belongs to agent "${resume.agent}", not "${id}"`);
-            if (sessionOptions.fork) throw new AgentError('protocol_error', `[sigx ai-agent] agent "${id}" cannot fork sessions`);
-            sessionId = resume.id;
             const data = (resume.data ?? {}) as ModelAgentRefData;
-            transcript = (await options.store?.load(sessionId)) ?? data.transcript ?? (data.messages ? fromUIMessages(data.messages, { sessionId, reducer: reduce }).transcript : undefined);
-            if (!transcript) throw new AgentError('protocol_error', `[sigx ai-agent] nothing to resume for session "${sessionId}": no stored transcript and none in the ref`);
+            const loaded = (await options.store?.load(resume.id)) ?? data.transcript ?? (data.messages ? fromUIMessages(data.messages, { sessionId: resume.id, reducer: reduce }).transcript : undefined);
+            if (!loaded) throw new AgentError('protocol_error', `[sigx ai-agent] nothing to resume for session "${resume.id}": no stored transcript and none in the ref`);
+            if (sessionOptions.fork) transcript = forkTranscript(loaded, sessionId);
+            else {
+                sessionId = resume.id;
+                transcript = loaded;
+            }
         }
         transcript ??= createTranscript(sessionId);
         const rawLog = createEventLog({ sessionId, epoch: transcript.epoch + 1 });
@@ -113,10 +134,13 @@ export function modelAgent(options: ModelAgentOptions): Agent {
         const core = createSessionCore({
             id: sessionId,
             log,
+            // Session grants are part of the transcript, so a resumed session is not asked again.
+            grants: createGrants(transcript.grants),
             ...(sessionOptions.policy ? { policy: sessionOptions.policy } : {}),
             interactive: sessionOptions.interactive ?? true,
             ...(sessionOptions.requestTimeoutMs !== undefined ? { requestTimeoutMs: sessionOptions.requestTimeoutMs } : {}),
-            ...(sessionOptions.signal ? { signal: sessionOptions.signal } : {})
+            ...(sessionOptions.signal ? { signal: sessionOptions.signal } : {}),
+            promptParts: MODEL_AGENT_CAPABILITIES.promptParts
         });
         const tools: AnyTool[] = [...(options.tools ?? []), ...(sessionOptions.tools ?? [])];
         const system = sessionOptions.system ?? options.system;
@@ -136,7 +160,7 @@ export function modelAgent(options: ModelAgentOptions): Agent {
                     driver.emit({ type: 'user-message', messageId: `u:${driver.turnId}`, parts });
                     const messageId = `a:${driver.turnId}:0`;
                     const gated = gateTools(tools, { driver, resolve: (request) => ctx.resolve(request) });
-                    const mapper = createChunkMapper(driver, { messageId, tools });
+                    const mapper = createChunkMapper(driver, { messageId, tools, ...(options.pricing ? { pricing: options.pricing } : {}) });
                     const output = toEngineOutput(promptOptions?.output);
                     try {
                         for await (const chunk of streamText({

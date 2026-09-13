@@ -80,7 +80,7 @@ export function checkEventInvariants(events: readonly AgentEvent[]): void {
 export function checkResultMatchesTurnEnd(events: readonly AgentEvent[], result: TurnResult): void {
     const end = events.find((e) => e.type === 'turn-end' && e.turnId === result.turnId);
     assert(end && end.type === 'turn-end', `no turn-end for turn "${result.turnId}"`);
-    const { type: _t, sessionId: _s, epoch: _e, seq: _q, turnId: _i, parentCallId: _p, raw: _r, ...payload } = end;
+    const { type: _t, sessionId: _s, epoch: _e, seq: _q, turnId: _i, parentCallId: _p, ...payload } = end;
     const { turnId: _tid, ...res } = result;
     assertEqual(res, payload, `turn.result differs from the turn-end event of "${result.turnId}"`);
 }

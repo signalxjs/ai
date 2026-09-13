@@ -4,8 +4,8 @@
  * Every event carries its `sessionId`, an `epoch` (bumped on resume) and a
  * `seq` that is gapless and monotonic within the epoch, so any consumer can
  * replay from `(epoch, seq)` and reach the same state. Events are plain
- * JSON: no `Date`, no `undefined` inside arrays, native payloads only under
- * `raw` and only when the session asked for them.
+ * JSON: no `Date`, no `undefined` inside arrays; vendor detail travels as
+ * JSON under `error.data` / `ext.data`, never as a native payload.
  *
  * Domain-neutral by design: a tool is a name, an input and a status; what it
  * touched is an `ext` event in a namespace (`coding.diff`, `agent.handoff`).
@@ -108,8 +108,6 @@ export interface EventContext {
     readonly turnId?: string;
     /** The `tool-call` this event happened inside (a subagent, a delegated tool). */
     readonly parentCallId?: string;
-    /** The native payload, only when the session was opened with `raw: true`. */
-    readonly raw?: unknown;
 }
 
 export interface EventStamp {
