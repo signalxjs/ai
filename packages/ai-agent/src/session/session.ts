@@ -117,7 +117,7 @@ export function createSessionCore(options: SessionCoreOptions): SessionCore {
 
     /** The first part `promptParts` does not admit, if any. */
     const refusedPart = (parts: readonly PromptPart[]): PromptPart | undefined => (options.promptParts ? parts.find((p) => !ADMITTED[options.promptParts!].has(p.type)) : undefined);
-    const refusal = (part: PromptPart) => new AgentError('protocol_error', `[sigx ai-agent] session "${id}" accepts promptParts "${options.promptParts}" — a ${part.type} part was refused`);
+    const refusal = (part: PromptPart) => new AgentError('protocol_error', `[sigx ai-agent] session "${id}" accepts promptParts "${options.promptParts}" — ${part.type} part refused`);
 
     const core: SessionCore = {
         id,
