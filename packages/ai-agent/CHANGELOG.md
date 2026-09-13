@@ -86,6 +86,16 @@ follow [SemVer](https://semver.org/).
 - `mockAgent` declares `fork` and `listSessions` and lists every session it
   opened; `recordAgent` records `listSessions()` results
   (`AgentFixture.listSessions`) and `replayAgent` replays them in order.
+- `@sigx/ai-agent/wire`: `AgentSessionClient.status` (`connecting` /
+  `connected` / `reconnecting` / `lost` / `closed`), `onStatusChange(listener)`
+  and `reconnect()`; `RemoteCommandError` (an `AgentError` with `command` and
+  the wire code as `remote`) for a command the server refused; `serveSession`
+  validates each command payload's shape and answers `invalid` before it
+  reaches the session.
+- `@sigx/ai-agent/app`: `view.connected` and `view.reconnect()`; a lost
+  connection lands in `error` as a recoverable `protocol_error` (and
+  `onError`), and a subscription that ends while the session is still open is
+  reported the same way. A clean close stays silent.
 - Sub-agents in the contract: `agent-start { agentId, callId?, kind?, title?,
   description?, model?, depth?, background? }` and `agent-update { agentId,
   status: AgentStatus, summary?, usage? (cumulative), costUsd?, output?, error? }`
@@ -107,6 +117,12 @@ follow [SemVer](https://semver.org/).
   the running turn instead of starting a concurrent second turn: the returned
   turn has the running turn's `id` and `result` and iterates its events from
   the steer on. Without `steer`, it still rejects with `SessionBusyError`.
+- `connectSession` reconnect defaults: 10 attempts with exponential backoff
+  from 250 ms capped at 10 s (was 5 attempts at `100 * n` ms, ~1.5 s in all).
+  Exhausted attempts — or `reconnect: false` after a break — leave the client
+  `lost` with its buffer open and pending turns waiting for `reconnect()`;
+  before, the buffer closed and pending turns rejected. `disconnect()` /
+  `close()` still end everything.
 
 ### Fixed
 
