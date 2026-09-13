@@ -8,7 +8,14 @@ function scriptFor(scenario: ConformanceScenario): MockStep[] {
     switch (scenario.name) {
         case 'tool-permission':
         case 'headless-deny':
+        case 'request-timeout':
             return [{ tool: { name: 'guarded', input: {}, output: { ok: true }, source: 'client' } }, { text: 'Done.' }];
+        case 'session-grant':
+            return [{ tool: { name: 'guarded', input: {}, output: { ok: true }, source: 'client' } }, { tool: { name: 'guarded', input: {}, output: { ok: true }, source: 'client' } }, { text: 'Done twice.' }];
+        case 'configure':
+            return [{ config: [{ id: 'mode', label: 'Mode', values: [{ id: 'ask', label: 'Ask' }, { id: 'plan', label: 'Plan' }], current: 'ask' }] }, { text: 'Hello!' }];
+        case 'usage':
+            return [{ text: 'Hello!' }, { usage: { inputTokens: 3, outputTokens: 2 } }];
         case 'tool-error':
             return [{ tool: { name: 'failing', input: {}, status: 'failed', error: 'the tool failed on purpose', source: 'client' } }, { text: 'It failed.' }];
         case 'slow-tool':
@@ -31,6 +38,8 @@ function remote(local: Agent): Agent {
     return {
         id: local.id,
         capabilities: local.capabilities,
+        // The wire serves one session; listing them is the app's routing layer, forwarded here as such an app would.
+        ...(local.listSessions ? { listSessions: () => local.listSessions!() } : {}),
         async session(options) {
             const session: AgentSession = await local.session(options);
             const served = serveSession(session, { agentId: local.id, capabilities: local.capabilities });

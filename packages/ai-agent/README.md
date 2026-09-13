@@ -341,10 +341,19 @@ usage, and a second tab that joins the same session.
 An adapter is a mapping from a harness onto the contract; the conformance
 suite checks the contract's invariants (gapless `seq`, one `turn-end` per turn,
 every request resolved exactly once, replay equality, cancel → `cancelled`, …)
-through eleven scenarios. Each scenario tells your factory what the agent must
-do — for a real harness that is a recorded fixture or a fake peer; the suite
-plays the client. A case that needs a capability the agent lacks is skipped
-with the reason. No test-runner import: wire the cases into yours.
+through twenty-one scenarios: `text`, `tool-permission`, `headless-deny`,
+`tool-error`, `slow-tool`, `model-error`, `resume`, `input-request`,
+`structured-output`, `support-agent`, `busy-session`, `session-grant`,
+`request-timeout`, `configure`, `fork`, `list-sessions`, `late-join`,
+`portable-resume`, `prompt-after-close`, `respond-unknown` and `usage`. Each
+scenario tells your factory what the agent must do — for a real harness that is
+a recorded fixture or a fake peer; the suite plays the client. A case that needs
+a capability the agent lacks is skipped with the reason (pass `capabilities` so
+the skips are computed up front and can be asserted; without them a scenario the
+agent cannot run passes as a no-op). `late-join` replays the session from
+`{ epoch: 0, seq: 0 }` and holds it to `checkEventInvariants(events, { fromStart:
+true })` — gapless from seq 1 in every epoch. No test-runner import: wire the
+cases into yours.
 
 Capabilities are enforced where the helpers can: `createSessionCore({ promptParts })`
 fails a prompt that carries a part beyond the declared level before any event

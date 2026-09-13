@@ -36,13 +36,23 @@ function programFor(scenario: ConformanceScenario): TurnProgram {
             };
         case 'structured-output':
             return say('{"ok":true}');
+        case 'usage':
+            return async (ctx) => {
+                const last = { totalTokens: 5, inputTokens: 3, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 2, reasoningOutputTokens: 0 };
+                await ctx.notify('thread/tokenUsage/updated', { threadId: ctx.threadId, turnId: ctx.turnId, tokenUsage: { total: last, last, modelContextWindow: 200_000 } });
+                await say('Hello!')(ctx);
+            };
         default:
             return say('Hello!');
     }
 }
 
-/** Codex has no handoff concept, so the non-coding support flow does not apply. */
-const skip = (s: ConformanceScenario) => (s.name === 'support-agent' ? 'Codex emits no agent.handoff extension (its ext namespace is codex)' : undefined);
+/** Codex has no handoff concept, so the non-coding support flow does not apply; the fake lists one fixed thread, never the ones it started. */
+const skip = (s: ConformanceScenario) => {
+    if (s.name === 'support-agent') return 'Codex emits no agent.handoff extension (its ext namespace is codex)';
+    if (s.name === 'list-sessions') return 'the fake app-server answers thread/list with a fixed thread, not the ones it started';
+    return undefined;
+};
 
 describe('agentConformance: codex(fake app-server)', () => {
     const cases = agentConformance((s) => codex({ transport: fakeAppServer({ onTurn: programFor(s) }).transport }), {
@@ -50,8 +60,16 @@ describe('agentConformance: codex(fake app-server)', () => {
         skip,
         sessionOptions: { cwd: '/repo' }
     });
-    it('skips the every-call permission scenarios (Codex is harness-filtered) and the support-agent flow', () => {
-        expect(cases.filter((c) => c.skip).map((c) => c.name)).toEqual(['conformance: tool-permission', 'conformance: headless-deny', 'conformance: support-agent']);
+    it('skips the every-call permission scenarios (Codex is harness-filtered), portable resume, the support-agent flow and the fixed session listing', () => {
+        expect(cases.filter((c) => c.skip).map((c) => c.name)).toEqual([
+            'conformance: tool-permission',
+            'conformance: headless-deny',
+            'conformance: support-agent',
+            'conformance: session-grant',
+            'conformance: request-timeout',
+            'conformance: list-sessions',
+            'conformance: portable-resume'
+        ]);
     });
     for (const c of cases) it.skipIf(!!c.skip)(c.name, c.run, 15_000);
 });
