@@ -6,21 +6,30 @@
  * Lossy, on purpose and documented: tool statuses collapse onto
  * `UIToolState` (`pending | in_progress` → `pending`, an open permission
  * request → `awaiting`, `completed` → `done`, `failed | cancelled` → `error`,
- * `denied` → `denied`); nested (subagent) assistant messages are flattened
- * into the parent message as a marked text part; extension state is not
- * carried.
+ * `denied` → `denied`); nested (subagent) messages are flattened into the
+ * message that made the call as a marked text part, or omitted with
+ * `{ subagents: 'omit' }` — what a host feeding the transcript back to its
+ * own model wants, so a delegate's words are never taken for its own;
+ * extension state is not carried.
  */
 
 import type { UIMessage, UIPart, UIToolState } from '@sigx/ai';
 import type { ContentBlock } from '../protocol/index.js';
-import type { AgentMessage, AgentTranscript, ToolPartState } from './transcript.js';
+import type { AgentMessage, AgentPart, AgentTranscript, ToolPartState } from './transcript.js';
 
-export function toUIMessages(transcript: AgentTranscript): UIMessage[] {
+export interface ToUIOptions {
+    /** What to do with messages produced inside a sub-agent. Default `'flatten'`. */
+    readonly subagents?: 'flatten' | 'omit';
+}
+
+export function toUIMessages(transcript: AgentTranscript, options: ToUIOptions = {}): UIMessage[] {
     const out: UIMessage[] = [];
     const parentOfCall = new Map<string, UIMessage>();
+    const flatten = (options.subagents ?? 'flatten') === 'flatten';
 
     for (const m of transcript.messages) {
         if (m.parentCallId !== undefined) {
+            if (!flatten) continue;
             // A subagent's message: fold its text into the message that made the call.
             const parent = parentOfCall.get(m.parentCallId);
             const text = m.parts
@@ -30,16 +39,17 @@ export function toUIMessages(transcript: AgentTranscript): UIMessage[] {
             if (parent && text) parent.parts.push({ type: 'text', text: `[${m.actor ?? 'subagent'} ${m.parentCallId}] ${text}` });
             continue;
         }
-        const ui: UIMessage = { id: m.id, role: m.role, parts: m.role === 'user' ? userParts(m) : assistantParts(m) };
+        const ui: UIMessage = { id: m.id, role: m.role, parts: m.role === 'user' ? promptPartsToUI(m.parts) : assistantParts(m) };
         out.push(ui);
         for (const p of m.parts) if (p.type === 'tool') parentOfCall.set(p.callId, ui);
     }
     return out;
 }
 
-function userParts(m: AgentMessage): UIPart[] {
+/** Prompt parts (a user message's, or a steer's) as `UIPart`s — the user half of `toUIMessages`. */
+export function promptPartsToUI(input: readonly AgentPart[]): UIPart[] {
     const parts: UIPart[] = [];
-    for (const p of m.parts) {
+    for (const p of input) {
         if (p.type === 'text') parts.push({ type: 'text', text: p.text });
         // Image and file parts share their shape with `UIImagePart` / `UIFilePart`;
         // a `resource` has no UI counterpart and is rendered as text.

@@ -10,6 +10,7 @@ import { jsonEqual } from '../utils/json.js';
 import { assert, assertEqual, fail } from './assert.js';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'denied']);
+const AGENT_TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 
 export interface EventInvariantOptions {
     /**
@@ -21,7 +22,7 @@ export interface EventInvariantOptions {
     readonly fromStart?: boolean;
 }
 
-/** Gapless `seq` per epoch, one start/end per turn, terminal tools, one resolution per request, JSON-safe, nesting refers back. */
+/** Gapless `seq` per epoch, one start/end per turn, terminal tools and agents, one resolution per request, JSON-safe, nesting refers back. */
 export function checkEventInvariants(events: readonly AgentEvent[], options: EventInvariantOptions = {}): void {
     assert(events.length > 0, 'no events were observed');
     const sessionId = events[0]!.sessionId;
@@ -32,6 +33,9 @@ export function checkEventInvariants(events: readonly AgentEvent[], options: Eve
     const turnStarts = new Map<string, number>();
     const turnEnds = new Map<string, number>();
     const calls = new Map<string, string>();
+    const agents = new Map<string, string>();
+    /** callId → agentId: a spawning call binds at most one agent, or `spawnedAgent` is ambiguous. */
+    const spawnedBy = new Map<string, string>();
     const requests = new Map<string, number>();
     const resolved = new Map<string, number>();
 
@@ -59,11 +63,28 @@ export function checkEventInvariants(events: readonly AgentEvent[], options: Eve
                 turnEnds.set(e.turnId, (turnEnds.get(e.turnId) ?? 0) + 1);
                 break;
             case 'tool-call':
+                assert(!calls.has(e.callId), `tool-call "${e.callId}" at seq ${e.seq} reuses a callId already announced`);
                 calls.set(e.callId, 'pending');
                 break;
             case 'tool-update':
                 assert(calls.has(e.callId), `tool-update for unknown callId "${e.callId}" at seq ${e.seq}`);
                 calls.set(e.callId, e.status);
+                break;
+            case 'agent-start':
+                assert(!agents.has(e.agentId), `agent "${e.agentId}" started twice (seq ${e.seq})`);
+                if (e.callId !== undefined) {
+                    assert(calls.has(e.callId), `agent "${e.agentId}" at seq ${e.seq} is bound to callId "${e.callId}" before its tool-call`);
+                    // A spawn announced inside a call is inside the call that spawned it — no other.
+                    assert(e.parentCallId === undefined || e.parentCallId === e.callId, `agent "${e.agentId}" at seq ${e.seq} is bound to callId "${e.callId}" but nested under "${e.parentCallId}"`);
+                    const other = spawnedBy.get(e.callId);
+                    assert(other === undefined, `agent "${e.agentId}" at seq ${e.seq} is bound to callId "${e.callId}", already bound to agent "${other}"`);
+                    spawnedBy.set(e.callId, e.agentId);
+                }
+                agents.set(e.agentId, 'running');
+                break;
+            case 'agent-update':
+                assert(agents.has(e.agentId), `agent-update for unknown agentId "${e.agentId}" at seq ${e.seq}`);
+                agents.set(e.agentId, e.status);
                 break;
             case 'request':
                 requests.set(e.requestId, (requests.get(e.requestId) ?? 0) + 1);
@@ -79,6 +100,7 @@ export function checkEventInvariants(events: readonly AgentEvent[], options: Eve
     }
     for (const [turnId] of turnEnds) assert(turnStarts.has(turnId), `turn "${turnId}" ended without starting`);
     for (const [callId, status] of calls) assert(TERMINAL.has(status), `tool call "${callId}" never reached a terminal status (last: ${status})`);
+    for (const [agentId, status] of agents) assert(AGENT_TERMINAL.has(status), `agent "${agentId}" never reached a terminal status (last: ${status})`);
     for (const [id, n] of requests) {
         assert(n === 1, `request "${id}" was emitted ${n} times`);
         assert(resolved.get(id) === 1, `request "${id}" has ${resolved.get(id) ?? 0} resolutions`);
