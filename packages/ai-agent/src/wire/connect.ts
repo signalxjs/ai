@@ -11,7 +11,7 @@
 
 import type { AgentCapabilities, AgentEvent, Decision, PromptInput } from '../protocol/index.js';
 import { AgentError, SessionBusyError, isAgentEvent, toPromptParts } from '../protocol/index.js';
-import type { AgentSession, AgentTurn, PromptOptions, SessionRef, TurnResult } from '../session/index.js';
+import type { AgentSession, AgentTurn, CancelTarget, PromptOptions, SessionRef, TurnResult } from '../session/index.js';
 import { generateId } from '../utils/id.js';
 import { cursorBefore, isWireFrame, WIRE_PROTOCOL_VERSION, type Cursor, type WireCommand, type WireCommandPayload, type WireErrorCode, type WireFrame, type WireReply } from './envelope.js';
 import { createReplayBuffer } from './replay-buffer.js';
@@ -219,6 +219,11 @@ export async function connectSession(transport: SessionTransport, options: Conne
             void follow();
         },
         prompt(input: PromptInput, promptOptions?: PromptOptions) {
+            // Always a fresh id: whether this prompt starts a turn or steers the
+            // running one is the server's call (it has the truth about `busy`), and
+            // the ack names the turn it went into — the handle retargets to it.
+            // Reusing an id this client believes is running would collide with a
+            // turn that ended in the meantime.
             const turnId = promptOptions?.turnId ?? newId();
             const from = last;
             const output = promptOptions?.output ? { schema: promptOptions.output.schema as Record<string, unknown>, ...(promptOptions.output.name !== undefined ? { name: promptOptions.output.name } : {}) } : undefined;
@@ -231,7 +236,7 @@ export async function connectSession(transport: SessionTransport, options: Conne
             return createClientTurn(first.sessionId, turnId, events, reply);
         },
         respond: (requestId: string, decision: Decision) => sendOrThrow({ type: 'respond', requestId, decision }),
-        cancel: () => sendOrThrow({ type: 'cancel' }),
+        cancel: (target?: CancelTarget) => sendOrThrow({ type: 'cancel', ...(target?.agentId !== undefined ? { agentId: target.agentId } : {}) }),
         ...(first.capabilities.config ? { configure: (patch: Readonly<Record<string, string>>) => sendOrThrow({ type: 'configure', patch }) } : {}),
         subscribe: (from) => buffer.subscribe(from),
         disconnect() {
@@ -275,12 +280,22 @@ function safeJson(value: unknown): string {
 }
 
 /**
- * A turn assembled from the local buffer, filtered by `turnId`. One collector
- * drains the subscription into `own` (so `result` settles whether or not
- * anyone iterates); each iterator walks `own` by its own index and waits for
- * growth, so several consumers can iterate, and late ones see everything once.
+ * A turn assembled from the local buffer, filtered by its turn id. One
+ * collector drains the subscription into `own` (so `result` settles whether or
+ * not anyone iterates); each iterator walks `own` by its own index and waits
+ * for growth, so several consumers can iterate, and late ones see everything
+ * once.
+ *
+ * Which turn is not known until the ack: a prompt sent while a turn runs on a
+ * steering session lands IN that turn, and the ack names it. Events arriving
+ * before the ack are staged and filtered once the target is known — a late
+ * joiner that never saw the running turn's `turn-start` still gets a handle
+ * with the right `id`, the right `result` and the events from its steer on.
  */
 function createClientTurn(sessionId: string, turnId: string, events: AsyncIterable<AgentEvent>, reply: Promise<WireReply>): AgentTurn {
+    let target = turnId;
+    let acked = false;
+    const staged: AgentEvent[] = [];
     let resolveResult!: (r: TurnResult) => void;
     let rejectResult!: (e: unknown) => void;
     const result = new Promise<TurnResult>((resolve, reject) => {
@@ -309,13 +324,28 @@ function createClientTurn(sessionId: string, turnId: string, events: AsyncIterab
         wake();
     };
 
+    const accept = (e: AgentEvent) => {
+        if (done || e.turnId !== target) return;
+        own.push(e);
+        wake();
+        if (e.type === 'turn-end') {
+            const { type: _t, sessionId: _s, epoch: _e, seq: _q, turnId: _i, parentCallId: _p, ...payload } = e;
+            resolveResult({ turnId: target, ...payload });
+            finish();
+        }
+    };
+
     void reply.then(
         (r) => {
             if (r.kind === 'error') {
                 const error = r.code === 'busy' ? new SessionBusyError(sessionId, turnId) : new RemoteCommandError('prompt', r.code, r.message);
                 rejectResult(error);
                 finish(error);
+                return;
             }
+            target = r.turnId ?? turnId;
+            acked = true;
+            for (const e of staged.splice(0)) accept(e);
         },
         (e: unknown) => {
             rejectResult(e);
@@ -328,19 +358,12 @@ function createClientTurn(sessionId: string, turnId: string, events: AsyncIterab
             for (;;) {
                 const next = await iterator.next();
                 if (next.done) break;
-                const e = next.value;
-                if (e.turnId !== turnId) continue;
-                own.push(e);
-                wake();
-                if (e.type === 'turn-end') {
-                    const { type: _t, sessionId: _s, epoch: _e, seq: _q, turnId: _i, parentCallId: _p, ...payload } = e;
-                    resolveResult({ turnId, ...payload });
-                    finish();
-                    return;
-                }
+                if (acked) accept(next.value);
+                else staged.push(next.value);
+                if (done) return;
             }
             if (!done) {
-                const e = new AgentError('protocol_error', `[sigx ai-agent] the connection ended before turn "${turnId}" did`);
+                const e = new AgentError('protocol_error', `[sigx ai-agent] the connection ended before turn "${target}" did`);
                 rejectResult(e);
                 finish(e);
             }
@@ -351,7 +374,9 @@ function createClientTurn(sessionId: string, turnId: string, events: AsyncIterab
     })();
 
     return {
-        id: turnId,
+        get id() {
+            return target;
+        },
         result,
         [Symbol.asyncIterator]() {
             let i = 0;

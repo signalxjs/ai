@@ -1,16 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { allowAll, memoryEventLog, createTranscript, reduceAgentEvent, SessionBusyError, AgentError, type AgentEvent, type AgentSession, type EventLogStore } from '@sigx/ai-agent';
+import { allowAll, memoryEventLog, createTranscript, reduceAgentEvent, SessionBusyError, AgentError, type AgentCapabilities, type AgentEvent, type AgentSession, type EventLogStore } from '@sigx/ai-agent';
 import { serveSession, connectSession, RemoteCommandError, type ServedSession, type SessionTransport, type WireCommand, type WireCommandPayload, type WireFrame, type Cursor } from '@sigx/ai-agent/wire';
 import { mockAgent, MOCK_CAPABILITIES, type MockStep } from '@sigx/ai-agent/testing';
 import { collect, drain, textOf, tick } from '../helpers';
 
 const inMemory = (served: ServedSession, principal?: unknown): SessionTransport => ({ send: (c) => served.handleCommand(c, principal), events: (from, o) => served.events(from, o) });
 
-// Steering over the wire lands with #93; until then the served mock does not steer, so a prompt during a turn is busy.
-const WIRE_CAPABILITIES = { ...MOCK_CAPABILITIES, steer: false };
+const WIRE_CAPABILITIES = MOCK_CAPABILITIES;
 
-async function serve(script: MockStep[][], sessionOptions: Parameters<AgentSession['prompt']> extends never ? never : Record<string, unknown> = {}, serveOptions: Partial<Parameters<typeof serveSession>[1]> = {}) {
-    const agent = mockAgent({ script, capabilities: { steer: false } });
+async function serve(script: MockStep[][], sessionOptions: Parameters<AgentSession['prompt']> extends never ? never : Record<string, unknown> = {}, serveOptions: Partial<Parameters<typeof serveSession>[1]> = {}, capabilities: Partial<AgentCapabilities> = {}) {
+    const agent = mockAgent({ script, capabilities });
     const session = await agent.session(sessionOptions);
     const served = serveSession(session, { agentId: agent.id, capabilities: agent.capabilities, ...serveOptions });
     return { agent, session, served };
@@ -107,8 +106,8 @@ describe('serveSession / connectSession', () => {
         const turn2 = remote.prompt('again');
         const [a, b] = await Promise.all([collect(turn2), collect(turn2)]);
         expect(seqs(a)).toEqual(seqs(b));
-        // The busy error names the real session.
-        const busy = await serve([[{ text: 'slow slow', delayMs: 10 }]]);
+        // The busy error names the real session (an agent that cannot steer).
+        const busy = await serve([[{ text: 'slow slow', delayMs: 10 }]], {}, {}, { steer: false });
         const r2 = await connectSession(inMemory(busy.served));
         const first = r2.prompt('a');
         const err = await r2.prompt('b').result.catch((e: unknown) => e);
@@ -418,6 +417,9 @@ describe('serveSession / connectSession', () => {
         expect(await raw({ commandId: 'i11', type: 'prompt', turnId: 't', input: [{ type: 'resource' }] })).toMatchObject({ kind: 'error', code: 'invalid' });
         // An input decision without its answers.
         expect(await raw({ commandId: 'i12', type: 'respond', requestId: 'r', decision: { type: 'input' } })).toMatchObject({ kind: 'error', code: 'invalid', message: expect.stringContaining('answers') });
+        // A cancel target must be a non-empty string when present.
+        expect(await raw({ commandId: 'i13', type: 'cancel', agentId: 3 })).toMatchObject({ kind: 'error', code: 'invalid', message: expect.stringContaining('agentId') });
+        expect(await raw({ commandId: 'i14', type: 'cancel', agentId: '' })).toMatchObject({ kind: 'error', code: 'invalid', message: expect.stringContaining('agentId') });
         await tick(5);
         expect(prompts).toBe(0);
         // Well-formed ones pass the gate (a late respond is an ack, as ever).
@@ -457,13 +459,91 @@ describe('serveSession / connectSession', () => {
     });
 
     it('a busy session answers error busy → SessionBusyError on the client turn', async () => {
-        const { served } = await serve([[{ text: 'slow slow slow', delayMs: 10 }], [{ text: 'second' }]]);
+        const { served } = await serve([[{ text: 'slow slow slow', delayMs: 10 }], [{ text: 'second' }]], {}, {}, { steer: false });
         const remote = await connectSession(inMemory(served));
         const first = remote.prompt('a');
         const second = remote.prompt('b');
         await expect(second.result).rejects.toBeInstanceOf(SessionBusyError);
         await expect(collect(second)).rejects.toBeInstanceOf(SessionBusyError);
         expect((await first.result).stopReason).toBe('end_turn');
+        remote.disconnect();
+    });
+
+    it('a prompt during a turn steers it over the wire: the handle is the running turn, one user-message inside it (#93)', async () => {
+        const { served } = await serve([[{ tool: { name: 'slow', input: {}, delayMs: 30, source: 'client' } }, { text: 'Done.' }]], { policy: allowAll, interactive: false });
+        const remote = await connectSession(inMemory(served));
+        const first = remote.prompt('go');
+        await tick(5);
+        const second = remote.prompt('also this');
+        const [a, b] = await Promise.all([first.result, second.result]);
+        expect(second.id).toBe(first.id);
+        expect(b).toEqual(a);
+        expect(a.stopReason).toBe('end_turn');
+        const events = await collect(first);
+        // The prompt's own user-message, then exactly one for the steer — in the same turn, not nested.
+        const users = events.filter((e): e is Extract<AgentEvent, { type: 'user-message' }> => e.type === 'user-message');
+        expect(users.map((u) => u.parts)).toEqual([[{ type: 'text', text: 'go' }], [{ type: 'text', text: 'also this' }]]);
+        expect(users[1]).toMatchObject({ turnId: first.id });
+        expect(users[1]!.parentCallId).toBeUndefined();
+        // The steer is answered inside the running turn, before the script continues.
+        expect(textOf(events)).toBe('Steered.Done.');
+        // The steer's own handle iterates from the steer on: the user-message first, the turn-end last.
+        const later = await collect(second);
+        expect(later[0]).toMatchObject({ type: 'user-message', turnId: first.id });
+        expect(later.at(-1)).toMatchObject({ type: 'turn-end', turnId: first.id });
+        remote.disconnect();
+    });
+
+    it('a late joiner that never saw turn-start steers, and its handle retargets to the running turn on the ack (#93)', async () => {
+        const { served } = await serve([[{ tool: { name: 'slow', input: {}, delayMs: 30, source: 'client' } }, { text: 'Done.' }]], { policy: allowAll, interactive: false });
+        const driver = await connectSession(inMemory(served));
+        const first = driver.prompt('go');
+        await tick(5);
+        // Live from the head: this client has no turn-start for the running turn.
+        const late = await connectSession(inMemory(served));
+        const steer = late.prompt('and this');
+        const result = await steer.result;
+        expect(steer.id).toBe(first.id);
+        expect(result).toEqual(await first.result);
+        const seen = await collect(steer);
+        expect(seen[0]).toMatchObject({ type: 'user-message', turnId: first.id });
+        expect(seen.at(-1)).toMatchObject({ type: 'turn-end', turnId: first.id });
+        driver.disconnect();
+        late.disconnect();
+    });
+
+    it('cancel({ agentId }) crosses the wire and stops that sub-agent while the turn continues (#93)', async () => {
+        const { served } = await serve([[{ agent: { name: 'delegate', steps: [{ tool: { name: 'slow', input: {}, delayMs: 60_000, source: 'client' } }] } }, { text: 'Done.' }]], { policy: allowAll, interactive: false });
+        const remote = await connectSession(inMemory(served));
+        const turn = remote.prompt('go');
+        const seen: AgentEvent[] = [];
+        for await (const e of turn) {
+            seen.push(e);
+            if (e.type === 'agent-update' && e.status === 'running') await remote.cancel({ agentId: e.agentId });
+        }
+        expect((await turn.result).stopReason).toBe('end_turn');
+        expect(seen.filter((e): e is Extract<AgentEvent, { type: 'agent-update' }> => e.type === 'agent-update').map((e) => e.status)).toEqual(['running', 'cancelled']);
+        expect(seen.filter((e): e is Extract<AgentEvent, { type: 'tool-update' }> => e.type === 'tool-update' && e.status === 'cancelled')).toHaveLength(2);
+        expect(textOf(seen)).toBe('Done.');
+        remote.disconnect();
+    });
+
+    it('cancel({ agentId }) against a session that cannot control sub-agents is refused as unsupported (#93)', async () => {
+        const { served } = await serve([[{ text: 'x' }]], {}, {}, { subagents: 'observe' });
+        const remote = await connectSession(inMemory(served));
+        const err = await remote.cancel({ agentId: 'agent_1' }).catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(RemoteCommandError);
+        expect(err).toMatchObject({ command: 'cancel', remote: 'unsupported' });
+        remote.disconnect();
+    });
+
+    it('a cursor inside a coalesced NESTED span cannot be replayed exactly either (#93)', async () => {
+        const { served } = await serve([[{ agent: { name: 'delegate', steps: [{ text: 'one two three four' }] } }, { text: 'ok' }]], { policy: allowAll, interactive: false }, { coalesce: { schedule: () => undefined } });
+        const remote = await connectSession(inMemory(served));
+        const { events } = await drain(remote.prompt('go'));
+        const merged = events.find((e) => e.type === 'part-delta' && e.parentCallId !== undefined)!;
+        expect(merged.seq).toBeGreaterThan(events[events.indexOf(merged) - 1]!.seq + 1);
+        expect(() => remote.subscribe({ epoch: merged.epoch, seq: merged.seq - 1 })).toThrow(/coalesced span/);
         remote.disconnect();
     });
 

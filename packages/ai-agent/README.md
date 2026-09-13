@@ -112,9 +112,20 @@ The client's `send` posts a command and awaits the reply with its `commandId`;
 its `events(from)` sends the start message and yields the frames that follow.
 
 Coalescing (`coalesce: { maxDelayMs, maxBytes }`) merges runs of text deltas
-into one frame each to limit traffic; off by default. Without an `eventLog`, a
-client whose cursor has left the in-memory buffer receives a `gap` frame and
-continues from the head — a `TranscriptStore` snapshot is the app's way to fill it.
+into one frame each to limit traffic — a sub-agent's nested deltas too, within
+their own part; off by default. Without an `eventLog`, a client whose cursor
+has left the in-memory buffer receives a `gap` frame and continues from the
+head — a `TranscriptStore` snapshot is the app's way to fill it.
+
+**Steering and sub-agents cross the wire as they are locally.** A `prompt()`
+while a turn runs on a session with `steer` is sent like any prompt; the
+server decides whether it starts a turn or joins the running one, and the ack
+names the turn it went into, so the client's handle takes that turn's `id`,
+settles with its `result` and yields its events from the steer on — a late
+joiner that never saw the running turn's `turn-start` gets the same. Without
+`steer` the reply is `busy` (`SessionBusyError`). `remote.cancel({ agentId })`
+carries the target as `cancel.agentId`; the server answers `unsupported`
+unless the served capabilities say `subagents: 'control'`.
 
 **Reconnects.** A broken stream is retried from the last cursor with backoff
 (`reconnect: { maxAttempts, backoffMs }`; default 10 attempts, exponential from

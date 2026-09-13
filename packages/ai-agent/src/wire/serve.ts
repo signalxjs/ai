@@ -87,6 +87,11 @@ function validateCommand(command: WireCommand): string | undefined {
             if (!isRecord(patch) || !Object.values(patch).every((v) => typeof v === 'string')) return 'configure.patch must be an object of strings';
             return undefined;
         }
+        case 'cancel': {
+            const agentId: unknown = command.agentId;
+            if (agentId !== undefined && (typeof agentId !== 'string' || agentId.trim() === '')) return 'cancel.agentId must be a non-empty string when present';
+            return undefined;
+        }
         default:
             return undefined;
     }
@@ -140,7 +145,11 @@ export function serveSession(session: AgentSession, options: ServeSessionOptions
                     await session.respond(command.requestId, command.decision);
                     return ack();
                 case 'cancel':
-                    await session.cancel();
+                    if (command.agentId !== undefined) {
+                        // Refused here, not by the session: the capability is the served fact a client sees in `hello`.
+                        if (options.capabilities.subagents !== 'control') return error('unsupported', `session "${session.id}" cannot cancel a sub-agent (subagents: "${options.capabilities.subagents}")`);
+                        await session.cancel({ agentId: command.agentId });
+                    } else await session.cancel();
                     return ack();
                 case 'configure':
                     if (!session.configure) return error('unsupported', `session "${session.id}" does not support configure()`);

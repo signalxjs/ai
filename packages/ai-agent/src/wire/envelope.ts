@@ -22,7 +22,8 @@ export interface WireOutputSpec {
 export type WireCommandPayload =
     | { readonly type: 'prompt'; readonly turnId: string; readonly input: readonly PromptPart[]; readonly output?: WireOutputSpec }
     | { readonly type: 'respond'; readonly requestId: string; readonly decision: Decision }
-    | { readonly type: 'cancel' }
+    /** Without `agentId`: the running turn. With it: that sub-agent (`subagents: 'control'`), the turn continues. */
+    | { readonly type: 'cancel'; readonly agentId?: string }
     | { readonly type: 'configure'; readonly patch: Readonly<Record<string, string>> }
     | { readonly type: 'close' };
 
@@ -31,7 +32,13 @@ export type WireCommand = { readonly v: typeof WIRE_PROTOCOL_VERSION; readonly c
 export type WireErrorCode = 'unauthorized' | 'busy' | 'closed' | 'invalid' | 'unsupported' | 'internal';
 
 export type WireReply =
-    | { readonly v: typeof WIRE_PROTOCOL_VERSION; readonly kind: 'ack'; readonly commandId: string; readonly turnId?: string }
+    | {
+          readonly v: typeof WIRE_PROTOCOL_VERSION;
+          readonly kind: 'ack';
+          readonly commandId: string;
+          /** For a `prompt`: the turn it ran in — the RUNNING turn's id when the session steered instead of starting one. */
+          readonly turnId?: string;
+      }
     | { readonly v: typeof WIRE_PROTOCOL_VERSION; readonly kind: 'error'; readonly commandId: string; readonly code: WireErrorCode; readonly message: string };
 
 export type WireFrame =
