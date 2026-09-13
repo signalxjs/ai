@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { allowAll, type AgentEvent, type AgentTurn } from '@sigx/ai-agent';
+import { allowAll, type Agent, type AgentEvent, type AgentTurn } from '@sigx/ai-agent';
 import { mockAgent, recordAgent, replayAgent, serializeFixture, ReplayMismatchError, agentConformance, MOCK_CAPABILITIES, type AgentFixture, type ConformanceScenario, type MockStep } from '@sigx/ai-agent/testing';
 import { collect } from '../helpers';
 
@@ -49,6 +49,34 @@ describe('recordAgent / replayAgent', () => {
         expect(replayRun.result).toEqual(liveRun.result);
         await session.close();
         await replay.dispose();
+    });
+
+    it('records events the session emitted while opening, before the recorder attached', async () => {
+        // An agent that announces its config as part of opening the session.
+        const inner = mockAgent({ script: [[{ text: 'hi' }]] });
+        const announcing: Agent = {
+            ...inner,
+            async session(options) {
+                const session = await inner.session(options);
+                await session.configure!({ mode: 'auto' });
+                return session;
+            }
+        };
+        const recorder = recordAgent(announcing);
+        const session = await recorder.session();
+        await session.prompt('go').result;
+        await session.close();
+        const types = recorder.fixture.sessions[0]!.log.filter((e): e is { event: AgentEvent } => 'event' in e).map((e) => e.event.type);
+        expect(types[0]).toBe('config');
+        const replayed = await replayAgent(recorder.fixture).session();
+        const seen = collect(replayed.subscribe({ epoch: 0, seq: 0 }));
+        await replayed.prompt('go').result;
+        await replayed.close();
+        expect((await seen).map((e) => e.type)).toContain('config');
+        // A client that only awaits results still gets its commands after the events they followed.
+        const kinds = recorder.fixture.sessions[0]!.log.map((e) => ('command' in e ? 'cmd:' + e.command.kind : e.event.type));
+        expect(kinds.indexOf('cmd:prompt')).toBeGreaterThan(kinds.indexOf('config'));
+        expect(kinds.at(-1)).toBe('cmd:close');
     });
 
     it('throws with a diff when the client deviates from the recording', async () => {

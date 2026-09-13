@@ -137,11 +137,19 @@ export function recordAgent(agent: Agent, options: RecordAgentOptions = {}): Rec
             const rebuild = () => {
                 recorded.log = mergeLog(events, commands);
             };
+            // From an "always old" cursor, so events the session emitted while
+            // opening (a `config`, an `ext`) are recorded too, not only live ones.
+            // The pump's own position counts as observed too: a client that only
+            // awaits `turn.result` never reads events, yet its next command still
+            // came after everything the session had emitted by then.
             const pump = (async () => {
-                for await (const e of real.subscribe()) events.push(e);
+                for await (const e of real.subscribe({ epoch: 0, seq: 0 })) {
+                    events.push(e);
+                    observe(e);
+                }
             })();
-            const command = (c: FixtureCommand) => {
-                commands.push({ command: c, after: observed });
+            const command = (c: FixtureCommand, after: EventCursor = observed) => {
+                commands.push({ command: c, after });
             };
             const session: AgentSession = {
                 id: real.id,
@@ -173,7 +181,8 @@ export function recordAgent(agent: Agent, options: RecordAgentOptions = {}): Rec
                     : {}),
                 subscribe: (from) => observing(real.subscribe(from)),
                 async close() {
-                    command({ kind: 'close' });
+                    // After every event: closing ends the session's log.
+                    command({ kind: 'close' }, { epoch: Number.MAX_SAFE_INTEGER, seq: 0 });
                     await real.close();
                     // After the close: an adapter may update its ref while closing.
                     recorded.ref.final = real.ref;
@@ -244,6 +253,7 @@ export function replayAgent(fixture: AgentFixture, options: ReplayAgentOptions =
             /** The client issued `actual`: match it against the recording (now or when the replay reaches it). */
             const issue = (actual: FixtureCommand): Promise<void> =>
                 new Promise<void>((resolve, reject) => {
+                    if (!waiting && (!core.current || core.current.settled)) advance();
                     const expected = waiting?.expected ?? nextCommand();
                     if (!expected || !sameCommand(expected, actual)) {
                         reject(new ReplayMismatchError(expected, actual));
@@ -296,6 +306,7 @@ export function replayAgent(fixture: AgentFixture, options: ReplayAgentOptions =
                     return recorded.ref.final ?? recorded.ref.initial;
                 },
                 prompt(input, promptOptions) {
+                    if (!core.current || core.current.settled) advance(); // session-level events recorded before this prompt
                     const expected = nextCommand();
                     const schema = outputSchema(promptOptions);
                     // A caller-supplied turnId must be the recorded one; otherwise the recorded id is used.
@@ -333,6 +344,7 @@ export function replayAgent(fixture: AgentFixture, options: ReplayAgentOptions =
                     // Closing is a command like any other: it must be what the recording
                     // expects next (or the recording must be exhausted, for a session that
                     // was never closed on record).
+                    advance(); // trailing session-level events (the recorder places `close` after everything)
                     const expected = nextCommand();
                     const remaining = recorded.log.slice(cursor).filter((e) => 'command' in e);
                     if (expected?.kind === 'close') cursor++;
