@@ -36,6 +36,7 @@ export default defineConfig({
             { find: '@sigx/ai-agent/harness', replacement: resolve(__dirname, 'packages/ai-agent/src/harness/index.ts') },
             { find: '@sigx/ai-agent/wire', replacement: resolve(__dirname, 'packages/ai-agent/src/wire/index.ts') },
             { find: '@sigx/ai-agent-node', replacement: resolve(__dirname, 'packages/ai-agent-node/src/index.ts') },
+            { find: '@sigx/ai-agent-acp', replacement: resolve(__dirname, 'packages/ai-agent-acp/src/index.ts') },
             { find: '@sigx/ai-agent-claude-code', replacement: resolve(__dirname, 'packages/ai-agent-claude-code/src/index.ts') },
             { find: '@sigx/ai-agent-codex', replacement: resolve(__dirname, 'packages/ai-agent-codex/src/index.ts') },
             { find: /^@sigx\/ai-agent$/, replacement: resolve(__dirname, 'packages/ai-agent/src/index.ts') },

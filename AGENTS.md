@@ -206,6 +206,15 @@ To run the example: `pnpm build` first (it resolves the packages from
   allowlist, `NODE_OPTIONS` excluded) and `listenMcp` (loopback `node:http`
   host for the harness MCP tool handler). Adapters that spawn a harness take
   it as a regular `dependencies` entry. Tested on Ubuntu, Windows and macOS.
+- `packages/ai-agent-acp` → `@sigx/ai-agent-acp` — **experimental**, the Agent
+  Client Protocol adapter (Node-only; depends on `@sigx/ai-agent-node` for the
+  stdio path): `acp({ command, transport?, fs?, terminal? })` → an `Agent` with
+  `connect()`; vendors are data-only presets (`gemini()`, `cursor()`,
+  `claudeCodeAcp()`, `codexAcp()`). Layout `schema ← options ← client-methods
+  ← stream ← session ← provider ← presets ← index`; `schema.ts` is our own
+  protocol subset (the reference SDK is a devDependency for an assignability
+  test only). Tests run against an in-memory fake agent over
+  `createJsonRpcPeer`; live smokes are env-gated per preset.
 - `packages/ai-agent-claude-code` → `@sigx/ai-agent-claude-code` — **experimental**,
   Claude Code as an `Agent` on the official `@anthropic-ai/claude-agent-sdk`
   (peer, literal range). Layout `options ← request ← permissions ← tools ←

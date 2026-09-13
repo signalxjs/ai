@@ -40,6 +40,12 @@
     "ignore": ["@sigx/ai"]
   },
   {
+    "name": "@sigx/ai-agent-acp",
+    "path": "packages/ai-agent-acp/dist/index.prod.js",
+    "limit": "8 KB",
+    "ignore": ["@sigx/ai", "@sigx/ai-agent", "@sigx/ai-agent-node", "node:fs/promises", "node:path"]
+  },
+  {
     "name": "@sigx/ai-agent-claude-code",
     "path": "packages/ai-agent-claude-code/dist/index.prod.js",
     "limit": "8 KB",

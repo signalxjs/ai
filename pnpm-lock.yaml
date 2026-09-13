@@ -178,6 +178,34 @@ importers:
         specifier: ^8.0.3
         version: 8.3.0(@types/node@25.9.6)(jiti@2.7.0)
 
+  packages/ai-agent-acp:
+    dependencies:
+      '@sigx/ai-agent-node':
+        specifier: ^0.1.0
+        version: link:../ai-agent-node
+    devDependencies:
+      '@agentclientprotocol/sdk':
+        specifier: 1.4.0
+        version: 1.4.0(zod@4.6.2)
+      '@sigx/ai':
+        specifier: workspace:*
+        version: link:../ai
+      '@sigx/ai-agent':
+        specifier: workspace:*
+        version: link:../ai-agent
+      '@sigx/vite':
+        specifier: 'catalog:'
+        version: 0.15.6(@sigx/server-renderer@0.15.6)(@sigx/server@0.15.6)(sigx@0.15.6)(vite@8.3.0(@types/node@25.9.6)(jiti@2.7.0))
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.6
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vite:
+        specifier: ^8.0.3
+        version: 8.3.0(@types/node@25.9.6)(jiti@2.7.0)
+
   packages/ai-agent-claude-code:
     dependencies:
       '@sigx/ai-agent-node':
@@ -298,6 +326,11 @@ importers:
         version: 8.3.0(@types/node@25.9.6)(jiti@2.7.0)
 
 packages:
+
+  '@agentclientprotocol/sdk@1.4.0':
+    resolution: {integrity: sha512-/eufudw+aFY1LKLolT6yFE6UMmYRl7fMJ/DEONSIyR6wI3slHWITBsANRGqXEY8FRzqUxwh7QEaGiZHcJPVThg==}
+    peerDependencies:
+      zod: ^3.25.0 || ^4.0.0
 
   '@anthropic-ai/claude-agent-sdk-darwin-arm64@0.3.270':
     resolution: {integrity: sha512-nk7BP+i559rheYz9DIwAfevd4DulQXP0mXPP+MeO2fGuIGFmzhE/c0JRm9YswXv5HdaYJvSzjGIB7dVA01NehA==}
@@ -1770,6 +1803,10 @@ packages:
     resolution: {integrity: sha512-lh5RCAGFa1Cm2hjtNwLQhSs/AsqdWnTQaBER9fEwN/88pSh7KOtJavtBx/0VlkN/uFd61SwYmljLMDAsHlvzBQ==}
 
 snapshots:
+
+  '@agentclientprotocol/sdk@1.4.0(zod@4.6.2)':
+    dependencies:
+      zod: 4.6.2
 
   '@anthropic-ai/claude-agent-sdk-darwin-arm64@0.3.270':
     optional: true
