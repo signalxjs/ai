@@ -195,6 +195,15 @@ To run the example: `pnpm build` first (it resolves the packages from
   enforced by `__tests__/package/edge-safety.test.ts`). Peers on `@sigx/ai`.
   Node-only building blocks live in `@sigx/ai-agent-node`; adapters are
   `@sigx/ai-agent-<harness>` (named by harness, not vendor).
+- `packages/ai-agent-node` → `@sigx/ai-agent-node` — **experimental**, the
+  family's only Node-specific package (`tsconfig` `types: ["node"]`): it owns
+  cross-platform process correctness — `resolveExecutable` (`PATH`/`Path`,
+  `PATHEXT`, npm `.cmd` shims run under `process.execPath`),
+  `spawnAgentProcess` (never `shell: true`; Web Streams stdio; process-group /
+  `taskkill /T` kill; children die with the parent), `buildChildEnv` (an
+  allowlist, `NODE_OPTIONS` excluded) and `listenMcp` (loopback `node:http`
+  host for the harness MCP tool handler). Adapters that spawn a harness take
+  it as a regular `dependencies` entry. Tested on Ubuntu, Windows and macOS.
 - `packages/ai-anthropic` → `@sigx/ai-anthropic` — Claude on the official
   `@anthropic-ai/sdk` (a peer dependency, literal range): `anthropic()` →
   `.model(id)`. Streams `client.messages.stream`, maps text / thinking /
