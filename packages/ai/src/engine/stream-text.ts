@@ -295,7 +295,7 @@ async function toOutput(output: OutputOptions, assistant: ModelMessage & { role:
         raw = JSON.parse(text);
     } catch {
         raw = parsePartialJson(text);
-        if (raw === undefined) throw new Error('[sigx ai] the model returned no parseable JSON for `output`.');
+        if (raw === undefined) throw new Error('[sigx ai] streamText: the model returned no parseable JSON for `output`.');
     }
     return validateWith(output.schema, raw, 'The model output did not match the schema');
 }
