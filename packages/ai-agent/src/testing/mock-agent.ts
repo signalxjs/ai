@@ -22,7 +22,7 @@ import type {
 } from '../protocol/index.js';
 import { AgentError, capabilities as makeCapabilities } from '../protocol/index.js';
 import { createGrants } from '../policy/index.js';
-import type { Agent, AgentSession, SessionOptions, SessionRef } from '../session/index.js';
+import type { Agent, AgentSession, SessionOptions, SessionRef, SessionSummary } from '../session/index.js';
 import { createEventLog, createSessionCore } from '../session/index.js';
 import type { TurnDriver, TurnContext } from '../session/index.js';
 import { fromUIMessages } from '../state/index.js';
@@ -91,6 +91,8 @@ export interface MockAgent extends Agent {
 /** The mock's default: everything an in-process agent can honour. */
 export const MOCK_CAPABILITIES: AgentCapabilities = makeCapabilities({
     resume: 'portable',
+    fork: true,
+    listSessions: true,
     cancel: true,
     config: true,
     structuredOutput: true,
@@ -323,6 +325,8 @@ export function mockAgent(options: MockAgentOptions = {}): MockAgent {
         capabilities: caps,
         sessions,
         session: openSession,
+        // Every session this instance opened, by its current ref (the mock has no store to list from).
+        ...(caps.listSessions ? { listSessions: async (): Promise<SessionSummary[]> => sessions.map((s) => ({ ref: s.ref })) } : {}),
         async dispose() {
             await Promise.all(sessions.map((s) => s.close()));
         }

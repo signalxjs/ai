@@ -11,14 +11,24 @@ import { assert, assertEqual, fail } from './assert.js';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'denied']);
 
+export interface EventInvariantOptions {
+    /**
+     * The observer replayed from `{ epoch: 0, seq: 0 }`: every epoch must start
+     * at seq 1. Default `false` — a live subscriber may have missed a session's
+     * early events (a config announcement), so it is only gapless from the
+     * first event it saw.
+     */
+    readonly fromStart?: boolean;
+}
+
 /** Gapless `seq` per epoch, one start/end per turn, terminal tools, one resolution per request, JSON-safe, nesting refers back. */
-export function checkEventInvariants(events: readonly AgentEvent[]): void {
+export function checkEventInvariants(events: readonly AgentEvent[], options: EventInvariantOptions = {}): void {
     assert(events.length > 0, 'no events were observed');
     const sessionId = events[0]!.sessionId;
     let epoch = events[0]!.epoch;
     // Gapless from the first event the observer saw: a session may have emitted
     // events (a config announcement) before the client subscribed.
-    let seq = events[0]!.seq - 1;
+    let seq = options.fromStart ? 0 : events[0]!.seq - 1;
     const turnStarts = new Map<string, number>();
     const turnEnds = new Map<string, number>();
     const calls = new Map<string, string>();
@@ -32,7 +42,7 @@ export function checkEventInvariants(events: readonly AgentEvent[]): void {
             epoch = e.epoch;
             // Same rule as the first epoch: the observer may have missed this
             // epoch's early events too, so baseline from the first one it saw.
-            seq = e.seq - 1;
+            seq = options.fromStart ? 0 : e.seq - 1;
         }
         assert(e.seq === seq + 1, `seq gap in epoch ${epoch}: expected ${seq + 1}, got ${e.seq} (${e.type})`);
         seq = e.seq;
