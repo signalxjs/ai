@@ -1,18 +1,20 @@
-import { readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+/**
+ * Bump every publishable package under `packages/` in lockstep, then rewrite
+ * the in-repo ranges dependents declare on them (`peerDependencies` and
+ * `dependencies` such as `"@sigx/ai": "^0.1.0"`) to the new caret, so the
+ * family always installs together. `workspace:*` / `catalog:` specifiers are
+ * left to `pnpm pack`. Private packages are skipped entirely.
+ *
+ * Usage:
+ *   node scripts/bump-version.js [patch|minor|major|X.Y.Z]   (default: patch)
+ */
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const packagesDir = join(__dirname, '..', 'packages');
+import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { caretRange, isPackTimeSpecifier } from './lib/ranges.mjs';
 
-const arg = process.argv[2] || 'patch';
-
-// Check if arg is a version number (e.g., "0.2.0") or bump type
-const isExactVersion = /^\d+\.\d+\.\d+/.test(arg);
-const bumpType = isExactVersion ? null : arg;
-const exactVersion = isExactVersion ? arg : null;
-
-function bumpVersion(version, type) {
+export function bumpVersion(version, type) {
     const parts = version.split('.').map(Number);
     switch (type) {
         case 'major':
@@ -25,37 +27,80 @@ function bumpVersion(version, type) {
     }
 }
 
-function processPackages(dir) {
-    const entries = readdirSync(dir);
+const RANGE_FIELDS = ['dependencies', 'peerDependencies', 'optionalDependencies'];
 
-    for (const entry of entries) {
-        const fullPath = join(dir, entry);
-        const stat = statSync(fullPath);
+/** Every `<dir>/package.json` under `packagesDir`, parsed, sorted by name for stable output. */
+function readManifests(packagesDir) {
+    const manifests = [];
+    for (const entry of readdirSync(packagesDir)) {
+        const dir = join(packagesDir, entry);
+        if (!statSync(dir).isDirectory()) continue;
+        const path = join(dir, 'package.json');
+        let pkg;
+        try {
+            pkg = JSON.parse(readFileSync(path, 'utf-8'));
+        } catch {
+            continue; // no manifest — not a package
+        }
+        manifests.push({ path, pkg });
+    }
+    return manifests.sort((a, b) => a.pkg.name.localeCompare(b.pkg.name));
+}
 
-        if (stat.isDirectory()) {
-            const pkgPath = join(fullPath, 'package.json');
-            try {
-                const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-                if (pkg.private) {
-                    console.log(`Skipping private package: ${pkg.name}`);
-                    continue;
-                }
-                const oldVersion = pkg.version;
-                const newVersion = exactVersion || bumpVersion(oldVersion, bumpType);
-                pkg.version = newVersion;
-                writeFileSync(pkgPath, JSON.stringify(pkg, null, 4) + '\n');
-                console.log(`${pkg.name}: ${oldVersion} → ${newVersion}`);
-            } catch (e) {
-                // No package.json, skip
+/**
+ * Apply a bump (`patch` | `minor` | `major`) or an exact version to every
+ * publishable package in `packagesDir`, rewriting dependents' in-repo ranges.
+ * Returns `[{ name, from, to }]` for the bumped packages. `log` receives one
+ * line per change.
+ */
+export function applyBump(packagesDir, arg = 'patch', { log = console.log } = {}) {
+    const exactVersion = /^\d+\.\d+\.\d+/.test(arg) ? arg : null;
+    const bumpType = exactVersion ? null : arg;
+
+    const manifests = readManifests(packagesDir);
+    const changes = [];
+    const newVersions = new Map();
+    for (const { pkg } of manifests) {
+        if (pkg.private) {
+            log(`Skipping private package: ${pkg.name}`);
+            continue;
+        }
+        const to = exactVersion ?? bumpVersion(pkg.version, bumpType);
+        changes.push({ name: pkg.name, from: pkg.version, to });
+        newVersions.set(pkg.name, to);
+    }
+
+    for (const { path, pkg } of manifests) {
+        let dirty = false;
+        const to = newVersions.get(pkg.name);
+        if (to !== undefined) {
+            pkg.version = to;
+            dirty = true;
+        }
+        // A private package keeps `workspace:*` on its siblings, so this loop
+        // is a no-op for it — but a literal range there would follow the bump too.
+        for (const field of RANGE_FIELDS) {
+            for (const [dep, spec] of Object.entries(pkg[field] ?? {})) {
+                const version = newVersions.get(dep);
+                if (version === undefined || isPackTimeSpecifier(spec)) continue;
+                const range = caretRange(version);
+                if (spec === range) continue;
+                pkg[field][dep] = range;
+                log(`${pkg.name} ${field}.${dep}: ${spec} → ${range}`);
+                dirty = true;
             }
         }
+        if (dirty) writeFileSync(path, JSON.stringify(pkg, null, 4) + '\n');
     }
+
+    for (const c of changes) log(`${c.name}: ${c.from} → ${c.to}`);
+    return changes;
 }
 
-if (exactVersion) {
-    console.log(`Setting all packages to version ${exactVersion}...\n`);
-} else {
-    console.log(`Bumping ${bumpType} version for packages...\n`);
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    const arg = process.argv[2] || 'patch';
+    const packagesDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'packages');
+    console.log(/^\d+\.\d+\.\d+/.test(arg) ? `Setting all packages to version ${arg}...\n` : `Bumping ${arg} version for packages...\n`);
+    applyBump(packagesDir, arg);
+    console.log('\nDone!');
 }
-processPackages(packagesDir);
-console.log('\nDone!');

@@ -51,6 +51,11 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # The release/tooling scripts have their own node:test suites (bump,
+      # catalog, core sync) — not part of vitest's `packages/**` include.
+      - name: Test scripts
+        run: pnpm test:scripts
+
   verify-pack:
     runs-on: ubuntu-latest
     steps:
