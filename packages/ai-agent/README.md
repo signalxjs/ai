@@ -199,6 +199,31 @@ delegate opened by `agentTool` is attached to the session, so `respond()`
 reaches a request it raises and `cancel({ agentId })` stops it while the turn
 goes on.
 
+**Agent definitions** (`defineAgents: true`): `session({ agents })` gives the
+model one tool per definition, named after it, whose single argument is the
+`task`. Calling it runs the definition as a nested `modelAgent` on the same
+model — its `prompt` as the system prompt, only the `tools` it names (all of
+the session's when absent), `maxTurns` as its step budget — through
+`agentTool`, so it is a sub-agent like any other: `agent-start` with the
+definition's name as `kind`, its events nested under the call, a request it
+raises answered through the host's `respond()`, `cancel({ agentId })`. The
+delegate is governed the way the host session is (same `policy`,
+`interactive`, `requestTimeoutMs`). A definition's `model` is a harness
+alias; this engine has one model and ignores it. A name that is not a valid
+tool name, collides with a tool, or names a tool the session does not have is
+refused at `session()` time with `protocol_error`.
+
+```ts
+const session = await agent.session({
+    policy: allowReadOnly,
+    agents: {
+        reviewer: { description: 'Reviews a diff for correctness.', prompt: 'You review code. Be terse.', tools: ['read_file'], maxTurns: 4 }
+    }
+});
+// The model can now call `reviewer({ task: 'Review src/index.ts' })`; the
+// review runs as a sub-agent and its final text is the tool result.
+```
+
 **U1 — an edge chat agent** (workerd, Bun, Deno — no Node globals):
 
 ```ts
