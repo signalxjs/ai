@@ -90,6 +90,8 @@ export type AgentEventPayload =
           readonly by: ResolvedBy;
           readonly reason?: string;
           readonly ruleId?: string;
+          /** Repeated from the request so a session-scoped grant can be replayed without it. */
+          readonly permissionKey?: string;
           /** Epoch milliseconds. */
           readonly at: number;
       }
