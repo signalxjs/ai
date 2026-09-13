@@ -80,9 +80,18 @@ importers:
       '@sigx/ai-agent':
         specifier: workspace:*
         version: link:../../packages/ai-agent
+      '@sigx/ai-agent-acp':
+        specifier: workspace:*
+        version: link:../../packages/ai-agent-acp
       '@sigx/ai-agent-claude-code':
         specifier: workspace:*
         version: link:../../packages/ai-agent-claude-code
+      '@sigx/ai-agent-codex':
+        specifier: workspace:*
+        version: link:../../packages/ai-agent-codex
+      '@sigx/ai-agent-node':
+        specifier: workspace:*
+        version: link:../../packages/ai-agent-node
       '@sigx/ai-anthropic':
         specifier: workspace:*
         version: link:../../packages/ai-anthropic
