@@ -8,12 +8,12 @@ const CHUNK = 0x8000;
 
 /** Bytes → standard base64 (with padding). Chunked so a large image does not blow the argument limit of `String.fromCharCode`. */
 export function encodeBase64(bytes: Uint8Array): string {
-    let binary = '';
+    const pieces: string[] = [];
     for (let i = 0; i < bytes.length; i += CHUNK) {
         // `apply` takes any array-like; the typed array goes in without a copy.
-        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK) as unknown as number[]);
+        pieces.push(String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK) as unknown as number[]));
     }
-    return btoa(binary);
+    return btoa(pieces.join(''));
 }
 
 /** Standard base64 → bytes. */
