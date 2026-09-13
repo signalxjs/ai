@@ -45,8 +45,9 @@ SIGX_AI_AGENT=acp:codex        pnpm --filter agent-example dev   # Codex via Zed
 ```
 
 Every harness runs on your own login. Each one needs its CLI installed and
-signed in; when it is not, the example says which CLI is missing, how to
-install it, and falls back to our own engine:
+signed in; when it cannot start, the example prints why and falls back to our
+own engine — a missing CLI gets an install hint, any other failure (not
+signed in, an SDK error) its error message:
 
 ```
 [agent] SIGX_AI_AGENT=codex needs the "codex" CLI on PATH — install it (npm i -g @openai/codex) or point SIGX_AI_AGENT_COMMAND at it; falling back to the sigx engine.
