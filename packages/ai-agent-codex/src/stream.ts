@@ -177,6 +177,8 @@ export function createTurnMapper(driver: TurnDriver, options: { readonly message
     /** Calls the policy denied — Codex still reports them `failed`, which must not follow `denied`. */
     const denied = new Set<string>();
     const diffsEmitted = new Set<string>();
+    /** Spawn calls that already bound their one agent. */
+    const spawned = new Set<string>();
     let finalText = '';
     let turnUsage: Usage | undefined;
     let resolveOutcome!: (o: TurnOutcome) => void;
@@ -345,13 +347,23 @@ export function createTurnMapper(driver: TurnDriver, options: { readonly message
                 announceCall(item, `collab/${item.tool}`, 'other', { prompt: item.prompt, model: item.model, reasoningEffort: item.reasoningEffort, receiverThreadIds: [...item.receiverThreadIds] });
                 // A spawn names its child in `receiverThreadIds`; any call may carry
                 // the state of a thread we have not seen (a spawn before our resume).
+                // A call binds at most one agent — a spawn starts one thread — so a
+                // second thread on the same spawn is announced without the call.
                 const spawn = item.tool === 'spawnAgent';
-                for (const agentId of item.receiverThreadIds) {
-                    if (spawn) startAgent(agentId, { callId: item.id, ...(item.prompt !== null ? { description: item.prompt } : {}), ...(item.model !== null ? { model: item.model } : {}) });
-                }
+                const start = (agentId: string) => {
+                    if (agents.has(agentId)) return;
+                    const bind = spawn && !spawned.has(item.id);
+                    if (bind) spawned.add(item.id);
+                    startAgent(agentId, {
+                        ...(bind ? { callId: item.id } : {}),
+                        ...(spawn && item.prompt !== null ? { description: item.prompt } : {}),
+                        ...(spawn && item.model !== null ? { model: item.model } : {})
+                    });
+                };
+                for (const agentId of item.receiverThreadIds) if (spawn) start(agentId);
                 for (const [agentId, state] of Object.entries(item.agentsStates)) {
                     if (!state) continue;
-                    if (!agents.has(agentId)) startAgent(agentId, spawn ? { callId: item.id, ...(item.prompt !== null ? { description: item.prompt } : {}), ...(item.model !== null ? { model: item.model } : {}) } : {});
+                    start(agentId);
                     updateAgent(agentId, agentTransition(state));
                 }
                 if (phase === 'completed') {

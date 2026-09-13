@@ -210,7 +210,8 @@ describe('@sigx/ai-agent-codex', () => {
         it('interruptAgent and closeAgent cancel a child once; errored and notFound fail it', async () => {
             const fake = fakeAppServer({
                 onTurn: async (ctx) => {
-                    await ctx.item(collab('c1', 'spawnAgent', 'completed', { prompt: 'a', receiverThreadIds: ['a1', 'a2'], agentsStates: { a1: { status: 'running', message: null }, a2: { status: 'running', message: null } } }), 'completed');
+                    await ctx.item(collab('c1', 'spawnAgent', 'completed', { prompt: 'a', receiverThreadIds: ['a1'], agentsStates: { a1: { status: 'running', message: null } } }), 'completed');
+                    await ctx.item(collab('c1b', 'spawnAgent', 'completed', { prompt: 'b', receiverThreadIds: ['a2'], agentsStates: { a2: { status: 'running', message: null } } }), 'completed');
                     await ctx.item(collab('c2', 'interruptAgent', 'completed', { receiverThreadIds: ['a1'], agentsStates: { a1: { status: 'interrupted', message: null } } }), 'completed');
                     await ctx.item(collab('c3', 'closeAgent', 'completed', { receiverThreadIds: ['a1'], agentsStates: { a1: { status: 'shutdown', message: null } } }), 'completed');
                     await ctx.item(collab('c4', 'wait', 'failed', { receiverThreadIds: ['a2'], agentsStates: { a2: { status: 'errored', message: 'the model refused' } } }), 'completed');
@@ -223,6 +224,7 @@ describe('@sigx/ai-agent-codex', () => {
             const { events } = await drain(session.prompt('go'));
             expect(agentEvents(events, 'a1').map((e) => (e.type === 'agent-start' ? 'start' : e.status))).toEqual(['start', 'running', 'cancelled']);
             expect(agentEvents(events, 'a2').map((e) => (e.type === 'agent-start' ? 'start' : e.status))).toEqual(['start', 'running', 'failed']);
+            expect(agentEvents(events, 'a2')[0]).toMatchObject({ callId: 'c1b', description: 'b' });
             expect(agentEvents(events, 'a2').at(-1)).toMatchObject({ error: { code: 'provider_error', message: 'the model refused' } });
             // A thread first reported by a non-spawn call is still an agent, without a spawning call.
             expect(agentEvents(events, 'a3').map((e) => (e.type === 'agent-start' ? 'start' : e.status))).toEqual(['start', 'running', 'failed']);
