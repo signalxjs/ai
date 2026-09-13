@@ -46,10 +46,22 @@
     "ignore": ["@sigx/ai", "@sigx/reactivity", "@sigx/runtime-core"]
   },
   {
+    "name": "@sigx/ai-agent-acp",
+    "path": "packages/ai-agent-acp/dist/index.prod.js",
+    "limit": "8 KB",
+    "ignore": ["@sigx/ai", "@sigx/ai-agent", "@sigx/ai-agent-node", "node:fs/promises", "node:path"]
+  },
+  {
     "name": "@sigx/ai-agent-claude-code",
     "path": "packages/ai-agent-claude-code/dist/index.prod.js",
     "limit": "8 KB",
     "ignore": ["@anthropic-ai/claude-agent-sdk", "@sigx/ai", "@sigx/ai-agent", "@sigx/ai-agent-node", "node:crypto", "node:events", "node:stream"]
+  },
+  {
+    "name": "@sigx/ai-agent-codex",
+    "path": "packages/ai-agent-codex/dist/index.prod.js",
+    "limit": "8 KB",
+    "ignore": ["@sigx/ai", "@sigx/ai-agent", "@sigx/ai-agent/coding", "@sigx/ai-agent/harness", "@sigx/ai-agent-node"]
   },
   {
     "name": "@sigx/ai-agent-node",

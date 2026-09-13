@@ -23,7 +23,9 @@
       "@sigx/ai-agent/wire": ["./packages/ai-agent/src/wire/index.ts"],
       "@sigx/ai-agent/app": ["./packages/ai-agent/src/app/index.ts"],
       "@sigx/ai-agent-node": ["./packages/ai-agent-node/src/index.ts"],
+      "@sigx/ai-agent-acp": ["./packages/ai-agent-acp/src/index.ts"],
       "@sigx/ai-agent-claude-code": ["./packages/ai-agent-claude-code/src/index.ts"],
+      "@sigx/ai-agent-codex": ["./packages/ai-agent-codex/src/index.ts"],
       "@sigx/ai-anthropic": ["./packages/ai-anthropic/src/index.ts"],
       "@sigx/ai-openai": ["./packages/ai-openai/src/index.ts"]
     }
