@@ -47,13 +47,27 @@ const DECISION_TYPES: ReadonlySet<string> = new Set(['permission', 'input', 'can
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
+/** A `PromptPart` with the fields its variant requires (`text.text`, a media type and exactly one of `data` / `url`, `resource.uri`). */
+function isPromptPart(p: unknown): boolean {
+    if (!isRecord(p) || typeof p.type !== 'string' || !PART_TYPES.has(p.type)) return false;
+    switch (p.type) {
+        case 'text':
+            return typeof p.text === 'string';
+        case 'image':
+        case 'file':
+            return typeof p.mediaType === 'string' && (typeof p.data === 'string') !== (typeof p.url === 'string');
+        default:
+            return typeof p.uri === 'string';
+    }
+}
+
 /** The shape each command must have before it may reach the session; the reason it does not, otherwise. */
 function validateCommand(command: WireCommand): string | undefined {
     switch (command.type) {
         case 'prompt': {
             if (typeof command.turnId !== 'string' || command.turnId.trim() === '') return 'prompt.turnId must be a non-empty string';
             const input: unknown = command.input;
-            if (!Array.isArray(input) || !input.every((p: unknown) => isRecord(p) && typeof p.type === 'string' && PART_TYPES.has(p.type))) return 'prompt.input must be an array of prompt parts';
+            if (!Array.isArray(input) || !input.every(isPromptPart)) return 'prompt.input must be an array of prompt parts (text with text; image/file with mediaType and one of data/url; resource with uri)';
             const output: unknown = command.output;
             if (output !== undefined && (!isRecord(output) || !isRecord(output.schema))) return 'prompt.output must carry a JSON Schema object';
             return undefined;
@@ -65,6 +79,7 @@ function validateCommand(command: WireCommand): string | undefined {
             if (decision.type === 'permission' && ((decision.outcome !== 'allow' && decision.outcome !== 'deny') || (decision.scope !== 'once' && decision.scope !== 'session'))) {
                 return 'respond.decision: a permission decision needs outcome allow|deny and scope once|session';
             }
+            if (decision.type === 'input' && !Object.hasOwn(decision, 'answers')) return 'respond.decision: an input decision needs answers';
             return undefined;
         }
         case 'configure': {

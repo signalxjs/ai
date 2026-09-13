@@ -388,8 +388,18 @@ describe('serveSession / connectSession', () => {
         expect(await raw({ commandId: 'i5', type: 'prompt', turnId: 't', input: [{ type: 'text', text: 'hi' }], output: { schema: 'nope' } })).toMatchObject({ kind: 'error', code: 'invalid', message: expect.stringContaining('output') });
         expect(await raw({ commandId: 'i6', type: 'configure', patch: 3 })).toMatchObject({ kind: 'error', code: 'invalid', message: expect.stringContaining('patch') });
         expect(await raw({ commandId: 'i7', type: 'configure', patch: { mode: 1 } })).toMatchObject({ kind: 'error', code: 'invalid' });
+        // Each part variant needs its own fields, not just a known `type`.
+        expect(await raw({ commandId: 'i8', type: 'prompt', turnId: 't', input: [{ type: 'text' }] })).toMatchObject({ kind: 'error', code: 'invalid', message: expect.stringContaining('input') });
+        expect(await raw({ commandId: 'i9', type: 'prompt', turnId: 't', input: [{ type: 'image', mediaType: 'image/png', data: 'AA==', url: 'https://x/y.png' }] })).toMatchObject({ kind: 'error', code: 'invalid' });
+        expect(await raw({ commandId: 'i10', type: 'prompt', turnId: 't', input: [{ type: 'file', data: 'AA==' }] })).toMatchObject({ kind: 'error', code: 'invalid' });
+        expect(await raw({ commandId: 'i11', type: 'prompt', turnId: 't', input: [{ type: 'resource' }] })).toMatchObject({ kind: 'error', code: 'invalid' });
+        // An input decision without its answers.
+        expect(await raw({ commandId: 'i12', type: 'respond', requestId: 'r', decision: { type: 'input' } })).toMatchObject({ kind: 'error', code: 'invalid', message: expect.stringContaining('answers') });
         await tick(5);
         expect(prompts).toBe(0);
+        // Well-formed ones pass the gate (a late respond is an ack, as ever).
+        expect(await raw({ commandId: 'ok1', type: 'respond', requestId: 'r', decision: { type: 'input', answers: null } })).toMatchObject({ kind: 'ack' });
+        expect(await raw({ commandId: 'ok2', type: 'respond', requestId: 'r', decision: { type: 'cancel' } })).toMatchObject({ kind: 'ack' });
         // An invalid reply is not cached: the corrected command runs.
         expect(await raw({ commandId: 'i3', type: 'prompt', turnId: 't', input: [{ type: 'text', text: 'hi' }] })).toMatchObject({ kind: 'ack', turnId: 't' });
         await tick(5);
