@@ -6,7 +6,7 @@
  */
 
 export interface NormalizedPath {
-    /** `''` for POSIX, `C:` for a drive, `\\server\share` for a UNC share (lower-cased). */
+    /** `''` for POSIX, an upper-cased drive (`C:`), or a lower-cased UNC share (`\\server\share`). */
     readonly root: string;
     readonly segments: readonly string[];
     readonly windows: boolean;
