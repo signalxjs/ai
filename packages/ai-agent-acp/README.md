@@ -39,7 +39,12 @@ await agent.dispose();                             // kills the agent process tr
   `capabilities` reflects what the agent advertised: `resume: 'local'` when it
   supports `session/resume` or `session/load`, `fork`, `listSessions`,
   `promptParts` from its prompt capabilities, `tools: 'mcp'` when it accepts
-  HTTP MCP servers.
+  HTTP MCP servers. What is not advertised is refused up front, never sent
+  and silently misread: a prompt part outside the negotiated `promptParts`,
+  `prompt(input, { output })` (ACP has no structured output —
+  `structuredOutput: false`) and `configure({ mode })` on a session that was
+  offered no modes all end with a `protocol_error`. `steer` and sub-agents
+  are `false` / `'none'`: the protocol has no surface for them.
 - **Client tools** (`session({ tools })`) are served over MCP by
   `createMcpToolHandler` + `listenMcp` — loopback, a per-session bearer token —
   and handed to the agent in `session/new`. An agent that cannot take HTTP MCP
