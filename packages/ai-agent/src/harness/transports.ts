@@ -51,27 +51,31 @@ export function webSocketStreams(ws: WebSocketLike): WebSocketStreams {
                         (buf) => {
                             if (!done) controller.enqueue(new Uint8Array(buf));
                         },
-                        (e: unknown) => {
-                            if (done) return;
-                            done = true;
-                            controller.error(e instanceof Error ? e : new Error(String(e)));
-                            resolveClosed();
-                        }
+                        (e: unknown) => fail(e instanceof Error ? e : new Error(String(e)))
                     );
                 }
             };
-            const finish = () => {
-                if (done) return;
+            const detach = () => {
                 done = true;
                 ws.removeEventListener?.('message', onMessage as (event: unknown) => void);
                 ws.removeEventListener?.('close', finish);
                 ws.removeEventListener?.('error', finish);
+                resolveClosed();
+            };
+            const finish = () => {
+                if (done) return;
+                detach();
                 try {
                     controller.close();
                 } catch {
                     // already closed by cancel()
                 }
-                resolveClosed();
+            };
+            const fail = (error: Error) => {
+                if (done) return;
+                detach();
+                controller.error(error);
+                ws.close();
             };
             ws.addEventListener('message', onMessage);
             ws.addEventListener('close', finish);

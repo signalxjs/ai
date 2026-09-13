@@ -10,7 +10,7 @@
  * Writes go through one serialized writer that honours backpressure.
  */
 
-import { messageDecoder, messageEncoder, ndjsonDecoder, ndjsonEncoder, type Framing } from './framing.js';
+import { LineTooLongError, messageDecoder, messageEncoder, ndjsonDecoder, ndjsonEncoder, type Framing } from './framing.js';
 
 export type JsonRpcId = string | number;
 
@@ -259,7 +259,9 @@ export function createJsonRpcPeer(options: JsonRpcPeerOptions): JsonRpcPeer {
             finish({ reason: 'eof' });
         } catch (e) {
             const error = e instanceof Error ? e : new Error(String(e));
-            protocolError(JSON_RPC.PARSE_ERROR, error.message);
+            // A stream failure is not a parse error: an oversized frame is an invalid
+            // request, anything else is an internal (transport) failure.
+            protocolError(error instanceof LineTooLongError ? JSON_RPC.INVALID_REQUEST : JSON_RPC.INTERNAL_ERROR, error.message);
             finish({ reason: closedState ? closedState.reason : 'error', error });
         }
     })();

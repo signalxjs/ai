@@ -81,11 +81,18 @@ describe('webSocketStreams', () => {
         expect(new TextDecoder().decode((await okReader.read()).value)).toBe('{"z":1}');
 
         const bad = fakeSocket();
+        const removed: string[] = [];
+        (bad as { removeEventListener?: (type: string) => void }).removeEventListener = (type) => {
+            removed.push(type);
+        };
         const { readable, closed } = webSocketStreams(bad);
         const reader = readable.getReader();
         bad.receive({ arrayBuffer: () => Promise.reject(new Error('blob read failed')) });
         await expect(reader.read()).rejects.toThrow('blob read failed');
         await closed;
+        // The failure detaches the bridge and closes the socket.
+        expect(removed.sort()).toEqual(['close', 'error', 'message']);
+        expect(bad.readyState).toBe(3);
     });
 
     it('a socket that is already closing or closed never hangs a write', async () => {

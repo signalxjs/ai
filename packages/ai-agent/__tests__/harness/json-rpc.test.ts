@@ -268,7 +268,7 @@ describe('createJsonRpcPeer', () => {
         const state = await peer.closed;
         expect(state.reason).toBe('error');
         expect(state.error?.name).toBe('LineTooLongError');
-        expect(errors.at(-1)?.message).toMatch(/exceeds 16 bytes/);
+        expect(errors.at(-1)).toMatchObject({ code: JSON_RPC.INVALID_REQUEST, message: expect.stringMatching(/exceeds 16 bytes/) });
     });
 
     it('unsubscribe functions remove handlers', async () => {
