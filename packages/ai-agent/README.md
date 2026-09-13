@@ -41,7 +41,7 @@ shared vocabulary coding harnesses need — as typed extension events, never as
 new core event types — plus policies that speak it:
 
 ```ts
-import { firstMatch } from '@sigx/ai-agent';
+import { createReducer, firstMatch } from '@sigx/ai-agent';
 import { allowCategories, denyOutside, codingExtension, codingState } from '@sigx/ai-agent/coding';
 
 // A CI bot: read and search anywhere in the checkout, nothing else, nothing outside it.

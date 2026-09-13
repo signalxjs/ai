@@ -73,6 +73,10 @@ describe('recordAgent / replayAgent', () => {
         expect(error).toBeInstanceOf(ReplayMismatchError);
         expect((error as Error).message).toMatch(/expected: .*"allow"/);
 
+        // Closing before the recorded commands are done is a deviation too.
+        const s3 = await replayAgent(fixture).session();
+        await expect(s3.close()).rejects.toBeInstanceOf(ReplayMismatchError);
+
         // Different session options.
         await expect(replayAgent(fixture).session({ system: 'other' })).rejects.toBeInstanceOf(ReplayMismatchError);
         await expect(replayAgent(fixture, { checkSessionOptions: false }).session({ system: 'other' })).resolves.toBeDefined();

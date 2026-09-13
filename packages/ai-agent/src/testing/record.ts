@@ -174,8 +174,9 @@ export function recordAgent(agent: Agent, options: RecordAgentOptions = {}): Rec
                 subscribe: (from) => observing(real.subscribe(from)),
                 async close() {
                     command({ kind: 'close' });
-                    recorded.ref.final = real.ref;
                     await real.close();
+                    // After the close: an adapter may update its ref while closing.
+                    recorded.ref.final = real.ref;
                     await pump.catch(() => {});
                     rebuild();
                     options.onRecord?.(fixture);
@@ -325,7 +326,16 @@ export function replayAgent(fixture: AgentFixture, options: ReplayAgentOptions =
                     : {}),
                 subscribe: (from) => core.subscribe(from),
                 async close() {
-                    if (nextCommand()?.kind === 'close') cursor++;
+                    // Closing is a command like any other: it must be what the recording
+                    // expects next (or the recording must be exhausted, for a session that
+                    // was never closed on record).
+                    const expected = nextCommand();
+                    const remaining = recorded.log.slice(cursor).filter((e) => 'command' in e);
+                    if (expected?.kind === 'close') cursor++;
+                    else if (remaining.length) {
+                        await core.close();
+                        throw new ReplayMismatchError(expected ?? remaining[0]!.command, { kind: 'close' });
+                    }
                     await core.close();
                 }
             };
