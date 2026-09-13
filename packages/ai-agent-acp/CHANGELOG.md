@@ -24,3 +24,25 @@ follow [SemVer](https://semver.org/).
   `cacheCreationInputTokens`.
 - The protocol subset as types (`Acp*`) with an assignability check against
   the reference SDK.
+
+### Fixed
+
+- `prompt(input, { output })` was silently ignored (the turn ended `end_turn`
+  with no output); it now ends with `protocol_error` before anything is sent.
+- Prompt parts outside the negotiated `promptParts` (an image for an agent
+  without `promptCapabilities.image`, a file or resource without
+  `embeddedContext`) were sent anyway; they are refused with `protocol_error`.
+- `dispose()` closed the peer without closing the sessions: their logs never
+  ended with `state: closed` and each session's MCP tools listener leaked.
+- The agent process exiting mid-turn ended the turn `provider_error` while
+  the session reported `process_exited`; both now say `process_exited`.
+- The JSON-RPC peer no longer sends or honours `$/cancel_request` — not an
+  ACP method; a turn is cancelled with `session/cancel` only.
+- `listSessions()` returned the first page only; it follows `nextCursor`.
+- `configure({ mode })` sent `session/set_mode` blindly; a session without
+  modes, or an unknown mode id, now rejects with `protocol_error`.
+
+### Changed
+
+- The conformance run passes the negotiated capabilities, so every scenario
+  the adapter cannot express is an asserted skip rather than a silent no-op.
