@@ -3,10 +3,15 @@
 import type { UIMessage, UIPart } from '../protocol/index.js';
 import type { ModelAssistantMessage, ModelMessage, ModelToolResultPart } from './message.js';
 
+/** What the model is told about a refused call when the client gave no reason. */
+export const DENIED_MESSAGE = 'The user denied this tool call.';
+
 /**
  * UI transcript → model messages. Tool parts split into the assistant's
  * `tool-call` and a following `tool` message carrying the results, which is
- * the shape every provider wants (results in ONE message per turn).
+ * the shape every provider wants (results in ONE message per turn). A
+ * `denied` call is an error result carrying the reason; an undecided one
+ * (`pending`, `awaiting`, `approved`) has no result yet.
  */
 export function toModelMessages(messages: readonly UIMessage[]): ModelMessage[] {
     const out: ModelMessage[] = [];
@@ -28,13 +33,13 @@ export function toModelMessages(messages: readonly UIMessage[]): ModelMessage[] 
                 content.push({ type: 'reasoning', text: p.text, ...(p.providerData !== undefined ? { providerData: p.providerData } : {}) });
             } else {
                 content.push({ type: 'tool-call', id: p.id, name: p.name, input: p.input });
-                if (p.state !== 'pending') {
+                if (p.state === 'done' || p.state === 'error' || p.state === 'denied') {
                     results.push({
                         type: 'tool-result',
                         toolCallId: p.id,
                         toolName: p.name,
-                        output: p.output,
-                        ...(p.state === 'error' ? { isError: true } : {})
+                        output: p.state === 'denied' && p.output === undefined ? DENIED_MESSAGE : p.output,
+                        ...(p.state !== 'done' ? { isError: true } : {})
                     });
                 }
             }

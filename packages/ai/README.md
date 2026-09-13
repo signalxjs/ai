@@ -16,6 +16,34 @@ Four entries:
 | `@sigx/ai/server` | `chatStream` for `serverStream` handlers, `ChatInput` wire schema |
 | `@sigx/ai/testing` | `mockModel` — a scripted model for tests, docs and CI |
 
+## Asking before a tool runs
+
+```ts
+const sendEmail = defineTool({
+    name: 'send_email',
+    description: 'Send an email',
+    input: EmailInput,
+    needsApproval: true, // or ({ to }) => !to.endsWith('@example.com')
+    annotations: { openWorld: true },
+    execute: ({ to, body }) => mailer.send(to, body)
+});
+```
+
+`streamText` yields `tool-approval-request` and asks `onToolApproval` —
+`'allow'`, `'deny'` / `{ deny: reason }`, or `'defer'`. Without a handler the
+call is denied, never silently run. `chatStream` defers by default: the turn
+ends with the call `awaiting`, `useChat` reports `status: 'awaiting'` and
+`approvals`, and `approve(id)` / `deny(id, reason?)` send the transcript back
+so the same assistant message resumes where it stopped.
+
+The resumed transcript comes from the client, so in that flow the **client is
+the approver**: whoever holds the transcript can mark a call `approved`, and
+`chatStream`'s default handler honours it. Use it for tools the user is
+entitled to run on their own say-so. A client's approval never runs a tool
+by itself: a resumed `approved` call goes through `onToolApproval` again with
+`ctx.approvedByClient` set, so a server-side handler (a policy, a role
+check) can veto it — and bare `streamText` with no handler denies it.
+
 ## Install
 
 ```bash

@@ -63,4 +63,22 @@ describe('applyChunk / assembleMessage', () => {
         expect(m.parts[0]).toMatchObject({ state: 'error', output: 'bad' });
         expect(applyChunk(m, { type: 'finish', reason: 'stop' })).toBe(true);
     });
+    it('tracks approval: awaiting on request, denied on a denied result', () => {
+        const m = createMessage('assistant');
+        applyChunk(m, { type: 'tool-call', id: 'c', name: 't', input: null });
+        expect(applyChunk(m, { type: 'tool-approval-request', id: 'c' })).toBe(false);
+        expect(m.parts[0]).toMatchObject({ type: 'tool', state: 'awaiting' });
+        applyChunk(m, { type: 'tool-result', id: 'c', output: 'nope', isError: true, denied: true });
+        expect(m.parts[0]).toMatchObject({ state: 'denied', output: 'nope' });
+        // A late request never reopens a settled call.
+        applyChunk(m, { type: 'tool-approval-request', id: 'c' });
+        expect(m.parts[0]).toMatchObject({ state: 'denied' });
+    });
+
+    it('a same-id start is a no-op, so a resumed turn lands on the existing message', () => {
+        const m = createMessage('assistant', [{ type: 'text', text: 'kept' }], 'a1');
+        expect(applyChunk(m, { type: 'start', messageId: 'a1' })).toBe(false);
+        expect(m.id).toBe('a1');
+        expect(m.parts).toEqual([{ type: 'text', text: 'kept' }]);
+    });
 });

@@ -23,9 +23,10 @@ const Part = component<{ part: UIPart; role: UIMessage['role']; live: boolean }>
             );
         }
         if (p.type === 'reasoning') return p.text ? <div class="reasoning">{p.text}</div> : null;
+        const tail = p.state === 'pending' || p.state === 'approved' ? ' …' : p.state === 'awaiting' ? ' ? (needs approval)' : ` → ${JSON.stringify(p.output)}`;
         return (
             <code class={`tool ${p.state}`}>
-                {p.name}({JSON.stringify(p.input)}){p.state === 'pending' ? ' …' : ` → ${JSON.stringify(p.output)}`}
+                {p.name}({JSON.stringify(p.input)}){tail}
             </code>
         );
     };
@@ -78,11 +79,18 @@ export const App = component(() => {
                 <small>status: {thread.status}</small>
             </header>
             <section class="thread">
-                {thread.messages.length === 0 && <p style="opacity:.6">Say hello — or ask about the weather to see a tool call.</p>}
+                {thread.messages.length === 0 && <p style="opacity:.6">Say hello — ask about the weather to see a tool call, or say "email" to see one that asks first.</p>}
                 {thread.messages.map((m) => (
                     <Message message={m} live={thread.streaming === m} />
                 ))}
                 {thread.error && <p class="error">{thread.error.message}</p>}
+                {/* A tool the server deferred to us: decide, and the turn resumes. */}
+                {thread.approvals.map((call) => (
+                    <p class="approval">
+                        Run <code>{call.name}</code>? <button type="button" onClick={() => thread.approve(call.id)}>Approve</button>{' '}
+                        <button type="button" onClick={() => thread.deny(call.id, 'The user said no.')}>Deny</button>
+                    </p>
+                ))}
             </section>
             <form onSubmit={submit}>
                 <textarea rows={2} aria-label="Message" placeholder="Message…" onInput={(e) => { draft = (e.target as HTMLTextAreaElement).value; }} onKeyDown={onKey} />

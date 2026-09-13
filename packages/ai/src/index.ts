@@ -42,20 +42,23 @@ export type {
     ModelEvent,
     ToolSpec
 } from './model/index.js';
-export { addUsage, toModelMessages } from './model/index.js';
+export { addUsage, toModelMessages, DENIED_MESSAGE } from './model/index.js';
 
 // Schema
 export type { StandardSchemaV1, JsonSchema } from './schema/index.js';
 export { SchemaValidationError, validateWith, jsonSchemaOf } from './schema/index.js';
 
 // Tools
-export type { Tool, AnyTool, ToolOptions, ToolContext } from './tool/index.js';
+export type { Tool, AnyTool, ToolOptions, ToolContext, ToolAnnotations } from './tool/index.js';
 export { defineTool, findTool } from './tool/index.js';
 
 // Engine
 export type {
     StreamTextOptions,
     StepInfo,
+    ToolApprovalCall,
+    ToolApprovalContext,
+    ToolApprovalDecision,
     GenerateTextResult,
     StreamObjectOptions,
     ObjectChunk,
