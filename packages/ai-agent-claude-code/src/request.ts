@@ -3,9 +3,9 @@
  * process, no network.
  */
 
-import type { Options, OutputFormat, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { AgentDefinition as SdkAgentDefinition, Options, OutputFormat, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { jsonSchemaOf, type JsonSchema, type StandardSchemaV1 } from '@sigx/ai';
-import { AgentError, type PromptPart, type ToolAnnotations } from '@sigx/ai-agent';
+import { AgentError, type AgentDefinition, type PromptPart, type ToolAnnotations } from '@sigx/ai-agent';
 import { categoryOf } from '@sigx/ai-agent/coding';
 import type { OutputSpec } from '@sigx/ai-agent';
 import { DEFAULT_ENV_ALLOWLIST, buildChildEnv } from '@sigx/ai-agent-node';
@@ -67,6 +67,21 @@ export function toOutputFormat(spec: OutputSpec | undefined): OutputFormat | und
     return { type: 'json_schema', schema: json };
 }
 
+/** `SessionOptions.agents` → the SDK's programmatic sub-agents. A definition without a prompt uses its description. */
+export function toAgentDefinitions(agents: Readonly<Record<string, AgentDefinition>>): Record<string, SdkAgentDefinition> {
+    const out: Record<string, SdkAgentDefinition> = {};
+    for (const [name, def] of Object.entries(agents)) {
+        out[name] = {
+            description: def.description,
+            prompt: def.prompt ?? def.description,
+            ...(def.tools ? { tools: [...def.tools] } : {}),
+            ...(def.model !== undefined ? { model: def.model } : {}),
+            ...(def.maxTurns !== undefined ? { maxTurns: def.maxTurns } : {})
+        };
+    }
+    return out;
+}
+
 /** The CLI's environment: the allowlist plus Anthropic's own variables, plus the caller's extras. */
 export function childEnv(extra: Readonly<Record<string, string | undefined>> | undefined, base: NodeJS.ProcessEnv = process.env): Record<string, string> {
     const allow = [...DEFAULT_ENV_ALLOWLIST, 'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', ...Object.keys(base).filter((k) => k.startsWith('ANTHROPIC_'))];
@@ -111,6 +126,10 @@ export function toQueryOptions(input: QueryOptionsInput): Options {
         ...(session.maxTurns !== undefined ? { maxTurns: session.maxTurns } : {}),
         ...(session.maxBudgetUsd !== undefined ? { maxBudgetUsd: session.maxBudgetUsd } : {}),
         ...(session.additionalDirectories?.length ? { additionalDirectories: [...session.additionalDirectories] } : {}),
+        // Sub-agents: the SDK forwards only tool frames by default; the nested transcript is ours to render.
+        ...(session.subagentTranscript !== false ? { forwardSubagentText: true } : {}),
+        ...(session.agentProgressSummaries ? { agentProgressSummaries: true } : {}),
+        ...(session.agents ? { agents: toAgentDefinitions(session.agents) } : {}),
         ...(input.outputFormat ? { outputFormat: input.outputFormat } : {}),
         ...(input.mcpServers ? { mcpServers: input.mcpServers } : {}),
         ...(input.spawn ? { spawnClaudeCodeProcess: input.spawn } : {}),
