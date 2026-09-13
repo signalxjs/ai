@@ -68,4 +68,24 @@ describe('@sigx/ai-agent edge safety', () => {
         const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { dependencies?: Record<string, string> };
         expect(pkg.dependencies ?? {}).toEqual({});
     });
+
+    /**
+     * The scan above walks `src/`, so it covers an entry only if that entry's
+     * code lives there. A new `exports` subpath pointing at a folder the walk
+     * never reaches (or missing from the vite entries, so it never ships)
+     * would pass silently — this is the guard that every declared entry is a
+     * real, scanned, built folder.
+     */
+    it('every declared entry is a scanned src folder and a vite entry', () => {
+        const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { exports: Record<string, { types: string }> };
+        const vite = readFileSync(join(root, 'vite.config.ts'), 'utf8');
+        const scanned = new Set(walk(src).map((f) => relative(src, f).replace(/\\/g, '/')));
+        for (const [subpath, condition] of Object.entries(pkg.exports)) {
+            const entry = subpath === '.' ? 'index' : subpath.slice(2);
+            const folder = subpath === '.' ? '' : `${entry}/`;
+            expect(scanned, `exports["${subpath}"] must be a folder under src/`).toContain(`${folder}index.ts`);
+            expect(condition.types, `exports["${subpath}"].types`).toBe(subpath === '.' ? './dist/index.d.ts' : `./dist/${entry}/index.d.ts`);
+            expect(vite, `vite.config.ts must build "${entry}"`).toContain(`${entry}: 'src/${folder}index.ts'`);
+        }
+    });
 });

@@ -40,6 +40,12 @@
     "ignore": ["@sigx/ai"]
   },
   {
+    "name": "@sigx/ai-agent/app",
+    "path": "packages/ai-agent/dist/app.prod.js",
+    "limit": "4 KB",
+    "ignore": ["@sigx/ai", "@sigx/reactivity", "@sigx/runtime-core"]
+  },
+  {
     "name": "@sigx/ai-agent-acp",
     "path": "packages/ai-agent-acp/dist/index.prod.js",
     "limit": "8 KB",

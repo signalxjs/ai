@@ -26,7 +26,7 @@ for await (const event of turn) {
 const { stopReason } = await turn.result; // 'end_turn'
 ```
 
-Five entries today (more land with the following milestones):
+Six entries today (more land with the following milestones):
 
 | Entry | What |
 |---|---|
@@ -34,6 +34,7 @@ Five entries today (more land with the following milestones):
 | `@sigx/ai-agent/coding` | the coding vocabulary on top of the neutral core: categories (`read`, `edit`, `execute`, …), typed `coding.diff` / `terminal` / `plan` / `files-changed` events with the `codingExtension` reducer plugin, `CodingSessionOptions`, and the path-aware policies `allowCategories` / `denyOutside(cwd)` |
 | `@sigx/ai-agent/harness` | the protocol kit: `createJsonRpcPeer` (JSON-RPC 2.0 over Web Streams, both directions), NDJSON framing, `createMcpToolHandler` (client tools as an MCP server, Streamable HTTP), `webSocketStreams` |
 | `@sigx/ai-agent/wire` | `serveSession` / `connectSession` — a session served in one place and used from another over any transport, with a versioned envelope and replay for late joiners and reconnects |
+| `@sigx/ai-agent/app` | `useAgentSession(source)` — the session as reactive state on `@sigx/runtime-core`: transcript, open requests, usage, config, and the `prompt` / `respond` / `cancel` / `configure` actions |
 | `@sigx/ai-agent/testing` | `mockAgent` — a scripted, deterministic agent — `agentConformance`, the suite every adapter must pass, and `recordAgent` / `replayAgent` for deterministic fixtures |
 
 ## Remote sessions: `serveSession` / `connectSession`
@@ -149,6 +150,58 @@ for await (const event of session.subscribe()) {
 `toChatStream(turn)` is the read-only shortcut for a plain `useChat`: it turns
 one turn into `UIChunk`s.
 
+## Building a UI: `useAgentSession`
+
+`@sigx/ai-agent/app` is the reducer as reactive state. It sits on
+`@sigx/runtime-core` and `@sigx/reactivity` — never the `sigx` umbrella — so a
+web app, a terminal REPL and a Lynx app use the same composable.
+
+```tsx
+import { useAgentSession } from '@sigx/ai-agent/app';
+
+const view = useAgentSession(session); // a local AgentSession, or a connectSession client
+
+// view.transcript · .messages · .state · .turn · .requests · .usage · .costUsd
+//     .config · .error · .live · .capabilities
+// view.prompt(input, opts?) · .respond(requestId, decision) · .cancel() · .configure(patch)
+
+<>
+    {view.messages.map((m) => m.parts.map((p) => (p.type === 'text' ? <span>{p.text}</span> : <ToolCard part={p} />)))}
+    {view.requests.map((r) => (
+        <button onClick={() => view.respond(r.requestId, { type: 'permission', outcome: 'allow', scope: 'session' })}>Allow {r.toolName}</button>
+    ))}
+    {view.capabilities?.cancel && view.state === 'running' && <button onClick={() => view.cancel()}>Cancel</button>}
+</>;
+```
+
+What it guarantees:
+
+- **Fine-grained updates.** The transcript is one reactive proxy and the
+  reducer folds IN PLACE, so a `part-delta` is `part.text += delta` — one
+  property write, observed by the one text node that reads it. The message
+  list does not re-run per token.
+- **SSR-safe.** The subscription starts on MOUNT: a server render folds
+  nothing and opens no queue.
+- **Unmount unsubscribes; it does not close the session.** The session
+  usually outlives the component — another tab, another device, the server.
+  After unmount nothing touches the view again: an action that settles late
+  (a turn still running when the user navigated away) writes no state and
+  fires no callback, while the turn itself carries on.
+- **Late join by default.** It subscribes from `{ epoch: 0, seq: 0 }`, so a
+  second tab replays the conversation and then follows it live. Pass
+  `{ from: 'live' }` or an explicit cursor to start elsewhere.
+- **Extensions plug in**: `useAgentSession(session, { extensions: [codingExtension()] })`
+  uses the same `createReducer` plugins the headless reducer takes.
+- **Actions never reject.** A busy session or a broken transport lands in
+  `view.error` (and `onError`), so a click handler needs no `catch`;
+  `prompt()` resolves `undefined` in that case and with the `TurnResult`
+  otherwise.
+
+[`examples/agent`](https://github.com/signalxjs/ai/tree/main/examples/agent)
+is the whole picture: `serveSession` on the server, `connectSession` +
+`useAgentSession` in the browser, tool cards, permission prompts, cancel,
+usage, and a second tab that joins the same session.
+
 ## Writing an adapter: run `agentConformance`
 
 An adapter is a mapping from a harness onto the contract; the conformance
@@ -213,7 +266,9 @@ const handler = createMcpToolHandler([weather], { name: 'my-app', version: '1.0.
 npm install @sigx/ai @sigx/ai-agent
 ```
 
-Peers on `@sigx/ai` at the same minor.
+Peers on `@sigx/ai` at the same minor. `@sigx/ai-agent/app` also peers on
+`@sigx/reactivity` and `@sigx/runtime-core` — any sigx app already has them;
+the other entries do not touch them.
 
 ## Documentation
 

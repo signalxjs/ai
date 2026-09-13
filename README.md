@@ -22,7 +22,7 @@ Full guides, API reference and live examples → **<https://sigx.dev/ai/>**
 | Package | What |
 |---|---|
 | [`@sigx/ai`](./packages/ai) | Provider-neutral core: the `LanguageModel` seam, `UIMessage` and the `UIChunk` stream protocol, `defineTool`, `streamText` / `generateText` / `streamObject`, plus `@sigx/ai/app` (`useChat`, `useCompletion`, `useObject`), `@sigx/ai/server` (`chatStream` for `serverStream` handlers) and `@sigx/ai/testing` (`mockModel`) |
-| [`@sigx/ai-agent`](./packages/ai-agent) | **Experimental.** The agent layer: one provider-neutral `Agent` contract for agent harnesses (Claude Code, Codex, ACP agents) and our own engine — events with `(epoch, seq)` stamps, capabilities, the policy engine, session helpers for adapters, plus `@sigx/ai-agent/testing` (`mockAgent`) |
+| [`@sigx/ai-agent`](./packages/ai-agent) | **Experimental.** The agent layer: one provider-neutral `Agent` contract for agent harnesses (Claude Code, Codex, ACP agents) and our own engine — events with `(epoch, seq)` stamps, capabilities, the policy engine, session helpers for adapters, plus `@sigx/ai-agent/wire` (`serveSession` / `connectSession`), `@sigx/ai-agent/app` (`useAgentSession`) and `@sigx/ai-agent/testing` (`mockAgent`) |
 | [`@sigx/ai-agent-node`](./packages/ai-agent-node) | **Experimental.** The Node building blocks for agent adapters: a cross-platform process supervisor (process-group / `taskkill /T` kill, Web Streams stdio), executable resolution that understands Windows (`Path`, `PATHEXT`, npm `.cmd` shims run under `process.execPath`), a child environment allowlist, and a loopback MCP listener |
 | [`@sigx/ai-agent-acp`](./packages/ai-agent-acp) | **Experimental.** Every Agent Client Protocol agent as an `Agent` — Gemini CLI, Cursor, the Claude Code and Codex ACP bridges — with vendors as data-only presets; permissions through the policy, client tools over MCP, opt-in fs/terminal client methods fenced to the working directory |
 | [`@sigx/ai-agent-claude-code`](./packages/ai-agent-claude-code) | **Experimental.** Claude Code as an `@sigx/ai-agent` Agent on the official Claude Agent SDK — sessions with resume/fork, permissions through the policy, client tools over MCP, structured output |
@@ -30,7 +30,10 @@ Full guides, API reference and live examples → **<https://sigx.dev/ai/>**
 | [`@sigx/ai-anthropic`](./packages/ai-anthropic) | Claude on the official `@anthropic-ai/sdk` — streaming, tool use, adaptive thinking, refusal handling |
 | [`@sigx/ai-openai`](./packages/ai-openai) | OpenAI on the official `openai` SDK — Responses API streaming and function calling |
 
-Examples: [`examples/chat`](./examples/chat) — an SSR sigx app streaming a chat over `serverStream`, assistant text rendered as markdown by `RichTextView` from `@sigx/richtext/dom`, provider switched by env, a scripted mock when no key is set.
+Examples:
+
+- [`examples/chat`](./examples/chat) — an SSR sigx app streaming a chat over `serverStream`, assistant text rendered as markdown by `RichTextView` from `@sigx/richtext/dom`, provider switched by env, a scripted mock when no key is set.
+- [`examples/agent`](./examples/agent) — an SSR sigx app around ONE agent session: `serveSession` on the server, `connectSession` + `useAgentSession` in the browser, tool cards, permission prompts, cancel and usage — and a second tab that replays the same session and follows it live. Runs with no key and no installed harness.
 
 ## Install
 

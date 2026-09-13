@@ -11,7 +11,8 @@ const base = defineLibConfig({
         harness: 'src/harness/index.ts',
         testing: 'src/testing/index.ts',
         coding: 'src/coding/index.ts',
-        wire: 'src/wire/index.ts'
+        wire: 'src/wire/index.ts',
+        app: 'src/app/index.ts'
     },
     external: [/@sigx\/.*/, /^node:/],
     root: import.meta.url

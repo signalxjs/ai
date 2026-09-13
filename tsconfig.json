@@ -21,6 +21,7 @@
       "@sigx/ai-agent/coding": ["./packages/ai-agent/src/coding/index.ts"],
       "@sigx/ai-agent/harness": ["./packages/ai-agent/src/harness/index.ts"],
       "@sigx/ai-agent/wire": ["./packages/ai-agent/src/wire/index.ts"],
+      "@sigx/ai-agent/app": ["./packages/ai-agent/src/app/index.ts"],
       "@sigx/ai-agent-node": ["./packages/ai-agent-node/src/index.ts"],
       "@sigx/ai-agent-acp": ["./packages/ai-agent-acp/src/index.ts"],
       "@sigx/ai-agent-claude-code": ["./packages/ai-agent-claude-code/src/index.ts"],
