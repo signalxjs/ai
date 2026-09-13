@@ -16,7 +16,9 @@ export function checkEventInvariants(events: readonly AgentEvent[]): void {
     assert(events.length > 0, 'no events were observed');
     const sessionId = events[0]!.sessionId;
     let epoch = events[0]!.epoch;
-    let seq = 0;
+    // Gapless from the first event the observer saw: a session may have emitted
+    // events (a config announcement) before the client subscribed.
+    let seq = events[0]!.seq - 1;
     const turnStarts = new Map<string, number>();
     const turnEnds = new Map<string, number>();
     const calls = new Map<string, string>();

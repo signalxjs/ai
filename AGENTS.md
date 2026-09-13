@@ -204,6 +204,16 @@ To run the example: `pnpm build` first (it resolves the packages from
   allowlist, `NODE_OPTIONS` excluded) and `listenMcp` (loopback `node:http`
   host for the harness MCP tool handler). Adapters that spawn a harness take
   it as a regular `dependencies` entry. Tested on Ubuntu, Windows and macOS.
+- `packages/ai-agent-codex` → `@sigx/ai-agent-codex` — **experimental**, Codex as
+  an `Agent` over the `codex app-server` JSON-RPC protocol (one process and
+  one `createJsonRpcPeer` per agent through `@sigx/ai-agent-node`, a regular
+  dependency; `transport: { readable, writable }` drives a running server). One
+  file per concern: `schema.ts` (the hand-written v2 subset, checked against the
+  generated types in `__tests__/schema.test-d.ts`), `options.ts`, `approvals.ts`,
+  `tools.ts` (dynamic tools), `stream.ts` (items → events), `session.ts`
+  (a thread), `provider.ts` (`codex()`), `index.ts`. `pnpm --filter
+  @sigx/ai-agent-codex codex:generate` regenerates the full types with an
+  installed Codex CLI.
 - `packages/ai-anthropic` → `@sigx/ai-anthropic` — Claude on the official
   `@anthropic-ai/sdk` (a peer dependency, literal range): `anthropic()` →
   `.model(id)`. Streams `client.messages.stream`, maps text / thinking /

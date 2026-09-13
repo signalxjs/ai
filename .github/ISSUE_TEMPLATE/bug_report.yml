@@ -26,6 +26,7 @@ body:
         - "@sigx/ai"
         - "@sigx/ai-agent"
         - "@sigx/ai-agent-node"
+        - "@sigx/ai-agent-codex"
         - "@sigx/ai-anthropic"
         - "@sigx/ai-openai"
         - Not sure / multiple

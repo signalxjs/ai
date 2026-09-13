@@ -25,6 +25,7 @@
             "@sigx/ai-agent/coding": ["../../packages/ai-agent/src/coding/index.ts"],
             "@sigx/ai-agent/harness": ["../../packages/ai-agent/src/harness/index.ts"],
             "@sigx/ai-agent-node": ["../../packages/ai-agent-node/src/index.ts"],
+            "@sigx/ai-agent-codex": ["../../packages/ai-agent-codex/src/index.ts"],
             "@sigx/ai-anthropic": ["../../packages/ai-anthropic/src/index.ts"],
             "@sigx/ai-openai": ["../../packages/ai-openai/src/index.ts"]
         }
