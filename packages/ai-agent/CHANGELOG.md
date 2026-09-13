@@ -8,6 +8,14 @@ follow [SemVer](https://semver.org/).
 
 ### Added
 
+- `modelAgent` runs agent definitions (`defineAgents: true`): `session({ agents })`
+  turns each definition into a tool named after it (`{ task }` in, final text
+  out) that runs a nested `modelAgent` — same model, the definition's `prompt`
+  as system prompt, only the `tools` it names, `maxTurns` as step budget —
+  through `agentTool`, governed the way the host session is (its `policy`,
+  `interactive` and `requestTimeoutMs`); an invalid or colliding name, or a
+  tool the session does not have or that a definition names twice, is refused
+  at `session()` time. The definition's `model` is ignored (a harness alias).
 - `mockAgent`: an `agent` step (`MockAgentStep`) spawns a sub-agent — the
   spawning `tool-call` through the policy, `agent-start` bound to it, the
   nested `steps` played under the call with `parentCallId` (nested requests
