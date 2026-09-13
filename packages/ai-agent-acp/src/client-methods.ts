@@ -59,13 +59,26 @@ export interface ClientMethodOptions {
 }
 
 /**
+ * Is `absolute` (already resolved against the session `cwd`) inside one of the
+ * session's roots? Each root resolves against the `cwd` exactly like the path
+ * does, so the two are always compared in the same shape — a drive-less
+ * absolute root (`\repo`) borrows the cwd's drive instead of normalizing to an
+ * empty root that no drive-letter path could ever match, a UNC share keeps its
+ * own root, and a relative root resolves rather than being ignored.
+ */
+export function isInsideRoots(cwd: string, roots: readonly string[], absolute: string): boolean {
+    const candidate = resolveFrom(cwd, absolute);
+    return roots.some((root) => isWithin(candidate, resolveFrom(cwd, root)));
+}
+
+/**
  * A path the agent named, fenced to the session's roots: relative paths
  * resolve against the session `cwd` (never the process's), and the absolute
  * result is what gets used — for the check, the policy and the file system.
  */
 function fence(runtime: AcpSessionRuntime, path: string): string {
     const absolute = resolve(runtime.cwd, path);
-    if (!runtime.roots.some((root) => isWithin(resolveFrom(runtime.cwd, absolute), root))) {
+    if (!isInsideRoots(runtime.cwd, runtime.roots, absolute)) {
         throw new JsonRpcError(JSON_RPC.INVALID_PARAMS, `[sigx ai-agent-acp] "${path}" is outside the session's working directory`);
     }
     return absolute;
@@ -102,7 +115,7 @@ export function registerClientMethods(peer: JsonRpcPeer, options: ClientMethodOp
             ACP_METHODS.fsReadTextFile,
             withSession(options, async (runtime, params) => {
                 const path = fence(runtime, params.path);
-                await guard(runtime, { kind: 'permission', toolName: 'fs/read_text_file', input: { path }, category: 'read', source: 'client', permissionKey: 'fs/read_text_file' });
+                await guard(runtime, { kind: 'permission', toolName: 'fs/read_text_file', input: { path }, category: 'read', source: 'client', permissionKey: `fs/read_text_file:${path}` });
                 const text = await readFile(path, 'utf8');
                 if (params.line == null && params.limit == null) return { content: text };
                 const lines = text.split('\n');

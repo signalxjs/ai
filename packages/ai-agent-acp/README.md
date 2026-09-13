@@ -71,7 +71,10 @@ const agent = acp({ ...cursor(), fs: { read: true, write: true }, terminal: true
    shares included.
 2. The session policy is asked like for any tool: `fs/read_text_file`
    (`category: 'read'`), `fs/write_text_file` (`edit`), `terminal/create`
-   (`execute`), all `source: 'client'`. Terminals run through
+   (`execute`), all `source: 'client'`. The `permissionKey` names the target
+   (`fs/read_text_file:<absolute path>`, `terminal/create:<command>`), so a
+   session-scoped "allow" grants that file or command — never the whole fence.
+   Terminals run through
    `spawnAgentProcess` (allowlisted environment, never a shell) with a bounded
    output buffer and stream `coding.terminal` events.
 

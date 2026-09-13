@@ -14,6 +14,7 @@ import { allowAll, denyAll, AgentError, createReducer, createTranscript, type Ag
 import { codingState, codingExtension } from '@sigx/ai-agent/coding';
 import { acp, gemini, cursor, claudeCodeAcp, codexAcp, ACP_BASE_CAPABILITIES } from '@sigx/ai-agent-acp';
 import { fakeAcpAgent, FULL_CAPABILITIES, type FakeAcp } from './fake-acp-agent';
+import { isInsideRoots } from '../src/client-methods';
 
 const collect = async <T>(it: AsyncIterable<T>) => {
     const out: T[] = [];
@@ -72,6 +73,33 @@ describe('acp(): initialize and capabilities', () => {
         expect(claudeCodeAcp().command).toBe('claude-code-acp');
         expect(codexAcp().command).toBe('codex-acp');
         expect(acp(gemini()).id).toBe('acp:gemini');
+    });
+});
+
+describe('acp(): the working-directory fence', () => {
+    // Pure containment, independent of the host platform: both the candidate and
+    // every root normalize the same way, so the shapes a Windows client can hand
+    // us — drive-letter, drive-less absolute, UNC, relative — all compare.
+    it('normalizes the roots the same way as the path, on every path shape', () => {
+        // A plain drive-letter root.
+        expect(isInsideRoots('C:\\repo', ['C:\\repo'], 'C:\\repo\\src\\a.ts')).toBe(true);
+        expect(isInsideRoots('C:\\repo', ['C:\\repo'], 'C:\\other\\a.ts')).toBe(false);
+        expect(isInsideRoots('C:\\repo', ['c:/repo/'], 'C:\\repo\\a.ts')).toBe(true);
+        // A drive-less absolute root borrows the session cwd's drive — without
+        // that it normalizes with an empty root and never matches.
+        expect(isInsideRoots('C:\\repo', ['\\repo'], 'C:\\repo\\a.ts')).toBe(true);
+        expect(isInsideRoots('C:\\repo', ['\\tmp'], 'C:\\tmp\\a.ts')).toBe(true);
+        expect(isInsideRoots('C:\\repo', ['\\tmp'], 'C:\\repo\\a.ts')).toBe(false);
+        // A UNC share is its own root and stays distinct from another share.
+        expect(isInsideRoots('\\\\server\\share\\repo', ['\\\\server\\share\\repo'], '\\\\server\\share\\repo\\a.ts')).toBe(true);
+        expect(isInsideRoots('\\\\server\\share\\repo', ['\\\\server\\share\\repo'], '\\\\server\\other\\repo\\a.ts')).toBe(false);
+        expect(isInsideRoots('\\\\server\\share\\repo', ['\\\\SERVER\\SHARE\\repo'], '\\\\server\\share\\repo\\sub\\a.ts')).toBe(true);
+        // A relative root is one too — it resolves against the session cwd.
+        expect(isInsideRoots('C:\\repo', ['sub'], 'C:\\repo\\sub\\a.ts')).toBe(true);
+        expect(isInsideRoots('/repo', ['sub'], '/repo/sub/a.ts')).toBe(true);
+        // POSIX is unaffected.
+        expect(isInsideRoots('/repo', ['/repo'], '/repo/a.ts')).toBe(true);
+        expect(isInsideRoots('/repo', ['/repo'], '/other/a.ts')).toBe(false);
     });
 });
 
@@ -395,6 +423,42 @@ describe('acp(): sessions and turns', () => {
             // The policy saw absolute paths.
             const requests = events.filter((e): e is Extract<AgentEvent, { type: 'request-resolved' }> => e.type === 'request-resolved');
             expect(requests).toHaveLength(4);
+        } finally {
+            await rm(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('a session-scoped fs grant covers the file it was approved for, not the whole fence', async () => {
+        const dir = await mkdtemp(join(tmpdir(), 'sigx-acp-'));
+        try {
+            await writeFile(join(dir, 'a.txt'), 'A', 'utf8');
+            await writeFile(join(dir, 'b.txt'), 'B', 'utf8');
+            const results: unknown[] = [];
+            const { agent } = connect(
+                {
+                    onPrompt: async (api) => {
+                        results.push(await api.readFile(join(dir, 'a.txt')));
+                        // Same file again: the session grant covers it, no second ask.
+                        results.push(await api.readFile(join(dir, 'a.txt')));
+                        // A different file inside the same fence must be asked for.
+                        results.push(await api.readFile(join(dir, 'b.txt')));
+                        await api.writeFile(join(dir, 'a.txt'), 'A2');
+                        return { stopReason: 'end_turn' };
+                    }
+                },
+                { fs: { read: true, write: true } }
+            );
+            const session = await agent.session({ cwd: dir });
+            const turn = session.prompt('read');
+            const keys: (string | undefined)[] = [];
+            for await (const e of turn) {
+                if (e.type === 'request') {
+                    keys.push(e.permissionKey);
+                    await session.respond(e.requestId, { type: 'permission', outcome: 'allow', scope: 'session' });
+                }
+            }
+            expect(keys).toEqual([`fs/read_text_file:${join(dir, 'a.txt')}`, `fs/read_text_file:${join(dir, 'b.txt')}`, `fs/write_text_file:${join(dir, 'a.txt')}`]);
+            expect(results).toEqual([{ content: 'A' }, { content: 'A' }, { content: 'B' }]);
         } finally {
             await rm(dir, { recursive: true, force: true });
         }
