@@ -29,6 +29,10 @@ export default defineConfig({
         // Subpaths before the bare name: vitest matches aliases in order and a
         // bare `@sigx/ai` entry first would swallow `@sigx/ai/app`.
         alias: [
+            // `@sigx/ai-agent` subpaths first, then the bare name as a regex: a
+            // string `find` is a prefix match and would swallow `@sigx/ai-agent-node`.
+            { find: '@sigx/ai-agent/testing', replacement: resolve(__dirname, 'packages/ai-agent/src/testing/index.ts') },
+            { find: /^@sigx\/ai-agent$/, replacement: resolve(__dirname, 'packages/ai-agent/src/index.ts') },
             { find: '@sigx/ai/server', replacement: resolve(__dirname, 'packages/ai/src/server/index.ts') },
             { find: '@sigx/ai/app', replacement: resolve(__dirname, 'packages/ai/src/app/index.ts') },
             { find: '@sigx/ai/testing', replacement: resolve(__dirname, 'packages/ai/src/testing/index.ts') },

@@ -16,6 +16,12 @@
     "limit": "6 KB"
   },
   {
+    "name": "@sigx/ai-agent",
+    "path": "packages/ai-agent/dist/index.prod.js",
+    "limit": "5 KB",
+    "ignore": ["@sigx/ai"]
+  },
+  {
     "name": "@sigx/ai-anthropic",
     "path": "packages/ai-anthropic/dist/index.prod.js",
     "limit": "4 KB",

@@ -37,6 +37,7 @@ const rootDir = join(__dirname, '..');
 // from there.
 const PACKAGES = [
     'packages/ai',
+    'packages/ai-agent',
     'packages/ai-anthropic',
     'packages/ai-openai',
 ];
