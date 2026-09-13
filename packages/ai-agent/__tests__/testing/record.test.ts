@@ -142,6 +142,29 @@ describe('recordAgent / replayAgent', () => {
         expect(replayed[0]!.epoch).toBe(second[0]!.epoch);
     });
 
+    it('records listSessions results and replays them in order', async () => {
+        const recorder = recordAgent(mockAgent({ script: [[{ text: 'hi' }]] }));
+        expect(recorder.listSessions).toBeDefined();
+        expect(await recorder.listSessions!()).toEqual([]);
+        const live = await recorder.session();
+        await live.prompt('go').result;
+        const listed = await recorder.listSessions!();
+        expect(listed).toEqual([{ ref: live.ref }]);
+        await live.close();
+        expect(recorder.fixture.listSessions).toEqual([[], listed]);
+
+        const replay = replayAgent(JSON.parse(serializeFixture(recorder.fixture)) as AgentFixture);
+        expect(replay.listSessions).toBeDefined();
+        expect(await replay.listSessions!()).toEqual([]);
+        expect(await replay.listSessions!()).toEqual(listed);
+        await expect(replay.listSessions!()).rejects.toBeInstanceOf(ReplayMismatchError);
+
+        // An agent without listSessions replays without it.
+        const plain = recordAgent(mockAgent({ capabilities: { listSessions: false } }));
+        expect(plain.listSessions).toBeUndefined();
+        expect(replayAgent(plain.fixture).listSessions).toBeUndefined();
+    });
+
     it('a recorded conformance run replays through the conformance suite', async () => {
         const scripts: Record<string, MockStep[]> = {
             'tool-permission': [{ tool: { name: 'guarded', input: {}, output: { ok: true }, source: 'client' } }, { text: 'Done.' }],
