@@ -19,6 +19,7 @@ import type { AgentTranscript, ReducerExtension } from '../state/index.js';
 import { createReducer, createTranscript, fromUIMessages, promptPartsToUI, toUIMessages } from '../state/index.js';
 import type { TranscriptStore } from '../store/index.js';
 import { generateId } from '../utils/id.js';
+import { definitionTools } from './definitions.js';
 import { gateTools } from './gate-tools.js';
 import { createChunkMapper } from './map-chunks.js';
 
@@ -66,7 +67,9 @@ export const MODEL_AGENT_CAPABILITIES: AgentCapabilities = capabilities({
     importTranscript: true,
     // Delegates opened by `agentTool` are attached to the session: `respond()`
     // reaches their requests and `cancel({ agentId })` stops one of them.
-    subagents: 'control'
+    subagents: 'control',
+    // `session({ agents })`: one tool per definition, run as a nested modelAgent.
+    defineAgents: true
 });
 
 const passthrough: StandardSchemaV1<unknown, unknown> = { '~standard': { version: 1, vendor: 'sigx-ai-agent', validate: (value) => ({ value }) } };
@@ -149,7 +152,29 @@ export function modelAgent(options: ModelAgentOptions): Agent {
             subagents: MODEL_AGENT_CAPABILITIES.subagents,
             promptParts: MODEL_AGENT_CAPABILITIES.promptParts
         });
-        const tools: AnyTool[] = [...(options.tools ?? []), ...(sessionOptions.tools ?? [])];
+        const base: AnyTool[] = [...(options.tools ?? []), ...(sessionOptions.tools ?? [])];
+        // A definition's delegate is this engine again: same model, its own
+        // prompt and tool subset, its own step budget. `definition.model` is a
+        // harness alias and is ignored here.
+        const tools: AnyTool[] = sessionOptions.agents
+            ? [
+                  ...base,
+                  ...definitionTools(sessionOptions.agents, base, sessionOptions, {
+                      id,
+                      delegate: (name, definition, own) => {
+                          // Persistence is the host session's business, not a delegate's.
+                          const { store: _store, ...shared } = options;
+                          return modelAgent({
+                              ...shared,
+                              id: `${id}:${name}`,
+                              ...(definition.prompt !== undefined ? { system: definition.prompt } : {}),
+                              tools: own,
+                              ...(definition.maxTurns !== undefined ? { maxSteps: definition.maxTurns } : {})
+                          });
+                      }
+                  })
+              ]
+            : base;
         const system = sessionOptions.system ?? options.system;
 
         const persist = async () => {

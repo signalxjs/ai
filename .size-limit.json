@@ -23,7 +23,7 @@
   {
     "name": "@sigx/ai-agent",
     "path": "packages/ai-agent/dist/index.prod.js",
-    "limit": "10 KB",
+    "limit": "12 KB",
     "ignore": ["@sigx/ai"]
   },
   {
