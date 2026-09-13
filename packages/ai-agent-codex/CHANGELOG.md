@@ -23,6 +23,15 @@ follow [SemVer](https://semver.org/).
   `user-message` of that turn; the returned handle is the running turn's. A
   refused steer is a recoverable `error` inside the turn; one Codex answers
   after the turn already ended is a recoverable session-level `error`.
+- Sub-agents (`subagents: 'observe'`): `collabAgentToolCall` items are
+  `tool-call { name: 'collab/<tool>' }` / `tool-update`, a `spawnAgent`'s
+  child thread an `agent-start { kind: 'subagent' }` bound to that call, and
+  every change in the reported agent states an `agent-update` (one terminal
+  per agent). `subAgentActivity` items update the thread they name,
+  announcing it first when no collab call did. Running sub-agents are
+  cancelled with an interrupted turn and when the session closes; otherwise
+  they may outlive their turn. The `Thread` type carries `parentThreadId`,
+  `source`, `agentNickname` and `agentRole`.
 
 ### Changed
 
