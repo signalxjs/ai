@@ -435,6 +435,31 @@ describe('useAgentSession', () => {
         expect(errors).toEqual([]);
     });
 
+    it('a remote session that closes cleanly is a clean end too — no lost-connection error', async () => {
+        const agent = mockAgent({ script: [[{ text: 'bye' }]] });
+        const session = await agent.session();
+        const served = serveSession(session, { agentId: agent.id, capabilities: agent.capabilities });
+        const remote = await connectSession(inMemory(served), { reconnect: { backoffMs: () => 1 } });
+        closers.push(async () => {
+            remote.disconnect();
+            await served.close();
+            await agent.dispose();
+        });
+        const errors: Error[] = [];
+        const m = mount(remote, { onError: (e) => errors.push(e) });
+        await tick();
+        await m.view.prompt('hi');
+
+        await session.close();
+        await tick(5);
+        expect(m.view.state).toBe('closed');
+        expect(m.view.live).toBe(false);
+        expect(m.view.connected).toBe(false);
+        expect(remote.status).toBe('closed');
+        expect(m.view.error).toBeUndefined();
+        expect(errors).toEqual([]);
+    });
+
     it('drives a remote session from connectSession the same way', async () => {
         const agent = mockAgent({ script: [[{ tool: { name: 'search', output: 'found' } }, { text: 'over the wire' }]] });
         const session = await agent.session();

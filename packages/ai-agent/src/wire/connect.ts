@@ -96,6 +96,7 @@ export async function connectSession(transport: SessionTransport, options: Conne
         for (const listener of listeners) listener(value);
     };
     let stopped = false;
+    let remoteClosed = false;
     let controller = new AbortController();
     let resolveHello!: (h: Extract<WireFrame, { kind: 'hello' }>) => void;
     let rejectHello!: (e: unknown) => void;
@@ -124,6 +125,8 @@ export async function connectSession(transport: SessionTransport, options: Conne
                 if (last && !cursorBefore(last, cursor)) return;
                 buffer.push(frame.event, frame.seqFrom);
                 last = cursor;
+                // The session's last word: what follows is the stream ending, not a break.
+                if (frame.event.type === 'state' && frame.event.value === 'closed') remoteClosed = true;
                 break;
             }
             case 'gap':
@@ -150,11 +153,19 @@ export async function connectSession(transport: SessionTransport, options: Conne
                 // policy as a later one — an initial connection is what fails most.
                 lastError = e;
             }
-            if (stopped || !reconnect) break;
+            if (stopped || remoteClosed || !reconnect) break;
             attempt++;
             if (attempt > reconnect.maxAttempts) break;
             setStatus('reconnecting');
             await new Promise((r) => setTimeout(r, reconnect.backoffMs(attempt)));
+        }
+        if (remoteClosed && !stopped) {
+            // A clean shutdown: the session said `closed` and the stream ended after
+            // it. Nothing to come back to — end the buffer so subscribers finish.
+            stopped = true;
+            setStatus('closed');
+            buffer.close();
+            return;
         }
         if (!hello) {
             // A stream that ended or failed (and was given up on) before any hello is a failed connection, not a hang.

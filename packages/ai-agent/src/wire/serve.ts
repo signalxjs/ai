@@ -47,7 +47,7 @@ const DECISION_TYPES: ReadonlySet<string> = new Set(['permission', 'input', 'can
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** A `PromptPart` with the fields its variant requires (`text.text`, a media type and exactly one of `data` / `url`, `resource.uri`). */
+/** A `PromptPart` with the fields its variant requires: a `text` part its `text`, an `image` / `file` part a `mediaType` and exactly one of `data` / `url`, a `resource` part its `uri`. */
 function isPromptPart(p: unknown): boolean {
     if (!isRecord(p) || typeof p.type !== 'string' || !PART_TYPES.has(p.type)) return false;
     switch (p.type) {

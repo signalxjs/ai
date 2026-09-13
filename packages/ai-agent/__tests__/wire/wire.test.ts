@@ -356,6 +356,26 @@ describe('serveSession / connectSession', () => {
         expect(remote.status).toBe('closed');
     });
 
+    it('a remote session that closes cleanly ends the client as closed, not lost', async () => {
+        const { session, served } = await serve([[{ text: 'bye' }]]);
+        const remote = await connectSession(inMemory(served), { reconnect: { backoffMs: () => 1 } });
+        const statuses: string[] = [];
+        remote.onStatusChange((s) => statuses.push(s));
+        const following = collect(remote.subscribe({ epoch: 0, seq: 0 }));
+        await remote.prompt('hi').result;
+        await session.close();
+        // The subscriber ends on its own: the session's `state: closed` was its last event.
+        const events = await following;
+        expect(events.at(-1)).toMatchObject({ type: 'state', value: 'closed' });
+        expect(remote.status).toBe('closed');
+        expect(statuses).toEqual(['closed']);
+        // A late subscription ends at once, and nothing is retried.
+        expect(await collect(remote.subscribe())).toEqual([]);
+        remote.reconnect();
+        expect(remote.status).toBe('closed');
+        await served.close();
+    });
+
     it('a wire error keeps its code: RemoteCommandError names the command and the remote code', async () => {
         const agent = mockAgent({ script: [[{ text: 'ok' }]] });
         const session = await agent.session();

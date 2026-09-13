@@ -124,9 +124,10 @@ continues from the head — a `TranscriptStore` snapshot is the app's way to fil
 Once the attempts run out — or at once with `reconnect: false` — the client is
 `lost`, not gone: the session still exists, the local buffer stays open and
 in-flight turns keep waiting, so `remote.reconnect()` (a button, a
-"back online" event) resumes exactly where the stream broke. Only
-`disconnect()` / `close()` are final (`closed`): they end the buffer and reject
-pending turns.
+"back online" event) resumes exactly where the stream broke. `closed` is
+final: `disconnect()` / `close()` end the buffer and reject pending turns, and
+a session that shuts down cleanly (its last event is `state: closed`) ends the
+client the same way rather than as `lost`.
 
 **Errors keep their code.** A command the server refuses rejects with
 `RemoteCommandError` — an `AgentError` whose `remote` is the wire code
