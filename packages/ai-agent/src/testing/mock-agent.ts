@@ -8,7 +8,7 @@
  * like a reduced harness.
  */
 
-import type { JsonSchema, Usage } from '@sigx/ai';
+import type { JsonSchema, UIMessage, Usage } from '@sigx/ai';
 import type {
     AgentCapabilities,
     AgentErrorCode,
@@ -21,9 +21,11 @@ import type {
     ToolStatus
 } from '../protocol/index.js';
 import { AgentError, capabilities as makeCapabilities } from '../protocol/index.js';
+import { createGrants } from '../policy/index.js';
 import type { Agent, AgentSession, SessionOptions, SessionRef } from '../session/index.js';
 import { createEventLog, createSessionCore } from '../session/index.js';
 import type { TurnDriver, TurnContext } from '../session/index.js';
+import { fromUIMessages } from '../state/index.js';
 import { sleep } from '../utils/abort.js';
 import { generateId } from '../utils/id.js';
 
@@ -98,9 +100,13 @@ export const MOCK_CAPABILITIES: AgentCapabilities = makeCapabilities({
     importTranscript: true
 });
 
+/** What the mock's `SessionRef.data` carries — or, for `importTranscript`, a portable `messages` list. */
 interface MockRefData {
     readonly turn: number;
     readonly answers: readonly unknown[];
+    readonly grants: readonly string[];
+    readonly epoch: number;
+    readonly messages?: readonly UIMessage[];
 }
 
 export function mockAgent(options: MockAgentOptions = {}): MockAgent {
@@ -114,32 +120,49 @@ export function mockAgent(options: MockAgentOptions = {}): MockAgent {
         const answers: unknown[] = [];
         let sessionId = generateId('sess');
         let epoch = 1;
+        let grants: readonly string[] = [];
+        let imported: readonly UIMessage[] | undefined;
         if (sessionOptions.resume) {
             if (!caps.resume) throw new AgentError('protocol_error', `[sigx ai-agent] agent "${id}" cannot resume sessions`);
             if (sessionOptions.resume.agent !== id) throw new AgentError('protocol_error', `[sigx ai-agent] session ref belongs to agent "${sessionOptions.resume.agent}", not "${id}"`);
-            const data = (sessionOptions.resume.data ?? {}) as Partial<MockRefData> & { epoch?: number };
-            turnIndex = data.turn ?? 0;
+            const data = (sessionOptions.resume.data ?? {}) as Partial<MockRefData>;
+            if (data.messages) {
+                if (!caps.importTranscript) throw new AgentError('protocol_error', `[sigx ai-agent] agent "${id}" cannot import transcripts`);
+                imported = data.messages;
+            }
+            turnIndex = data.turn ?? imported?.filter((m) => m.role === 'user').length ?? 0;
             answers.push(...(data.answers ?? []));
             if (sessionOptions.fork) {
+                // A fork is a new session: the grants stay with the one that gave them.
                 if (!caps.fork) throw new AgentError('protocol_error', `[sigx ai-agent] agent "${id}" cannot fork sessions`);
             } else {
                 sessionId = sessionOptions.resume.id;
                 epoch = (data.epoch ?? 1) + 1;
+                grants = data.grants ?? [];
             }
         }
         const log = createEventLog({ sessionId, epoch });
+        if (imported) {
+            // The history plays first, so a subscriber from `{ epoch: 0, seq: 0 }` sees the whole conversation.
+            for (const e of fromUIMessages(imported, { sessionId }).events) {
+                const { sessionId: _s, epoch: _e, seq: _q, ...payload } = e;
+                log.append(payload);
+            }
+        }
         const core = createSessionCore({
             id: sessionId,
             log,
+            grants: createGrants(grants),
             ...(sessionOptions.policy ? { policy: sessionOptions.policy } : {}),
             interactive: sessionOptions.interactive ?? true,
             ...(sessionOptions.requestTimeoutMs !== undefined ? { requestTimeoutMs: sessionOptions.requestTimeoutMs } : {}),
             ...(sessionOptions.signal ? { signal: sessionOptions.signal } : {}),
-            steer: caps.steer
+            steer: caps.steer,
+            promptParts: caps.promptParts
         });
         let config: ConfigOption[] = [];
 
-        const ref = (): SessionRef => ({ agent: id, v: 1, id: sessionId, data: { turn: turnIndex, answers: [...answers], epoch: log.epoch } satisfies MockRefData & { epoch: number } });
+        const ref = (): SessionRef => ({ agent: id, v: 1, id: sessionId, data: { turn: turnIndex, answers: [...answers], grants: core.grants.keys(), epoch: log.epoch } satisfies MockRefData });
 
         async function play(steps: readonly MockStep[], driver: TurnDriver, ctx: TurnContext): Promise<void> {
             let partSeq = 0;
@@ -278,7 +301,8 @@ export function mockAgent(options: MockAgentOptions = {}): MockAgent {
                 });
             },
             respond: (requestId, decision) => core.respond(requestId, decision),
-            cancel: () => core.cancel(),
+            // Without the capability a cancel is a no-op, like a late respond — never an error.
+            cancel: caps.cancel ? () => core.cancel() : async () => {},
             ...(caps.config
                 ? {
                       configure: async (patch: Readonly<Record<string, string>>) => {

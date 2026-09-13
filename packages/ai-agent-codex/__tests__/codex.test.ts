@@ -98,6 +98,63 @@ describe('@sigx/ai-agent-codex', () => {
         await agent.dispose();
     });
 
+    it('configure({ sandbox }) is sent as sandboxPolicy on the next turn/start', async () => {
+        const fake = fakeAppServer({ onTurn: say('x') });
+        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        await session.prompt('go').result;
+        expect(fake.requests.at(-1)!.params).not.toHaveProperty('sandboxPolicy');
+        const expected = {
+            'read-only': { type: 'readOnly', networkAccess: false },
+            'workspace-write': { type: 'workspaceWrite', writableRoots: [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false },
+            'danger-full-access': { type: 'dangerFullAccess' }
+        };
+        for (const [mode, policy] of Object.entries(expected)) {
+            await session.configure!({ sandbox: mode });
+            await session.prompt('go').result;
+            expect(fake.requests.at(-1)!.params).toMatchObject({ threadId: session.id, sandboxPolicy: policy });
+        }
+    });
+
+    it('a granular approval policy and an unmodelled sandbox are still listed among their config values', async () => {
+        const fake = fakeAppServer({
+            onTurn: say('x'),
+            thread: {
+                approvalPolicy: { granular: { sandbox_approval: true, rules: true, skill_approval: true, request_permissions: true, mcp_elicitations: true } },
+                sandbox: { type: 'externalSandbox', networkAccess: 'restricted' }
+            }
+        });
+        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        let config: Extract<AgentEvent, { type: 'config' }> | undefined;
+        for await (const e of session.subscribe({ epoch: 0, seq: 0 })) {
+            if (e.type === 'config') {
+                config = e;
+                break;
+            }
+        }
+        for (const o of config!.options) expect(o.values.map((v) => v.id), o.id).toContain(o.current);
+        expect(config!.options.find((o) => o.id === 'approvalPolicy')).toMatchObject({ current: 'granular', values: expect.arrayContaining([{ id: 'granular', label: 'Granular (managed by Codex)' }]) });
+        expect(config!.options.find((o) => o.id === 'sandbox')).toMatchObject({ current: 'unknown', values: expect.arrayContaining([{ id: 'unknown', label: 'Unknown' }]) });
+    });
+
+    it('plan items stream as text parts, not as ext events', async () => {
+        const fake = fakeAppServer({
+            onTurn: async (ctx) => {
+                await ctx.item({ type: 'plan', id: 'plan_1', text: '' }, 'started');
+                await ctx.notify('item/plan/delta', { threadId: ctx.threadId, turnId: ctx.turnId, itemId: 'plan_1', delta: 'Step one' });
+                await ctx.item({ type: 'plan', id: 'plan_1', text: 'Step one, then two' }, 'completed');
+                await say('ok')(ctx);
+            }
+        });
+        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        const { events } = await drain(session.prompt('plan it'));
+        expect(events.find((e) => e.type === 'ext' && e.name === 'item.plan')).toBeUndefined();
+        const plan = events.filter((e) => 'partId' in e && e.partId === 'plan_1');
+        expect(plan.map((e) => e.type)).toEqual(['part-start', 'part-delta', 'part-delta', 'part-end']);
+        expect(plan[0]).toMatchObject({ kind: 'text' });
+        expect(plan.filter((e): e is Extract<AgentEvent, { type: 'part-delta' }> => e.type === 'part-delta').map((e) => e.delta)).toEqual(['Step one', ', then two']);
+        expect(textOf(events)).toBe('Step one, then twook');
+    });
+
     it('not signed in → auth_required (account/read null, or getAuthStatus fallback)', async () => {
         const a = codex({ transport: fakeAppServer({ onTurn: say('x'), account: null }).transport });
         await expect(a.session({ cwd: '/repo' })).rejects.toMatchObject({ name: 'AgentError', code: 'auth_required' });

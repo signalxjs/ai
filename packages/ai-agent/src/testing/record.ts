@@ -26,7 +26,6 @@ export interface FixtureSessionOptions {
     readonly model?: string;
     readonly interactive?: boolean;
     readonly requestTimeoutMs?: number;
-    readonly raw?: boolean;
     readonly resume?: SessionRef;
     readonly fork?: boolean;
     readonly toolNames?: readonly string[];
@@ -59,7 +58,7 @@ export interface AgentFixture {
     readonly sessions: FixtureSession[];
 }
 
-const KNOWN_OPTION_KEYS = new Set(['system', 'model', 'tools', 'policy', 'interactive', 'requestTimeoutMs', 'resume', 'fork', 'signal', 'raw']);
+const KNOWN_OPTION_KEYS = new Set(['system', 'model', 'tools', 'policy', 'interactive', 'requestTimeoutMs', 'resume', 'fork', 'signal']);
 
 function fixtureOptions(options: SessionOptions & Record<string, unknown>): FixtureSessionOptions {
     const extra: Record<string, unknown> = {};
@@ -76,7 +75,6 @@ function fixtureOptions(options: SessionOptions & Record<string, unknown>): Fixt
         ...(options.model !== undefined ? { model: options.model } : {}),
         ...(options.interactive !== undefined ? { interactive: options.interactive } : {}),
         ...(options.requestTimeoutMs !== undefined ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
-        ...(options.raw !== undefined ? { raw: options.raw } : {}),
         ...(options.resume !== undefined ? { resume: options.resume } : {}),
         ...(options.fork !== undefined ? { fork: options.fork } : {}),
         ...(options.tools ? { toolNames: options.tools.map((t) => t.name) } : {}),
@@ -288,7 +286,7 @@ export function replayAgent(fixture: AgentFixture, options: ReplayAgentOptions =
                     if (driver && entry.event.turnId === driver.turnId) {
                         if (payload.type === 'turn-start') continue; // emitted by createTurn
                         if (payload.type === 'turn-end') {
-                            const { type: _type, parentCallId: _p, raw: _r, ...end } = payload;
+                            const { type: _type, parentCallId: _p, ...end } = payload;
                             driver.end(end);
                             return 'turn-end';
                         }

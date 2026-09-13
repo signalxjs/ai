@@ -96,14 +96,20 @@ codingState(transcript)?.diffs; // every diff the agent made, tagged with its tu
 
 ## Our engine as an agent: `modelAgent`
 
-`modelAgent({ model, tools?, system?, maxSteps?, store? })` runs each prompt
-as one `streamText` turn over the session transcript. Every client tool call
-goes through the session's policy (`permissions: 'every-call'`); a `'ask'`
+`modelAgent({ model, tools?, system?, maxSteps?, store?, pricing? })` runs each
+prompt as one `streamText` turn over the session transcript. Every client tool
+call goes through the session's policy (`permissions: 'every-call'`); a `'ask'`
 becomes a `request` event an interactive client answers with
 `session.respond()`, and a headless session denies it. Structured output is
 `prompt(input, { output: { schema } })` → `turn.result.output`. The transcript
 is the resumable state: with a `TranscriptStore` the `SessionRef` names it,
-without one the ref carries it.
+without one the ref carries it — and session grants live in it, so a resumed
+session is not asked again for a tool the user allowed for the session.
+`session({ resume, fork: true })` copies the conversation into a new session
+id (`fork: true`) with no grants and no open requests. `pricing(usage)` turns
+a turn's usage into `costUsd` on the `usage` event, the result and the
+transcript; the `LanguageModel` seam carries no price list, so without it no
+cost is reported.
 
 **U1 — an edge chat agent** (workerd, Bun, Deno — no Node globals):
 
@@ -244,6 +250,11 @@ through eleven scenarios. Each scenario tells your factory what the agent must
 do — for a real harness that is a recorded fixture or a fake peer; the suite
 plays the client. A case that needs a capability the agent lacks is skipped
 with the reason. No test-runner import: wire the cases into yours.
+
+Capabilities are enforced where the helpers can: `createSessionCore({ promptParts })`
+fails a prompt that carries a part beyond the declared level before any event
+is emitted (`mockAgent` and `modelAgent` pass theirs), and `mockAgent` treats
+`cancel()` as a no-op without the `cancel` capability.
 
 ```ts
 import { agentConformance } from '@sigx/ai-agent/testing';

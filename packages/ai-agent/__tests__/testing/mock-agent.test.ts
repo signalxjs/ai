@@ -145,4 +145,67 @@ describe('mockAgent', () => {
         const configs = (await all).filter((e): e is Extract<AgentEvent, { type: 'config' }> => e.type === 'config');
         expect(configs.map((c) => c.options[0]!.current)).toEqual(['ask', 'auto']);
     });
+
+    it('a session grant survives resume', async () => {
+        const agent = mockAgent({ script: [[{ tool: { name: 'rm' } }], [{ tool: { name: 'rm' } }]] });
+        const s1 = await agent.session();
+        const first = s1.prompt('go');
+        for await (const e of first) if (e.type === 'request') await s1.respond(e.requestId, { type: 'permission', outcome: 'allow', scope: 'session' });
+        await first.result;
+        const ref = s1.ref;
+        await s1.close();
+        const s2 = await agent.session({ resume: ref });
+        const { events } = await drain(s2.prompt('again'));
+        expect(events.filter((e) => e.type === 'request')).toHaveLength(0);
+        expect(events.find((e) => e.type === 'request-resolved')).toMatchObject({ outcome: 'allow', by: 'policy', ruleId: 'grant' });
+        // A fork is a new session: grants do not carry over.
+        const forked = await mockAgent({ capabilities: { fork: true }, script: [[], [{ tool: { name: 'rm' } }]] }).session({ resume: ref, fork: true });
+        const forkedTurn = forked.prompt('x');
+        const seen: AgentEvent[] = [];
+        for await (const e of forkedTurn) {
+            seen.push(e);
+            if (e.type === 'request') await forked.respond(e.requestId, { type: 'permission', outcome: 'deny', scope: 'once' });
+        }
+        expect(seen.filter((e) => e.type === 'request')).toHaveLength(1);
+    });
+
+    it('imports a portable transcript through the ref, and refuses one without importTranscript', async () => {
+        const messages = [
+            { id: 'u1', role: 'user' as const, parts: [{ type: 'text' as const, text: 'earlier' }] },
+            { id: 'a1', role: 'assistant' as const, parts: [{ type: 'text' as const, text: 'reply' }] }
+        ];
+        const agent = mockAgent({ script: [[{ text: 'first' }], [{ text: 'second' }]] });
+        const session = await agent.session({ resume: { agent: 'mock', v: 1, id: 'imported', data: { messages } } });
+        const all = collect(session.subscribe({ epoch: 0, seq: 0 }));
+        await session.prompt('now').result;
+        await session.close();
+        const events = await all;
+        expect(types(events).slice(0, 4)).toEqual(['user-message', 'part-start', 'part-delta', 'part-end']);
+        expect(events[0]).toMatchObject({ messageId: 'u1', parts: [{ type: 'text', text: 'earlier' }] });
+        expect(events.every((e) => e.sessionId === 'imported')).toBe(true);
+        // One imported user message = one turn already played: the script continues at index 1.
+        expect(textOf(events)).toBe('replysecond');
+        expectJsonSafe(events);
+
+        const honest = mockAgent({ capabilities: { importTranscript: false } });
+        await expect(honest.session({ resume: { agent: 'mock', v: 1, id: 'x', data: { messages } } })).rejects.toThrow(/cannot import/);
+    });
+
+    it('honest capabilities: cancel is a no-op without cancel; promptParts is enforced', async () => {
+        const noCancel = mockAgent({ capabilities: { cancel: false }, script: [[{ tool: { name: 'slow', delayMs: 20 } }, { text: 'done' }]] });
+        const s1 = await noCancel.session({ policy: allowAll });
+        const turn = s1.prompt('go');
+        for await (const e of turn) if (e.type === 'tool-update' && e.status === 'in_progress') await s1.cancel();
+        expect((await turn.result).stopReason).toBe('end_turn');
+
+        const textOnly = mockAgent({ capabilities: { promptParts: 'text' } });
+        const s2 = await textOnly.session();
+        const all = collect(s2.subscribe());
+        const refused = s2.prompt([{ type: 'text', text: 'see' }, { type: 'image', mediaType: 'image/png', data: 'AA==' }]);
+        await expect(refused.result).rejects.toMatchObject({ code: 'protocol_error', message: expect.stringContaining('promptParts') });
+        expect((await s2.prompt('plain').result).stopReason).toBe('end_turn');
+        await s2.close();
+        // The refused prompt left no trace in the log.
+        expect((await all).filter((e) => e.type === 'turn-start')).toHaveLength(1);
+    });
 });
