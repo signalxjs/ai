@@ -40,8 +40,10 @@ createServer((req, res) => {
         });
     });
 }).listen(port, () => {
-    const agent = pick('SIGX_AI_AGENT', ['sigx', 'claude-code'], 'sigx');
+    // Mirrors `AGENTS` in src/agent.server.ts — this file runs before Vite can load it.
+    const agent = pick('SIGX_AI_AGENT', ['sigx', 'claude-code', 'codex', 'acp:gemini', 'acp:cursor', 'acp:claude-code', 'acp:codex'], 'sigx');
     const provider = pick('SIGX_AI_PROVIDER', ['anthropic', 'openai', 'mock'], process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.OPENAI_API_KEY ? 'openai' : 'mock');
-    console.log(`agent dev  http://localhost:${port}  (agent: ${agent}${agent === 'sigx' ? `, model: ${provider}` : ''})`);
+    const detail = agent === 'sigx' ? `model: ${provider}` : `cwd: ${process.env.SIGX_AI_CWD ?? process.cwd()}`;
+    console.log(`agent dev  http://localhost:${port}  (agent: ${agent}, ${detail})`);
     console.log('            open it in two tabs — the second one replays the same session');
 });

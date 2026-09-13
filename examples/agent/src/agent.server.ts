@@ -7,11 +7,12 @@
  * `serverFn` that carries commands in, and a `serverStream` that carries
  * event frames out.
  *
- * The agent is picked by env — `SIGX_AI_AGENT=sigx|claude-code`, and within
- * `sigx` the model is `SIGX_AI_PROVIDER=anthropic|openai|mock` — so `pnpm dev`
- * runs with no key and no installed executable. The names are namespaced on
- * purpose: a bare `AI_AGENT` is common enough that the tooling around the
- * example (Claude Code itself, for one) already defines it.
+ * The agent is picked by env — `SIGX_AI_AGENT` names our engine or any of
+ * the harness adapters (see `AGENTS` below), and within `sigx` the model is
+ * `SIGX_AI_PROVIDER=anthropic|openai|mock` — so `pnpm dev` runs with no key
+ * and no installed executable. The names are namespaced on purpose: a bare
+ * `AI_AGENT` is common enough that the tooling around the example (Claude
+ * Code itself, for one) already defines it.
  *
  * **Deliberately one process-wide session**: that is what makes the second
  * tab a LATE JOINER instead of a new conversation. A real app opens a
@@ -24,7 +25,9 @@ import { mockModel } from '@sigx/ai/testing';
 import { anthropic } from '@sigx/ai-anthropic';
 import { openai } from '@sigx/ai-openai';
 import { modelAgent, allowReadOnly, memoryEventLog, type Agent, type AgentSession } from '@sigx/ai-agent';
+import type { CodingSessionOptions } from '@sigx/ai-agent/coding';
 import { serveSession, isWireCommand, WIRE_PROTOCOL_VERSION, type Cursor, type WireCommand, type WireFrame, type WireReply } from '@sigx/ai-agent/wire';
+import { ExecutableNotFoundError } from '@sigx/ai-agent-node';
 import { z } from 'zod';
 
 const SYSTEM =
@@ -152,23 +155,80 @@ const SESSION_OPTIONS = {
 } as const;
 
 /**
- * `SIGX_AI_AGENT=claude-code` drives the real harness through the adapter, on the
- * operator's own Claude Code login. Optional on purpose: the import is
- * dynamic and any failure (SDK missing, no executable, not signed in) falls
- * back to our own engine with the reason printed, so the example always runs.
- * Swapping harnesses is the point of the contract — nothing below this
- * function changes.
+ * Every agent the example can run. `sigx` is our own engine (`modelAgent`);
+ * the rest are the harness adapters, each on the operator's own login. The
+ * `dev-server.mjs` banner mirrors this list — plain Node runs before Vite,
+ * so it cannot import this module.
+ */
+const AGENTS = ['sigx', 'claude-code', 'codex', 'acp:gemini', 'acp:cursor', 'acp:claude-code', 'acp:codex'] as const;
+type AgentChoice = (typeof AGENTS)[number];
+type HarnessChoice = Exclude<AgentChoice, 'sigx'>;
+
+/** How to get the CLI a selection needs — printed when it is not on PATH. */
+const INSTALL: Record<HarnessChoice, string> = {
+    'claude-code': 'npm i -g @anthropic-ai/claude-code',
+    codex: 'npm i -g @openai/codex',
+    'acp:gemini': 'npm i -g @google/gemini-cli',
+    'acp:cursor': 'the Cursor CLI (`agent`), see https://cursor.com/cli',
+    'acp:claude-code': 'npm i -g @zed-industries/claude-code-acp',
+    'acp:codex': 'npm i -g @zed-industries/codex-acp'
+};
+
+/**
+ * The adapter for a selection. Every import is dynamic so a missing SDK is
+ * a printed reason, not a crash at module load. `SIGX_AI_AGENT_COMMAND`
+ * points at a specific executable (a locally built CLI, a shim outside PATH).
+ * Every harness is a coding agent — its session options carry a `cwd`.
+ */
+async function harness(choice: HarnessChoice): Promise<Agent<CodingSessionOptions>> {
+    const command = process.env.SIGX_AI_AGENT_COMMAND;
+    switch (choice) {
+        case 'claude-code': {
+            const { claudeCode } = await import('@sigx/ai-agent-claude-code');
+            // The SDK bundles its own binary, so the override is an option on the adapter, not a PATH lookup.
+            return claudeCode(command ? { pathToClaudeCodeExecutable: command } : {});
+        }
+        case 'codex': {
+            const { codex } = await import('@sigx/ai-agent-codex');
+            return codex(command ? { command } : {});
+        }
+        default: {
+            const { acp, gemini, cursor, claudeCodeAcp, codexAcp } = await import('@sigx/ai-agent-acp');
+            const presets = { 'acp:gemini': gemini, 'acp:cursor': cursor, 'acp:claude-code': claudeCodeAcp, 'acp:codex': codexAcp } as const;
+            return acp({ ...presets[choice](), ...(command ? { command } : {}) });
+        }
+    }
+}
+
+/** Why a harness could not start, in one line an operator can act on. */
+function unavailable(choice: HarnessChoice, error: unknown): string {
+    if (error instanceof ExecutableNotFoundError) {
+        return `[agent] SIGX_AI_AGENT=${choice} needs the "${error.executable}" CLI on PATH — install it (${INSTALL[choice]}) or point SIGX_AI_AGENT_COMMAND at it; falling back to the sigx engine.`;
+    }
+    return `[agent] SIGX_AI_AGENT=${choice} is unavailable (${error instanceof Error ? error.message : String(error)}); falling back to the sigx engine.`;
+}
+
+/**
+ * `SIGX_AI_AGENT=<harness>` drives a real harness through its adapter.
+ * Optional on purpose: any failure (SDK missing, CLI not installed, not
+ * signed in) falls back to our own engine with the reason printed, so the
+ * example always runs. Swapping harnesses is the point of the contract —
+ * nothing below this function changes.
  */
 async function openSession(): Promise<{ agent: Agent; session: AgentSession }> {
-    if (pick('SIGX_AI_AGENT', ['sigx', 'claude-code'] as const, 'sigx') === 'claude-code') {
+    const choice = pick('SIGX_AI_AGENT', AGENTS, 'sigx');
+    if (choice !== 'sigx') {
+        let agent: Agent<CodingSessionOptions> | undefined;
         try {
-            const { claudeCode } = await import('@sigx/ai-agent-claude-code');
-            const agent = claudeCode();
-            // Claude Code works in a directory; our own engine does not care.
-            const session = await agent.session({ ...SESSION_OPTIONS, cwd: process.cwd() });
+            agent = await harness(choice);
+            // A harness works in a directory (`SIGX_AI_CWD`, default: where the
+            // server was started); our own engine does not care.
+            const session = await agent.session({ ...SESSION_OPTIONS, cwd: process.env.SIGX_AI_CWD ?? process.cwd() });
             return { agent, session };
         } catch (e) {
-            console.warn(`[agent] SIGX_AI_AGENT=claude-code is unavailable (${e instanceof Error ? e.message : String(e)}); falling back to the sigx engine.`);
+            // A half-started harness may own a child process — never leave it behind.
+            await agent?.dispose().catch(() => {});
+            console.warn(unavailable(choice, e));
         }
     }
     const agent = modelAgent({ model: modelFor(), system: SYSTEM, tools: TOOLS, maxSteps: 6 });
