@@ -127,8 +127,10 @@ export function acp(options: AcpOptions = {}): AcpAgent {
                     return opened.ref;
                 },
                 async close() {
-                    sessions.delete(session);
+                    // Untrack only once it is really closed: a close that throws leaves
+                    // the session for `dispose()` to try again.
                     await opened.close();
+                    sessions.delete(session);
                 }
             };
             sessions.add(session);
