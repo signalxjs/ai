@@ -150,4 +150,62 @@ describe('reduceAgentEvent', () => {
         expect(full.state).toBe('closed');
         expect(JSON.parse(JSON.stringify(full))).toEqual(full);
     });
+
+    // Every write must go THROUGH the transcript it was handed.
+    //
+    // `./app` gives the reducer a reactive proxy and renders what it
+    // notifies. A reducer that keeps the object literal it just stored --
+    // `push(x); return x`, `(t.turn = {…})`, `(o[k] ??= {…})` -- writes to the
+    // raw object behind the proxy instead, and those writes notify nobody.
+    // It only shows up when something starts observing between the store and
+    // the write, which is exactly what a reactive container does: storing the
+    // message re-renders the list, the new row reads `parts` while it is
+    // still empty, and the part pushed a line later never arrives.
+    //
+    // A recording proxy catches it with no reactivity involved: anything the
+    // reducer mutates without the proxy seeing it is an alias.
+    it('writes only through the transcript it was given, never a retained literal', () => {
+        seq = 0;
+        const writes: string[] = [];
+        const seen = (target: object, path: string): object =>
+            new Proxy(target, {
+                get(o, k, r) {
+                    const v = Reflect.get(o, k) as unknown;
+                    // Bound to the PROXY, so `push` writes the element and the
+                    // new length through the trap below, as a reactive
+                    // container's array would notify for them.
+                    if (typeof v === 'function') return (v as (...a: unknown[]) => unknown).bind(r);
+                    return v !== null && typeof v === 'object' ? seen(v as object, `${path}.${String(k)}`) : v;
+                },
+                set(o, k, v) {
+                    writes.push(`${path}.${String(k)}`);
+                    return Reflect.set(o, k, v);
+                },
+                deleteProperty(o, k) {
+                    writes.push(`delete ${path}.${String(k)}`);
+                    return Reflect.deleteProperty(o, k);
+                }
+            });
+
+        const t = seen(createTranscript('s'), 't') as AgentTranscript;
+        reduceAgentEvent(t, ev({ type: 'part-start', turnId: 't1', messageId: 'm1', partId: 'p1', kind: 'text' }));
+        reduceAgentEvent(t, ev({ type: 'part-delta', turnId: 't1', partId: 'p1', delta: 'hi' }));
+        reduceAgentEvent(t, ev({ type: 'tool-call', turnId: 't1', messageId: 'm2', callId: 'c1', name: 'search' }));
+        reduceAgentEvent(t, ev({ type: 'turn-end', turnId: 'other', stopReason: 'end_turn' }));
+
+        // The message the reducer created, then filled: both halves observed.
+        expect(writes).toContain('t.messages.0');
+        expect(writes).toContain('t.messages.0.parts.0');
+        expect(writes).toContain('t.messages.0.parts.0.text');
+        // A tool call that creates its own assistant message, likewise.
+        expect(writes).toContain('t.messages.1');
+        expect(writes).toContain('t.messages.1.parts.0');
+        // A `turn-end` with no matching `turn-start` creates the turn, then
+        // writes its outcome onto it.
+        expect(writes).toContain('t.turn');
+        expect(writes).toContain('t.turn.stopReason');
+
+        expect(t.messages[0]!.parts[0]).toEqual({ type: 'text', id: 'p1', text: 'hi' });
+        expect(t.turn?.stopReason).toBe('end_turn');
+    });
 });

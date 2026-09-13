@@ -9,6 +9,15 @@
  * the conformance suite asserts. Callers who want immutability
  * `structuredClone` first.
  *
+ * In place also means THROUGH the transcript it was handed, always. `./app`
+ * passes a reactive proxy and renders what that proxy notifies, so a reducer
+ * must never keep the object literal it just stored — `push(x); return x`,
+ * `(t.turn = {…})`, `(o[k] ??= {…})` all evaluate to the raw object behind
+ * the proxy, and writing through it notifies nobody. Store it, then read it
+ * back out. It matters because storing is itself observable: pushing a
+ * message re-renders the message list synchronously, and the row that render
+ * creates starts observing `parts` before the part is pushed.
+ *
  * Unknown `ext` namespaces are ignored; a registered extension owns
  * `transcript.ext[ns]`.
  */
@@ -41,7 +50,11 @@ export function createReducer(options: CreateReducerOptions = {}): AgentReducer 
                 t.turn = { turnId: e.turnId ?? '' };
                 break;
             case 'turn-end': {
-                const turn = t.turn && t.turn.turnId === (e.turnId ?? '') ? t.turn : (t.turn = { turnId: e.turnId ?? '' });
+                // Assign, then read back — `(t.turn = {…})` evaluates to the
+                // literal, which aliases around a reactive proxy (see
+                // `assistantMessage`), so the writes below would notify nobody.
+                if (!t.turn || t.turn.turnId !== (e.turnId ?? '')) t.turn = { turnId: e.turnId ?? '' };
+                const turn = t.turn!;
                 turn.stopReason = e.stopReason;
                 if (e.usage !== undefined) turn.usage = e.usage;
                 if (e.costUsd !== undefined) turn.costUsd = e.costUsd;
@@ -164,16 +177,22 @@ function assistantMessage(t: AgentTranscript, id: string, e: AgentEvent): AgentM
         if (m.id === id) return m;
     }
     const actor = 'actor' in e && typeof e.actor === 'string' ? e.actor : undefined;
-    const message: AgentMessage = {
+    t.messages.push({
         id,
         role: 'assistant',
         ...(e.turnId !== undefined ? { turnId: e.turnId } : {}),
         ...(actor !== undefined ? { actor } : {}),
         ...(e.parentCallId !== undefined ? { parentCallId: e.parentCallId } : {}),
         parts: []
-    };
-    t.messages.push(message);
-    return message;
+    });
+    // Read it back OUT of the transcript instead of returning the literal.
+    // `t` may be a reactive proxy: it stores the raw object and hands out a
+    // proxy on read, and the push itself notifies — synchronously, so a view
+    // can render this message, and start observing its `parts`, before we
+    // return. The caller's `message.parts.push(...)` must therefore go
+    // through the proxy; the literal is an alias around it and its writes
+    // would notify nobody, leaving that message rendered for ever as empty.
+    return t.messages[t.messages.length - 1]!;
 }
 
 /** The turn's latest assistant message at this nesting level, or a new `a:<turnId>:<n>`. */
