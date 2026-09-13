@@ -6,8 +6,8 @@
 
 import type { AnyTool } from '@sigx/ai';
 import { AgentError, createEventLog, createSessionCore, toPromptParts } from '@sigx/ai-agent';
-import type { AgentSession, PolicyRequest, PromptInput, PromptOptions, SessionRef, ToolStatus, TurnContext, TurnDriver, UnstampedEvent } from '@sigx/ai-agent';
-import { createMcpToolHandler, JsonRpcError, type JsonRpcPeer } from '@sigx/ai-agent/harness';
+import type { AgentSession, PolicyRequest, PromptInput, PromptOptions, PromptPart, SessionRef, ToolStatus, TurnContext, TurnDriver, UnstampedEvent } from '@sigx/ai-agent';
+import { createMcpToolHandler, JsonRpcClosedError, JsonRpcError, type JsonRpcPeer } from '@sigx/ai-agent/harness';
 import { listenMcp, type McpListener } from '@sigx/ai-agent-node';
 import type { AcpSessionRuntime, TerminalState } from './client-methods.js';
 import type { AcpOptions, AcpSessionOptions } from './options.js';
@@ -51,6 +51,21 @@ interface Current {
 }
 
 const TERMINAL: ReadonlySet<ToolStatus> = new Set(['completed', 'failed', 'cancelled', 'denied']);
+
+/** The `promptParts` the agent negotiated, the same way `capabilitiesFrom` reads them. */
+function negotiatedParts(init: AcpInitializeResponse): 'text' | 'text+image' | 'text+image+file' {
+    const prompt = init.agentCapabilities?.promptCapabilities ?? {};
+    return prompt.image ? (prompt.embeddedContext ? 'text+image+file' : 'text+image') : 'text';
+}
+
+/** Refuse a prompt the agent never agreed to take — before a byte goes over the wire. */
+function assertPromptParts(parts: readonly PromptPart[], init: AcpInitializeResponse, agentId: string): void {
+    const allowed = negotiatedParts(init);
+    for (const p of parts) {
+        const ok = p.type === 'text' || (p.type === 'image' && allowed !== 'text') || ((p.type === 'file' || p.type === 'resource') && allowed === 'text+image+file');
+        if (!ok) throw new AgentError('protocol_error', `[sigx ai-agent-acp] prompt part "${p.type}" is not supported by agent "${agentId}" (promptParts: ${allowed})`);
+    }
+}
 
 export async function openAcpSession(o: OpenAcpSessionOptions): Promise<AgentSession> {
     const { peer, agentId, init, sessionOptions, runtimes } = o;
@@ -259,7 +274,12 @@ export async function openAcpSession(o: OpenAcpSessionOptions): Promise<AgentSes
         },
         prompt(input: PromptInput, promptOptions?: PromptOptions) {
             return core.startTurn(input, promptOptions, async (driver, ctx) => {
+                // ACP has no structured output and only the prompt parts it negotiated:
+                // refuse up front (a thrown AgentError ends the turn with its code) rather
+                // than sending a prompt the agent will silently misread.
+                if (ctx.options.output) throw new AgentError('protocol_error', `[sigx ai-agent-acp] agent "${agentId}" cannot produce structured output (structuredOutput: false)`);
                 const parts = toPromptParts(input);
+                assertPromptParts(parts, init, agentId);
                 driver.emit({ type: 'user-message', messageId: `u:${driver.turnId}`, parts });
                 const calls = new Map<string, ToolStatus>();
                 const tracking: TurnDriver = {
@@ -298,6 +318,18 @@ export async function openAcpSession(o: OpenAcpSessionOptions): Promise<AgentSes
                 } catch (e) {
                     mapper.finish();
                     settleCalls();
+                    if (e instanceof JsonRpcClosedError) {
+                        // The agent went away mid-turn: the same code the session-level
+                        // error carries, so a client sees one story, not two.
+                        if (driver.signal.aborted) {
+                            driver.end({ stopReason: 'cancelled' });
+                            return;
+                        }
+                        const message = `[sigx ai-agent-acp] the connection to agent "${agentId}" ended during the turn`;
+                        driver.emit({ type: 'error', code: 'process_exited', message, recoverable: false });
+                        driver.end({ stopReason: 'error', error: { code: 'process_exited', message } });
+                        return;
+                    }
                     if (e instanceof JsonRpcError) {
                         if (e.code === -32800 || driver.signal.aborted) {
                             driver.end({ stopReason: 'cancelled' });
@@ -320,8 +352,11 @@ export async function openAcpSession(o: OpenAcpSessionOptions): Promise<AgentSes
         async configure(patch: Readonly<Record<string, string>>) {
             for (const [key, value] of Object.entries(patch)) {
                 if (key === 'mode') {
+                    // Modes are per session: only send what this session was offered.
+                    if (!modes) throw new AgentError('protocol_error', `[sigx ai-agent-acp] session "${sessionId}" has no modes to set`);
+                    if (!modes.availableModes.some((m) => m.id === value)) throw new AgentError('protocol_error', `[sigx ai-agent-acp] unknown mode "${value}" (available: ${modes.availableModes.map((m) => m.id).join(', ')})`);
                     await peer.request(ACP_METHODS.sessionSetMode, { sessionId, modeId: value });
-                    if (modes) modes = { ...modes, currentModeId: value };
+                    modes = { ...modes, currentModeId: value };
                     continue;
                 }
                 const option = configOptions?.find((c) => c.id === key);

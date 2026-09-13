@@ -327,6 +327,9 @@ describe('acp(): sessions and turns', () => {
         expect(forked.id).not.toBe(s1.id);
         const listed = await resumable.agent.listSessions!();
         expect(listed.map((s) => s.ref.id)).toContain('fake-1');
+        // The fake pages two at a time: every page is fetched, following `nextCursor`.
+        expect(listed).toHaveLength(resumable.fake.sessions.length);
+        expect(resumable.fake.requests.filter((r) => r.method === 'session/list').map((r) => (r.params as { cursor?: string }).cursor)).toEqual([undefined, '2']);
         expect(listed[0]).toMatchObject({ title: 'Session fake-1', updatedAt: Date.parse('2026-09-13T12:00:00Z'), ref: { data: { cwd: '/repo' } } });
         expect(listed[1]).not.toHaveProperty('updatedAt'); // unparseable timestamps are omitted, never NaN
 
@@ -495,5 +498,98 @@ describe('acp(): sessions and turns', () => {
         await new Promise((r) => setTimeout(r, 20));
         await session.close();
         expect((await all).find((e) => e.type === 'error')).toMatchObject({ code: 'process_exited' });
+    });
+});
+
+describe('acp(): honesty (#88)', () => {
+    it('a prompt that asks for structured output ends with protocol_error before anything is sent', async () => {
+        const { agent, fake } = connect({ onPrompt: async () => ({ stopReason: 'end_turn' }) });
+        const session = await agent.session({ cwd });
+        const schema: JsonSchema = { type: 'object', properties: { ok: { type: 'boolean' } } };
+        const { events, result } = await drain(session.prompt('shape it', { output: { schema } }));
+        expect(result).toMatchObject({ stopReason: 'error', error: { code: 'protocol_error', message: expect.stringMatching(/structuredOutput/) } });
+        expect(events.find((e) => e.type === 'error')).toMatchObject({ code: 'protocol_error' });
+        expect(fake.requests.some((r) => r.method === 'session/prompt')).toBe(false);
+        // The session is still usable.
+        expect((await session.prompt('plain').result).stopReason).toBe('end_turn');
+    });
+
+    it('prompt parts the agent did not negotiate are refused up front', async () => {
+        const { agent, fake } = connect({ capabilities: { promptCapabilities: { image: true } }, onPrompt: async () => ({ stopReason: 'end_turn' }) });
+        expect((await agent.connect()).promptParts).toBe('text+image');
+        const session = await agent.session({ cwd });
+        const image = await drain(session.prompt([{ type: 'text', text: 'see' }, { type: 'image', mediaType: 'image/png', data: 'AAA=' }]));
+        expect(image.result.stopReason).toBe('end_turn');
+        const file = await drain(session.prompt([{ type: 'file', mediaType: 'text/plain', data: 'aGk=', filename: 'a.txt' }]));
+        expect(file.result).toMatchObject({ stopReason: 'error', error: { code: 'protocol_error', message: expect.stringMatching(/"file".*promptParts: text\+image/) } });
+        const resource = await drain(session.prompt([{ type: 'resource', uri: 'file:///x', text: 'x' }]));
+        expect(resource.result).toMatchObject({ stopReason: 'error', error: { code: 'protocol_error' } });
+        expect(fake.requests.filter((r) => r.method === 'session/prompt')).toHaveLength(1);
+        const textOnly = connect({ capabilities: {}, onPrompt: async () => ({ stopReason: 'end_turn' }) });
+        const s2 = await textOnly.agent.session({ cwd });
+        expect((await s2.prompt([{ type: 'image', mediaType: 'image/png', data: 'AAA=' }]).result).error).toMatchObject({ code: 'protocol_error', message: expect.stringMatching(/"image".*promptParts: text/) });
+    });
+
+    it('the connection closing under a running turn ends it with process_exited, like the session-level error', async () => {
+        let fakeRef: FakeAcp | undefined;
+        const { agent, fake } = connect({
+            onPrompt: async (api) => {
+                await api.text('partial');
+                await fakeRef!.close();
+                return new Promise(() => {});
+            }
+        });
+        fakeRef = fake;
+        const session = await agent.session({ cwd });
+        const all = collect(session.subscribe({ epoch: 0, seq: 0 }));
+        const { result } = await drain(session.prompt('go'));
+        expect(result).toMatchObject({ stopReason: 'error', error: { code: 'process_exited' } });
+        await session.close();
+        const errors = (await all).filter((e): e is Extract<AgentEvent, { type: 'error' }> => e.type === 'error');
+        expect(errors.map((e) => e.code)).toEqual(['process_exited', 'process_exited']);
+    });
+
+    it('cancel() speaks session/cancel only — no JSON-RPC cancel notification ever leaves the client', async () => {
+        const { agent, fake } = connect({
+            onPrompt: async (api) => {
+                await api.untilCancelled();
+                return { stopReason: 'cancelled' };
+            }
+        });
+        const unhandled: string[] = [];
+        fake.peer.onUnhandled((m) => unhandled.push(m.method));
+        const session = await agent.session({ cwd });
+        const turn = session.prompt('slow');
+        await new Promise((r) => setTimeout(r, 10));
+        await session.cancel();
+        expect((await turn.result).stopReason).toBe('cancelled');
+        expect(fake.cancels).toEqual(['fake-1']);
+        expect(unhandled).toEqual([]);
+    });
+
+    it('configure({ mode }) on a session without modes rejects instead of sending session/set_mode blindly', async () => {
+        const { agent, fake } = connect({ onPrompt: async () => ({ stopReason: 'end_turn' }) });
+        const session = await agent.session({ cwd });
+        await expect(session.configure!({ mode: 'auto' })).rejects.toThrow(/no modes/);
+        expect(fake.requests.some((r) => r.method === 'session/set_mode')).toBe(false);
+        const withModes = connect({ modes: { currentModeId: 'ask', availableModes: [{ id: 'ask', name: 'Ask' }] }, onPrompt: async () => ({ stopReason: 'end_turn' }) });
+        const s2 = await withModes.agent.session({ cwd });
+        await expect(s2.configure!({ mode: 'nope' })).rejects.toThrow(/unknown mode "nope"/);
+        expect(withModes.fake.requests.some((r) => r.method === 'session/set_mode')).toBe(false);
+    });
+
+    it('dispose() closes every open session: the log ends with state closed and the tools listener is gone', async () => {
+        const { agent, fake } = connect({ onPrompt: async () => ({ stopReason: 'end_turn' }) });
+        const anySchema: StandardSchemaV1<unknown, unknown> = { '~standard': { version: 1, vendor: 'test', validate: (value) => ({ value }) } };
+        const tool = defineTool({ name: 'ping', description: 'pong', input: anySchema, jsonSchema: { type: 'object' }, execute: async () => 'pong' });
+        const session = await agent.session({ cwd, tools: [tool] });
+        const url = (fake.requests.find((r) => r.method === 'session/new')!.params as { mcpServers: { url: string }[] }).mcpServers[0]!.url;
+        await session.prompt('hi').result;
+        const all = collect(session.subscribe({ epoch: 0, seq: 0 }));
+        await agent.dispose();
+        const events = await all; // resolves only because the session log was closed
+        expect(events.at(-1)).toMatchObject({ type: 'state', value: 'closed' });
+        expect(fake.requests.some((r) => r.method === 'session/close')).toBe(true);
+        await expect(fetch(url, { method: 'POST' })).rejects.toThrow();
     });
 });
