@@ -117,6 +117,9 @@ export function spawnAgentProcess(options: SpawnAgentProcessOptions): AgentProce
         child.once('spawn', () => resolve());
         child.once('error', (e) => {
             spawnError = e;
+            // A child that never started emits `error` without `exit`: drop it
+            // from the registry here or it would linger until process exit.
+            unregisterChild(child);
             reject(e);
         });
     });

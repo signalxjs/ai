@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { spawnAgentProcess, ProcessExitedError, UnsafeArgumentError, quoteForCmd, cmdShimArgs } from '@sigx/ai-agent-node';
+import { spawnAgentProcess, ProcessExitedError, UnsafeArgumentError, quoteForCmd, cmdShimArgs, registeredChildren } from '@sigx/ai-agent-node';
 import { createJsonRpcPeer } from '@sigx/ai-agent/harness';
 import { fixture } from './helpers';
 import { collectText } from './stream-helpers';
@@ -76,11 +76,14 @@ describe('spawnAgentProcess', () => {
     });
 
     it('a spawn failure rejects `spawned` and settles `exited`', async () => {
+        const before = registeredChildren().length;
         const proc = spawnAgentProcess({ command: 'definitely-not-a-real-binary-xyz', args: [] });
         await expect(proc.spawned).rejects.toMatchObject({ code: 'ENOENT' });
         const exit = await proc.exited;
         expect(exit.code).toBeNull();
         await proc.kill();
+        // A child that never started does not linger in the exit registry.
+        expect(registeredChildren().length).toBe(before);
     });
 
     it('cmd.exe quoting: whole tokens quoted, inner quotes escaped, percent refused', () => {
