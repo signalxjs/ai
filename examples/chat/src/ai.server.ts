@@ -45,6 +45,23 @@ const time = defineTool({
     execute: ({ timeZone }) => ({ timeZone, now: new Date().toLocaleString('en-GB', { timeZone }) })
 });
 
+const EmailInput = z.object({ to: z.string().describe('Recipient address'), body: z.string().describe('Message body') });
+
+/**
+ * A tool that must not run on the model's say-so alone. `chatStream` defers
+ * the decision to the client: the turn stops with the call `awaiting`, the
+ * UI shows Approve / Deny, and the transcript comes back with the answer.
+ */
+const sendEmail = defineTool({
+    name: 'send_email',
+    description: 'Send an email on the user\'s behalf (demo: nothing is sent).',
+    input: EmailInput,
+    jsonSchema: z.toJSONSchema(EmailInput),
+    needsApproval: true,
+    annotations: { openWorld: true },
+    execute: ({ to }) => ({ sent: true, to })
+});
+
 // ── Model ───────────────────────────────────────────────────────────────────
 
 /**
@@ -70,10 +87,17 @@ function modelFactory(): () => LanguageModel {
                     respond: (req) => {
                         // Decided from the conversation, never from call history.
                         const last = req.messages[req.messages.length - 1];
-                        if (last?.role === 'tool') return { text: 'The mock says: Oslo looks fine today. (Set ANTHROPIC_API_KEY or OPENAI_API_KEY for a real model.)', delayMs: 40 };
-                        const asksWeather = last?.role === 'user' && typeof last.content === 'string' && /weather/i.test(last.content);
-                        if (asksWeather) return { toolCalls: [{ name: 'get_weather', input: { city: 'Oslo' } }], delayMs: 40 };
-                        return { text: 'Hello from the scripted mock model. Ask about the weather to see a tool call, or set ANTHROPIC_API_KEY / OPENAI_API_KEY for a real model.', delayMs: 40 };
+                        if (last?.role === 'tool') {
+                            const result = last.content[0];
+                            if (result?.toolName === 'send_email') {
+                                return { text: result.isError ? `The mock says: not sent — ${String(result.output)}` : 'The mock says: email sent (well, pretended).', delayMs: 40 };
+                            }
+                            return { text: 'The mock says: Oslo looks fine today. (Set ANTHROPIC_API_KEY or OPENAI_API_KEY for a real model.)', delayMs: 40 };
+                        }
+                        const asks = last?.role === 'user' && typeof last.content === 'string' ? last.content : '';
+                        if (/weather/i.test(asks)) return { toolCalls: [{ name: 'get_weather', input: { city: 'Oslo' } }], delayMs: 40 };
+                        if (/email/i.test(asks)) return { toolCalls: [{ name: 'send_email', input: { to: 'someone@example.com', body: asks } }], delayMs: 40 };
+                        return { text: 'Hello from the scripted mock model. Ask about the weather to see a tool call, say "email" to see one that asks for approval, or set ANTHROPIC_API_KEY / OPENAI_API_KEY for a real model.', delayMs: 40 };
                     }
                 });
     }
@@ -99,7 +123,7 @@ export const chat = serverStream({
         yield* chatStream({
             model: modelFor(),
             system: SYSTEM,
-            tools: [weather, time],
+            tools: [weather, time, sendEmail],
             messages: input.messages,
             maxSteps: 4,
             // A closed tab aborts the model call and any running tool.

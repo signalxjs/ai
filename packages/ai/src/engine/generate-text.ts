@@ -1,7 +1,7 @@
 /** `generateText` — `streamText`, drained into one result. */
 
 import { assembleMessage, messageText, type FinishReason, type UIMessage, type Usage } from '../protocol/index.js';
-import { streamText, type StreamTextOptions } from './stream-text.js';
+import { resumedMessage, streamText, type StreamTextOptions } from './stream-text.js';
 
 export interface GenerateTextResult {
     readonly text: string;
@@ -12,16 +12,26 @@ export interface GenerateTextResult {
     readonly toolCalls: readonly { id: string; name: string; input: unknown; output?: unknown; isError?: boolean }[];
 }
 
-/** `streamText`, drained. Throws on an `error` chunk. */
+/**
+ * `streamText`, drained. Throws on an `error` chunk. A transcript that
+ * resumes an assistant message (approved / awaiting tool calls) yields that
+ * whole message — its earlier parts plus what this turn added — not just
+ * the new chunks.
+ */
 export async function generateText(options: StreamTextOptions): Promise<GenerateTextResult> {
-    const { message, last } = await assembleMessage(streamText(options));
+    const resumed = resumedMessage(options.messages);
+    const { message, last } = await assembleMessage(
+        streamText(options),
+        // A copy: the caller's transcript is input, never mutated.
+        resumed ? { id: resumed.id, role: resumed.role, parts: resumed.parts.map((p) => ({ ...p })) } : undefined
+    );
     if (last?.type === 'error') throw new Error(last.message);
     const finish = last?.type === 'finish' ? last : undefined;
     let reasoning = '';
     const toolCalls: { id: string; name: string; input: unknown; output?: unknown; isError?: boolean }[] = [];
     for (const p of message.parts) {
         if (p.type === 'reasoning') reasoning += p.text;
-        else if (p.type === 'tool') toolCalls.push({ id: p.id, name: p.name, input: p.input, output: p.output, ...(p.state === 'error' ? { isError: true } : {}) });
+        else if (p.type === 'tool') toolCalls.push({ id: p.id, name: p.name, input: p.input, output: p.output, ...(p.state === 'error' || p.state === 'denied' ? { isError: true } : {}) });
     }
     return {
         text: messageText(message),

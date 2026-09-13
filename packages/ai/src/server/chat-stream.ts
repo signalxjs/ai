@@ -24,10 +24,25 @@ export interface ChatStreamOptions extends Omit<StreamTextOptions, 'messages'> {
     readonly messages: readonly UIMessage[];
 }
 
-/** One assistant turn for a transcript, as UI chunks. Alias of `streamText` typed for the wire. */
+/**
+ * One assistant turn for a transcript, as UI chunks — `streamText` typed for
+ * the wire, with one difference: a tool that needs approval is DEFERRED to
+ * the client rather than denied. The turn ends with `finish { reason:
+ * 'tool' }` and the call left `awaiting`; `useChat.approve` / `deny` settle
+ * it and send the transcript again, and the next `chatStream` resumes at
+ * that call, honouring the client's approval.
+ *
+ * That makes THE CLIENT THE APPROVER: whoever holds the transcript can mark
+ * a call approved. Right for tools the user may run on their own say-so;
+ * for a server-side decision (a policy, a role check) pass `onToolApproval`
+ * — it replaces the default entirely and also sees the client's approvals
+ * (`ctx.approvedByClient`), so it can veto them.
+ */
 export function chatStream(options: ChatStreamOptions): AsyncGenerator<UIChunk, void, undefined> {
-    return streamText(options);
+    return streamText(options.onToolApproval ? options : { ...options, onToolApproval: deferToClient });
 }
+
+const deferToClient: NonNullable<StreamTextOptions['onToolApproval']> = (_call, ctx) => (ctx.approvedByClient ? 'allow' : 'defer');
 
 /** Only the text deltas — a string stream `useStream` consumes as-is. */
 export async function* toTextStream(chunks: AsyncIterable<UIChunk>): AsyncGenerator<string, void, undefined> {

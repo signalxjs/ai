@@ -13,4 +13,4 @@ export type {
 } from './message.js';
 export type { ModelEvent } from './event.js';
 export { addUsage } from './event.js';
-export { toModelMessages } from './from-ui.js';
+export { toModelMessages, DENIED_MESSAGE } from './from-ui.js';
