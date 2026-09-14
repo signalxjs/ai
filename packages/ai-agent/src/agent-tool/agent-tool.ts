@@ -10,6 +10,10 @@
  * delegate session is attached to the host, so a `request` it raises is
  * answered by the host's `respond()` and `cancel({ agentId })` stops it;
  * `ctx.signal` cancels it too.
+ *
+ * Two id spaces meet here — see `namespace.ts`: every id a forwarded event
+ * carries is rewritten with the delegate's prefix, and mapped back on the way
+ * in.
  */
 
 import { defineTool, validateWith, type JsonSchema, type StandardSchemaV1, type Tool, type ToolAnnotations } from '@sigx/ai';
@@ -18,6 +22,7 @@ import { AgentError, partsText, toPromptParts } from '../protocol/index.js';
 import type { Agent, SessionOptions } from '../session/index.js';
 import { createReducer, createTranscript } from '../state/index.js';
 import type { AgentToolContext } from '../model-agent/gate-tools.js';
+import { idPrefix, namespaceEvent, ownId } from './namespace.js';
 
 export interface AgentToolOptions<S extends StandardSchemaV1, O extends StandardSchemaV1 | undefined> {
     readonly name: string;
@@ -70,7 +75,22 @@ export function agentTool<S extends StandardSchemaV1, O extends StandardSchemaV1
             // The host's gated `emit` stamps `parentCallId` with this very call —
             // an `agent-start` sits inside the call that spawned it.
             emit?.({ type: 'agent-start', agentId, callId: ctx.toolCallId, kind: options.name, title: options.title ?? options.name, description: partsText(toPromptParts(prompt)).slice(0, DESCRIPTION_CHARS) });
-            const detach = host.attach?.({ respond: (requestId, decision) => session.respond(requestId, decision), cancel: (target) => session.cancel(target) }) ?? (() => {});
+            // The delegate's ids reach the host prefixed (see `namespace.ts`),
+            // so what comes back addressed to it is mapped back — and an id
+            // that is not this delegate's is left to whoever minted it.
+            const prefix = idPrefix(agentId);
+            const detach =
+                host.attach?.({
+                    respond: async (requestId, decision) => {
+                        const own = ownId(prefix, requestId);
+                        if (own !== undefined) await session.respond(own, decision);
+                    },
+                    cancel: async (target) => {
+                        if (target.agentId === undefined || target.agentId === agentId) return await session.cancel(target);
+                        const own = ownId(prefix, target.agentId);
+                        if (own !== undefined) await session.cancel({ ...target, agentId: own });
+                    }
+                }) ?? (() => {});
             emit?.({ type: 'agent-update', agentId, status: 'running' });
             const usageOf = () => ({ ...(transcript.usage ? { usage: transcript.usage } : {}), ...(transcript.costUsd !== undefined ? { costUsd: transcript.costUsd } : {}) });
             // Exactly one terminal update, whatever path ends the delegation.
@@ -93,7 +113,7 @@ export function agentTool<S extends StandardSchemaV1, O extends StandardSchemaV1
                     }
                     if (FORWARDED.has(event.type)) {
                         const { sessionId: _s, epoch: _e, seq: _q, turnId: _t, ...payload } = event;
-                        emit({ ...(payload as UnstampedEvent), parentCallId: event.parentCallId ?? ctx.toolCallId });
+                        emit(namespaceEvent(prefix, payload as UnstampedEvent, ctx.toolCallId));
                     }
                 }
                 const result = await turn.result;
