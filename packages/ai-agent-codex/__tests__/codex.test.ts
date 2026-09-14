@@ -4,12 +4,14 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defineTool, type JsonSchema, type StandardSchemaV1 } from '@sigx/ai';
-import { allowAll, denyAll, createTranscript, createReducer, type AgentEvent, type Decision, type SessionRef } from '@sigx/ai-agent';
+import { allowAll, denyAll, createTranscript, createReducer, agentMessages, spawnedAgent, type AgentEvent, type Decision, type SessionRef } from '@sigx/ai-agent';
 import { codingExtension, codingState } from '@sigx/ai-agent/coding';
 import { checkEventInvariants } from '@sigx/ai-agent/testing';
 import { resolveExecutable } from '@sigx/ai-agent-node';
 import { codex, CODEX_CAPABILITIES, toErrorCode } from '@sigx/ai-agent-codex';
 import { fakeAppServer, say, type TurnProgram } from './fake-app-server';
+import { updateSubAgent, type SubAgents } from '../src/stream';
+import type { UnstampedEvent } from '@sigx/ai-agent';
 
 function schema<T>(check: (v: unknown) => v is T, json: JsonSchema): StandardSchemaV1<T, T> {
     return { '~standard': { version: 1, vendor: 'test', validate: (v) => (check(v) ? { value: v } : { issues: [{ message: 'invalid' }] }), jsonSchema: { input: () => json, output: () => json } } };
@@ -168,8 +170,21 @@ describe('@sigx/ai-agent-codex', () => {
             return { events, done };
         };
 
-        it('declares subagents: observe', () => {
-            expect(CODEX_CAPABILITIES.subagents).toBe('observe');
+        it('declares subagents: control', () => {
+            expect(CODEX_CAPABILITIES.subagents).toBe('control');
+        });
+
+        it('updateSubAgent emits a change of output or error even when status and summary repeat; a true repeat stays quiet', () => {
+            const agents: SubAgents = new Map([['a', { status: 'running' }]]);
+            const emitted: UnstampedEvent[] = [];
+            const emit = (e: UnstampedEvent) => emitted.push(e);
+            updateSubAgent(agents, emit, 'a', { status: 'running', output: 'partial' });
+            updateSubAgent(agents, emit, 'a', { status: 'running', error: 'hiccup' });
+            updateSubAgent(agents, emit, 'a', { status: 'running' });
+            expect(emitted.map((e) => (e.type === 'agent-update' ? [e.status, e.output, e.error?.message] : []))).toEqual([
+                ['running', 'partial', undefined],
+                ['running', undefined, 'hiccup']
+            ]);
         });
 
         it('spawnAgent binds the child thread to the collab call; a later wait settles it once with its output', async () => {
@@ -235,13 +250,16 @@ describe('@sigx/ai-agent-codex', () => {
             checkEventInvariants(all.events);
         });
 
-        it('subAgentActivity for a thread no collab call named is a synthesized agent; its kinds map onto statuses', async () => {
+        it('a subAgentActivity "started" for an unseen thread is the spawn call; other kinds for an unseen thread are call-less; kinds map onto statuses', async () => {
             const fake = fakeAppServer({
                 onTurn: async (ctx) => {
                     await ctx.item({ type: 'subAgentActivity', id: 'sa1', kind: 'started', agentThreadId: 'child_9', agentPath: 'explorer' }, 'started');
                     await ctx.item({ type: 'subAgentActivity', id: 'sa1', kind: 'started', agentThreadId: 'child_9', agentPath: 'explorer' }, 'completed');
                     await ctx.item({ type: 'subAgentActivity', id: 'sa2', kind: 'interacted', agentThreadId: 'child_9', agentPath: 'explorer' }, 'completed');
                     await ctx.item({ type: 'subAgentActivity', id: 'sa3', kind: 'completed', agentThreadId: 'child_9', agentPath: 'explorer' }, 'completed');
+                    // A thread first seen interacting (a spawn before our resume) has no spawning call.
+                    await ctx.item({ type: 'subAgentActivity', id: 'sa4', kind: 'interacted', agentThreadId: 'child_10', agentPath: 'other' }, 'completed');
+                    await ctx.item({ type: 'subAgentActivity', id: 'sa5', kind: 'completed', agentThreadId: 'child_10', agentPath: 'other' }, 'completed');
                     await say('ok')(ctx);
                 }
             });
@@ -249,17 +267,303 @@ describe('@sigx/ai-agent-codex', () => {
             const all = observe(session);
             const { events } = await drain(session.prompt('go'));
             const agent = agentEvents(events, 'child_9');
-            expect(agent[0]).toMatchObject({ type: 'agent-start', agentId: 'child_9', kind: 'subagent', title: 'explorer' });
-            expect(agent[0]).not.toHaveProperty('callId');
+            expect(events.find((e) => e.type === 'tool-call' && e.callId === 'sa1')).toMatchObject({ name: 'collab/spawnAgent', category: 'other', input: { agentPath: 'explorer' } });
+            expect(updates(events, 'sa1')).toEqual(['pending', 'completed']);
+            expect(agent[0]).toMatchObject({ type: 'agent-start', agentId: 'child_9', callId: 'sa1', kind: 'subagent', title: 'explorer', parentCallId: 'sa1' });
             expect(agent.slice(1).map((e) => (e.type === 'agent-update' ? [e.status, e.summary] : []))).toEqual([
                 ['running', 'started'],
                 ['running', 'interacted'],
                 ['completed', undefined]
             ]);
+            const other = agentEvents(events, 'child_10');
+            expect(other[0]).toMatchObject({ type: 'agent-start', agentId: 'child_10', title: 'other' });
+            expect(other[0]).not.toHaveProperty('callId');
+            expect(events.find((e) => e.type === 'tool-call' && e.callId === 'sa4')).toBeUndefined();
             expect(events.find((e) => e.type === 'ext' && e.name === 'item.subAgentActivity')).toBeUndefined();
             await session.close();
             await all.done;
             checkEventInvariants(all.events);
+        });
+
+        describe('child threads (#100)', () => {
+            const activity = (id: string, kind: string, agentThreadId: string, agentPath = '/root/pong') => ({ type: 'subAgentActivity', id, kind, agentThreadId, agentPath });
+            const message = (id: string, text: string) => ({ type: 'agentMessage', id, text, phase: 'final_answer' });
+            const nestedText = (events: AgentEvent[], callId: string) =>
+                events
+                    .filter((e): e is Extract<AgentEvent, { type: 'part-delta' }> => e.type === 'part-delta' && e.parentCallId === callId)
+                    .map((e) => e.delta)
+                    .join('');
+
+            it('the child thread streams nested under the spawn call (Codex 0.154 shape); its usage lands on the agent, not the host', async () => {
+                const usage = { totalTokens: 9, inputTokens: 7, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 2, reasoningOutputTokens: 0 };
+                const fake = fakeAppServer({
+                    onTurn: async (ctx) => {
+                        // Codex reports the child idle before the parent names it.
+                        await ctx.notify('thread/status/changed', { threadId: 'child_1', status: { type: 'idle' } });
+                        await ctx.item(activity('call_spawn', 'started', 'child_1'), 'started');
+                        await ctx.item(activity('call_spawn', 'started', 'child_1'), 'completed');
+                        const child = await ctx.child('child_1').startTurn('cturn_1');
+                        await child.item(message('cmsg_1', ''), 'started');
+                        await child.delta('cmsg_1', 'pong');
+                        await child.item(message('cmsg_1', 'pong'), 'completed');
+                        await child.usage(usage);
+                        await child.complete();
+                        await ctx.item(activity('subagent-completed-cturn_1', 'completed', 'child_1'), 'started');
+                        await ctx.item(activity('subagent-completed-cturn_1', 'completed', 'child_1'), 'completed');
+                        await say('pong')(ctx);
+                    }
+                });
+                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                const all = observe(session);
+                const { events, result } = await drain(session.prompt('delegate'));
+                expect(result).toMatchObject({ stopReason: 'end_turn' });
+                expect(nestedText(events, 'call_spawn')).toBe('pong');
+                expect(events.find((e) => e.type === 'part-start' && e.parentCallId === 'call_spawn')).toMatchObject({ kind: 'text', actor: 'pong' });
+                const agent = agentEvents(events, 'child_1');
+                expect(agent[0]).toMatchObject({ type: 'agent-start', callId: 'call_spawn', title: '/root/pong' });
+                const terminal = agent.filter((e) => e.type === 'agent-update' && e.status !== 'running');
+                expect(terminal.map((e) => (e.type === 'agent-update' ? e.status : ''))).toEqual(['completed']);
+                expect(agent.find((e) => e.type === 'agent-update' && e.usage !== undefined)).toMatchObject({ status: 'running', usage: { totalTokens: 9, inputTokens: 7, outputTokens: 2 }, parentCallId: 'call_spawn' });
+                // The child's own tokens never reach the host totals, and its thread noise never becomes ext events.
+                expect(events.filter((e) => e.type === 'usage')).toEqual([]);
+                expect(events.find((e) => e.type === 'ext' && e.name === 'thread/status/changed')).toBeUndefined();
+                const t = createTranscript(session.id);
+                const reduce = createReducer();
+                for (const e of events) reduce(t, e);
+                expect(spawnedAgent(t, 'call_spawn')?.agentId).toBe('child_1');
+                expect(agentMessages(t, 'child_1').map((m) => m.parts.map((p) => (p.type === 'text' ? p.text : '')).join(''))).toEqual(['pong']);
+                expect(t.usage).toBeUndefined();
+                // A finished or unknown agent cannot be cancelled.
+                await expect(session.cancel({ agentId: 'child_1' })).rejects.toMatchObject({ name: 'AgentError', code: 'protocol_error' });
+                await expect(session.cancel({ agentId: 'nobody' })).rejects.toMatchObject({ name: 'AgentError', code: 'protocol_error' });
+                await session.close();
+                await all.done;
+                checkEventInvariants(all.events);
+            });
+
+            it('child frames that arrive before the activity naming the child are held and replayed once it is known', async () => {
+                const fake = fakeAppServer({
+                    onTurn: async (ctx) => {
+                        const child = await ctx.child('child_2').startTurn('cturn_2');
+                        await child.item(message('cmsg_2', ''), 'started');
+                        await ctx.item(activity('call_s2', 'started', 'child_2', '/root/early'), 'started');
+                        await ctx.item(activity('call_s2', 'started', 'child_2', '/root/early'), 'completed');
+                        await child.delta('cmsg_2', 'early');
+                        await child.item(message('cmsg_2', 'early'), 'completed');
+                        await child.complete();
+                        await ctx.item(activity('done_2', 'completed', 'child_2', '/root/early'), 'completed');
+                        await say('ok')(ctx);
+                    }
+                });
+                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                const all = observe(session);
+                const { events } = await drain(session.prompt('go'));
+                expect(nestedText(events, 'call_s2')).toBe('early');
+                expect(events.findIndex((e) => e.type === 'tool-call' && e.callId === 'call_s2')).toBeLessThan(events.findIndex((e) => e.type === 'part-start' && e.parentCallId === 'call_s2'));
+                await session.close();
+                await all.done;
+                checkEventInvariants(all.events);
+            });
+
+            it('cancel({ agentId }) interrupts the running child turn; the interrupted completion ends the agent cancelled once and the host turn goes on', async () => {
+                const fake = fakeAppServer({
+                    onTurn: async (ctx) => {
+                        await ctx.item(activity('call_s3', 'started', 'child_3', '/root/slow'), 'started');
+                        await ctx.item(activity('call_s3', 'started', 'child_3', '/root/slow'), 'completed');
+                        const child = await ctx.child('child_3').startTurn('cturn_3');
+                        await child.item(message('cmsg_3', ''), 'started');
+                        await child.interrupted;
+                        await child.complete('interrupted');
+                        // Codex may drive the child again; that is not a second terminal.
+                        await ctx.item(activity('done_3', 'completed', 'child_3', '/root/slow'), 'completed');
+                        await say('stopped')(ctx);
+                    }
+                });
+                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                const all = observe(session);
+                const { events, result } = await drain(session.prompt('go'), async (e) => {
+                    if (e.type === 'part-start' && e.parentCallId === 'call_s3') await session.cancel({ agentId: 'child_3' });
+                });
+                expect(result).toMatchObject({ stopReason: 'end_turn' });
+                expect(fake.requests.filter((r) => r.method === 'turn/interrupt').map((r) => r.params)).toEqual([{ threadId: 'child_3', turnId: 'cturn_3' }]);
+                const terminal = agentEvents(events, 'child_3').filter((e) => e.type === 'agent-update' && e.status !== 'running');
+                expect(terminal.map((e) => (e.type === 'agent-update' ? e.status : ''))).toEqual(['cancelled']);
+                await session.close();
+                await all.done;
+                checkEventInvariants(all.events);
+            });
+
+            it('a cancel requested before the child turn starts is sent the moment it does', async () => {
+                const fake = fakeAppServer({
+                    onTurn: async (ctx) => {
+                        await ctx.item(activity('call_s4', 'started', 'child_4', '/root/late'), 'started');
+                        await ctx.item(activity('call_s4', 'started', 'child_4', '/root/late'), 'completed');
+                        await new Promise((r) => setTimeout(r, 20));
+                        const child = await ctx.child('child_4').startTurn('cturn_4');
+                        await child.interrupted;
+                        await child.complete('interrupted');
+                        await say('stopped')(ctx);
+                    }
+                });
+                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                const all = observe(session);
+                let cancelled = false;
+                const { events, result } = await drain(session.prompt('go'), async (e) => {
+                    if (!cancelled && e.type === 'agent-update' && e.status === 'running') {
+                        cancelled = true;
+                        await session.cancel({ agentId: 'child_4' });
+                    }
+                });
+                expect(result).toMatchObject({ stopReason: 'end_turn' });
+                expect(fake.requests.filter((r) => r.method === 'turn/interrupt').map((r) => r.params)).toEqual([{ threadId: 'child_4', turnId: 'cturn_4' }]);
+                expect(agentEvents(events, 'child_4').map((e) => (e.type === 'agent-start' ? 'start' : e.status))).toEqual(['start', 'running', 'cancelled']);
+                await session.close();
+                await all.done;
+                checkEventInvariants(all.events);
+            });
+
+            it('a request raised on the child thread goes through the host policy, nested under the spawn call', async () => {
+                const fake = fakeAppServer({
+                    onTurn: async (ctx) => {
+                        await ctx.item(activity('call_s5', 'started', 'child_5', '/root/shell'), 'started');
+                        await ctx.item(activity('call_s5', 'started', 'child_5', '/root/shell'), 'completed');
+                        const child = await ctx.child('child_5').startTurn('cturn_5');
+                        const cmd = { type: 'commandExecution', id: 'ccmd', command: 'ls', cwd: '/repo', status: 'inProgress', aggregatedOutput: null, exitCode: null };
+                        await child.item(cmd, 'started');
+                        const r = await child.request<{ decision: string }>('item/commandExecution/requestApproval', { itemId: 'ccmd', command: 'ls', cwd: '/repo', availableDecisions: ['accept', 'decline'] });
+                        await ctx.notify('turn/completed_decision', { threadId: ctx.threadId, turnId: ctx.turnId, decision: r.decision });
+                        await child.item({ ...cmd, status: 'completed', aggregatedOutput: 'a b', exitCode: 0 }, 'completed');
+                        await child.complete();
+                        await ctx.item(activity('done_5', 'completed', 'child_5', '/root/shell'), 'completed');
+                        await say('ok')(ctx);
+                    }
+                });
+                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                const all = observe(session);
+                const { events } = await drain(session.prompt('go'), async (e) => {
+                    if (e.type === 'request') {
+                        expect(e).toMatchObject({ kind: 'permission', parentCallId: 'call_s5' });
+                        await session.respond(e.requestId, { type: 'permission', outcome: 'allow', scope: 'once' });
+                    }
+                });
+                expect(events.find((e) => e.type === 'ext' && e.name === 'turn/completed_decision')).toMatchObject({ data: { decision: 'accept' } });
+                expect(events.find((e) => e.type === 'request-resolved')).toMatchObject({ by: 'client', outcome: 'allow', parentCallId: 'call_s5' });
+                expect(events.find((e) => e.type === 'tool-call' && e.callId === 'ccmd')).toMatchObject({ parentCallId: 'call_s5' });
+                await session.close();
+                await all.done;
+                checkEventInvariants(all.events);
+            });
+
+            it('an older server announcing the child with thread/started + parentThreadId routes it under the collab spawn, speaking as its nickname', async () => {
+                const fake = fakeAppServer({
+                    onTurn: async (ctx) => {
+                        await ctx.item(collab('collab_s6', 'spawnAgent', 'completed', { prompt: 'look', receiverThreadIds: ['child_6'], agentsStates: { child_6: { status: 'running', message: null } } }), 'completed');
+                        await ctx.notify('thread/started', { thread: { id: 'child_6', preview: '', model: 'gpt-5', reasoningEffort: null, parentThreadId: ctx.threadId, agentNickname: 'Scout', agentRole: 'explorer' } });
+                        const child = await ctx.child('child_6').startTurn('cturn_6');
+                        await child.item(message('cmsg_6', ''), 'started');
+                        await child.delta('cmsg_6', 'found it');
+                        await child.item(message('cmsg_6', 'found it'), 'completed');
+                        await child.complete();
+                        await ctx.item(collab('collab_w6', 'wait', 'completed', { receiverThreadIds: ['child_6'], agentsStates: { child_6: { status: 'completed', message: 'found it' } } }), 'completed');
+                        await say('ok')(ctx);
+                    }
+                });
+                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                const all = observe(session);
+                const { events } = await drain(session.prompt('go'));
+                expect(nestedText(events, 'collab_s6')).toBe('found it');
+                expect(events.find((e) => e.type === 'part-start' && e.parentCallId === 'collab_s6')).toMatchObject({ actor: 'Scout' });
+                expect(events.find((e) => e.type === 'ext' && e.name === 'thread/started')).toBeUndefined();
+                await session.close();
+                await all.done;
+                checkEventInvariants(all.events);
+            });
+
+            it('a child turn named only by a top-level turnId is still the turn cancel({ agentId }) interrupts', async () => {
+                const fake = fakeAppServer({
+                    onTurn: async (ctx) => {
+                        await ctx.item(activity('call_s8', 'started', 'child_8', '/root/lean'), 'started');
+                        await ctx.item(activity('call_s8', 'started', 'child_8', '/root/lean'), 'completed');
+                        const child = await ctx.child('child_8').startTurn('cturn_8', { announce: 'turnId' });
+                        await child.item(message('cmsg_8', ''), 'started');
+                        await child.interrupted;
+                        await child.complete('interrupted');
+                        await say('stopped')(ctx);
+                    }
+                });
+                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                const all = observe(session);
+                let cancelled = false;
+                const { events, result } = await drain(session.prompt('go'), async (e) => {
+                    if (!cancelled && e.type === 'part-start' && e.parentCallId === 'call_s8') {
+                        cancelled = true;
+                        await session.cancel({ agentId: 'child_8' });
+                    }
+                });
+                expect(result).toMatchObject({ stopReason: 'end_turn' });
+                expect(fake.requests.filter((r) => r.method === 'turn/interrupt').map((r) => r.params)).toEqual([{ threadId: 'child_8', turnId: 'cturn_8' }]);
+                const terminal = agentEvents(events, 'child_8').filter((e) => e.type === 'agent-update' && e.status !== 'running');
+                expect(terminal.map((e) => (e.type === 'agent-update' ? e.status : ''))).toEqual(['cancelled']);
+                await session.close();
+                await all.done;
+                checkEventInvariants(all.events);
+            });
+
+            it('frames for the session thread that arrive before thread/start answers are delivered to the session, not dropped', async () => {
+                const fake = fakeAppServer({
+                    onTurn: say('ok'),
+                    onThreadStart: async (threadId, notify) => {
+                        await notify('thread/name/updated', { threadId, name: 'Early name' });
+                    }
+                });
+                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                // Everything the session log holds, from its first event.
+                const events: AgentEvent[] = [];
+                const done = (async () => {
+                    for await (const e of session.subscribe({ epoch: 0, seq: 0 })) events.push(e);
+                })();
+                await drain(session.prompt('go'));
+                await session.close();
+                await done;
+                expect(events.find((e) => e.type === 'ext' && e.name === 'thread/name/updated')).toMatchObject({ data: { name: 'Early name' } });
+            });
+
+            it('a cancel that loses the race to the child turn finishing is spent: the next child turn is not interrupted and the agent is not cancelled', async () => {
+                const fake = fakeAppServer({
+                    onTurn: async (ctx) => {
+                        await ctx.item(activity('call_s7', 'started', 'child_7', '/root/race'), 'started');
+                        await ctx.item(activity('call_s7', 'started', 'child_7', '/root/race'), 'completed');
+                        const first = await ctx.child('child_7').startTurn('cturn_7a');
+                        await first.item(message('cmsg_7a', ''), 'started');
+                        // The interrupt arrives, but the turn had already finished.
+                        await first.interrupted;
+                        await first.complete('completed');
+                        const second = await ctx.child('child_7').startTurn('cturn_7b');
+                        await second.item(message('cmsg_7b', ''), 'started');
+                        await second.delta('cmsg_7b', 'done');
+                        await second.item(message('cmsg_7b', 'done'), 'completed');
+                        await second.complete();
+                        await ctx.item(activity('done_7', 'completed', 'child_7', '/root/race'), 'completed');
+                        await say('ok')(ctx);
+                    }
+                });
+                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                const all = observe(session);
+                let cancelled = false;
+                const { events, result } = await drain(session.prompt('go'), async (e) => {
+                    if (!cancelled && e.type === 'part-start' && e.parentCallId === 'call_s7') {
+                        cancelled = true;
+                        await session.cancel({ agentId: 'child_7' });
+                    }
+                });
+                expect(result).toMatchObject({ stopReason: 'end_turn' });
+                expect(fake.requests.filter((r) => r.method === 'turn/interrupt').map((r) => r.params)).toEqual([{ threadId: 'child_7', turnId: 'cturn_7a' }]);
+                const terminal = agentEvents(events, 'child_7').filter((e) => e.type === 'agent-update' && e.status !== 'running');
+                expect(terminal.map((e) => (e.type === 'agent-update' ? e.status : ''))).toEqual(['completed']);
+                await session.close();
+                await all.done;
+                checkEventInvariants(all.events);
+            });
         });
 
         it('an interrupted turn cancels the agents still running; closing the session settles the rest', async () => {

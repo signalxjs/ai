@@ -5,6 +5,8 @@ import { agentConformance, type ConformanceScenario } from '@sigx/ai-agent/testi
 import { codex, CODEX_CAPABILITIES } from '@sigx/ai-agent-codex';
 import { fakeAppServer, say, type TurnProgram } from './fake-app-server';
 
+const activity = (id: string, kind: string, agentThreadId: string) => ({ type: 'subAgentActivity', id, kind, agentThreadId, agentPath: '/root/delegate' });
+
 /** What the fake Codex does for each scenario; the client tools come from the scenario. */
 function programFor(scenario: ConformanceScenario): TurnProgram {
     const callTool = (tool: string, then: TurnProgram): TurnProgram => async (ctx) => {
@@ -39,6 +41,30 @@ function programFor(scenario: ConformanceScenario): TurnProgram {
         case 'steer':
             // The suite steers while the client tool runs; the adapter sends turn/steer and the fake accepts it for the active turn.
             return callTool('delayed', say('Done.'));
+        case 'delegate-tree':
+            // Codex 0.154: the spawn is a subAgentActivity "started" item; the child thread streams on the same connection.
+            return async (ctx) => {
+                await ctx.item(activity('call_delegate', 'started', 'child_d'), 'started');
+                await ctx.item(activity('call_delegate', 'started', 'child_d'), 'completed');
+                const child = await ctx.child('child_d').startTurn();
+                await child.item({ type: 'agentMessage', id: 'cmsg_d', text: '' }, 'started');
+                await child.delta('cmsg_d', 'Delegate reply.');
+                await child.item({ type: 'agentMessage', id: 'cmsg_d', text: 'Delegate reply.' }, 'completed');
+                await child.complete();
+                await ctx.item(activity('done_d', 'completed', 'child_d'), 'completed');
+                await say('Done.')(ctx);
+            };
+        case 'delegate-cancel':
+            // The suite cancels the sub-agent on its first running update; the adapter interrupts the child turn.
+            return async (ctx) => {
+                await ctx.item(activity('call_slow', 'started', 'child_s'), 'started');
+                await ctx.item(activity('call_slow', 'started', 'child_s'), 'completed');
+                const child = await ctx.child('child_s').startTurn();
+                await child.item({ type: 'agentMessage', id: 'cmsg_s', text: '' }, 'started');
+                await child.interrupted;
+                await child.complete('interrupted');
+                await say('Done.')(ctx);
+            };
         case 'usage':
             return async (ctx) => {
                 const last = { totalTokens: 5, inputTokens: 3, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 2, reasoningOutputTokens: 0 };
@@ -51,14 +77,12 @@ function programFor(scenario: ConformanceScenario): TurnProgram {
 }
 
 /**
- * Codex has no handoff concept, so the non-coding support flow does not apply; the fake lists one
- * fixed thread, never the ones it started; and a spawned sub-agent's own transcript (its child
- * thread) is not routed into the parent session until #100, so `delegate-tree` cannot see nested text.
+ * Codex has no handoff concept, so the non-coding support flow does not apply; and the fake lists one
+ * fixed thread, never the ones it started.
  */
 const skip = (s: ConformanceScenario) => {
     if (s.name === 'support-agent') return 'Codex emits no agent.handoff extension (its ext namespace is codex)';
     if (s.name === 'list-sessions') return 'the fake app-server answers thread/list with a fixed thread, not the ones it started';
-    if (s.name === 'delegate-tree') return 'the child thread’s transcript is not routed into the parent session yet (#100)';
     return undefined;
 };
 
@@ -68,7 +92,7 @@ describe('agentConformance: codex(fake app-server)', () => {
         skip,
         sessionOptions: { cwd: '/repo' }
     });
-    it('skips the every-call permission scenarios (Codex is harness-filtered), portable resume, the support-agent flow, the fixed session listing and sub-agent control (observe only)', () => {
+    it('skips the every-call permission scenarios (Codex is harness-filtered, the nested request one included), portable resume, the support-agent flow and the fixed session listing', () => {
         expect(cases.filter((c) => c.skip).map((c) => c.name)).toEqual([
             'conformance: tool-permission',
             'conformance: headless-deny',
@@ -77,8 +101,6 @@ describe('agentConformance: codex(fake app-server)', () => {
             'conformance: request-timeout',
             'conformance: list-sessions',
             'conformance: portable-resume',
-            'conformance: delegate-tree',
-            'conformance: delegate-cancel',
             'conformance: delegate-request'
         ]);
     });

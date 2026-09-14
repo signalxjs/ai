@@ -6,7 +6,7 @@
  */
 
 import { validateWith, type AnyTool, type JsonSchema, type StandardSchemaV1 } from '@sigx/ai';
-import type { AgentSession, ConfigOption, PromptInput, PromptOptions, PromptPart, SessionRef, TurnDriver, TurnContext } from '@sigx/ai-agent';
+import type { AgentSession, ConfigOption, PromptInput, PromptOptions, PromptPart, SessionRef, TurnDriver, TurnContext, UnstampedEvent } from '@sigx/ai-agent';
 import { AgentError, createEventLog, createSessionCore } from '@sigx/ai-agent';
 import type { JsonRpcPeer, RequestContext } from '@sigx/ai-agent/harness';
 import { approveCommand, approveFileChange, approvePermissions, askUserInput } from './approvals.js';
@@ -21,15 +21,18 @@ import type {
     SandboxMode,
     SandboxPolicy,
     SandboxPolicyParam,
+    Thread,
     ThreadStartResponse,
+    ThreadTokenUsageUpdatedNotification,
     ToolRequestUserInputParams,
+    TurnCompletedNotification,
     TurnStartParams,
     TurnStartResponse,
     TurnSteerParams,
     TurnSteerResponse,
     UserInput
 } from './schema.js';
-import { CODEX_NS, createTurnMapper, settleSubAgents, type SubAgents, type TurnMapper } from './stream.js';
+import { AGENT_TERMINAL, CODEX_NS, createTurnMapper, settleSubAgents, toUsage, updateSubAgent, type SubAgents, type TurnMapper } from './stream.js';
 import { callDynamicTool } from './tools.js';
 
 export interface CodexSessionDeps {
@@ -45,13 +48,23 @@ export interface CodexSessionDeps {
     readonly epoch: number;
     /** Called when the session closes so the agent forgets it. */
     readonly onClose: (threadId: string) => void;
+    /** A sub-agent thread of this session was seen: route that thread's frames (and any already held) here. */
+    readonly adoptChild: (childThreadId: string) => void;
 }
+
+type NotificationParams = { readonly threadId?: string; readonly turnId?: string } & Record<string, unknown>;
 
 /** The session plus the hooks the agent's dispatcher calls. */
 export interface CodexSession extends AgentSession {
     readonly threadId: string;
-    handleNotification(method: string, params: { readonly threadId?: string; readonly turnId?: string } & Record<string, unknown>): void;
+    handleNotification(method: string, params: NotificationParams): void;
     handleRequest(method: string, params: unknown, ctx: RequestContext): Promise<unknown>;
+    /** Whether `threadId` is one of this session's sub-agent threads. */
+    ownsThread(threadId: string): boolean;
+    /** A frame from one of this session's sub-agent threads. */
+    handleChildNotification(childThreadId: string, method: string, params: NotificationParams): void;
+    /** A request raised on one of this session's sub-agent threads, answered through the host policy. */
+    handleChildRequest(childThreadId: string, method: string, params: unknown, ctx: RequestContext): Promise<unknown>;
     /** The peer closed under the session: fail the running turn. */
     peerClosed(message: string): void;
 }
@@ -122,11 +135,57 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
         steer: true,
         // Refused before any event, for prompts and steers alike.
         promptParts: 'text+image',
-        // Sub-agents are reported on this thread; their own threads are not routed here yet.
-        subagents: 'observe'
+        // Sub-agents are reported on this thread and their own threads are routed here: they can be cancelled and answered.
+        subagents: 'control'
     });
     /** Sub-agent threads seen on this thread — across turns, since one can outlive the turn that spawned it. */
     const agents: SubAgents = new Map();
+
+    /** What the session tracks about a sub-agent's own thread. */
+    interface ChildThread {
+        /** The child's running Codex turn, for `turn/interrupt`. */
+        turnId?: string;
+        mapper?: TurnMapper;
+        /**
+         * A pending `cancel({ agentId })` and the child turn it interrupts (unset until that
+         * turn starts). Spent when that turn ends, however it ends.
+         */
+        cancel?: { turnId?: string };
+        /** Codex's nickname or role for it, when the thread announced one. */
+        actor?: string;
+        turns: number;
+    }
+    const children = new Map<string, ChildThread>();
+    const childOf = (childThreadId: string): ChildThread => {
+        let child = children.get(childThreadId);
+        if (!child) {
+            child = { turns: 0 };
+            children.set(childThreadId, child);
+        }
+        return child;
+    };
+    /**
+     * Where a sub-agent's events go: the running host turn while there is one,
+     * else the session log (a sub-agent can outlive the turn that spawned it).
+     * Events inside the child sit under its spawn call.
+     */
+    const childEmitter =
+        (callId: string | undefined) =>
+        (e: UnstampedEvent): void => {
+            const event = callId !== undefined && e.parentCallId === undefined ? { ...e, parentCallId: callId } : e;
+            const turn = active;
+            if (turn && !turn.driver.ended) turn.driver.emit(event);
+            else if (!core.closed) core.emit(event);
+        };
+    const childMapper = (childThreadId: string, child: ChildThread, turnId: string | undefined): TurnMapper => {
+        const agent = agents.get(childThreadId);
+        const path = agent?.title?.split('/').filter(Boolean).at(-1) ?? agent?.title;
+        const actor = child.actor ?? path;
+        return createTurnMapper(
+            { emit: childEmitter(agent?.callId) },
+            { messageId: `a:${agent?.callId ?? childThreadId}:${turnId ?? child.turns}`, agents, onAgent: deps.adoptChild, nested: actor !== undefined ? { actor } : {} }
+        );
+    };
 
     // Per-turn overrides `configure()` records and the next `turn/start` applies.
     const overrides: { model?: string; approvalPolicy?: AskForApproval; sandbox?: SandboxMode; effort?: string } = {};
@@ -187,6 +246,31 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
         }
     };
 
+    /** A Codex request through the running host turn's policy; `parentCallId` nests it under a sub-agent's spawn call. */
+    const answer = (turn: ActiveTurn, mapper: TurnMapper, method: string, params: unknown, ctx: RequestContext, parentCallId?: string): Promise<unknown> => {
+        const resolve = (request: Parameters<TurnContext['resolve']>[0]) => turn.ctx.resolve(request, parentCallId !== undefined ? { parentCallId } : undefined);
+        switch (method) {
+            case CODEX_METHODS.commandApproval:
+                return approveCommand(params as CommandExecutionRequestApprovalParams, resolve);
+            case CODEX_METHODS.fileChangeApproval:
+                return approveFileChange(params as FileChangeRequestApprovalParams, resolve);
+            case CODEX_METHODS.permissionsApproval:
+                return approvePermissions(params as PermissionsRequestApprovalParams, resolve);
+            case CODEX_METHODS.userInput:
+                return askUserInput(params as ToolRequestUserInputParams, resolve);
+            case CODEX_METHODS.toolCall: {
+                const p = params as DynamicToolCallParams;
+                return callDynamicTool(tools, p, {
+                    signal: ctx.signal,
+                    resolve,
+                    onStatus: (status, message) => mapper.toolStatus(p.callId, status, message)
+                });
+            }
+            default:
+                return Promise.reject(new AgentError('protocol_error', `[sigx ai-agent-codex] unsupported request "${method}"`));
+        }
+    };
+
     const session: CodexSession = {
         id: threadId,
         threadId,
@@ -199,7 +283,7 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
             return core.startTurn(input, promptOptions, async (driver, ctx) => {
                 const parts = typeof input === 'string' ? [{ type: 'text' as const, text: input }] : [...input];
                 driver.emit({ type: 'user-message', messageId: `u:${driver.turnId}`, parts });
-                const mapper = createTurnMapper(driver, { messageId: `a:${driver.turnId}:0`, agents });
+                const mapper = createTurnMapper(driver, { messageId: `a:${driver.turnId}:0`, agents, onAgent: deps.adoptChild });
                 let startedOk!: (id: string) => void;
                 let startedFailed!: (e: unknown) => void;
                 const started = new Promise<string>((resolve, reject) => {
@@ -259,7 +343,16 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
             });
         },
         respond: (requestId, decision) => core.respond(requestId, decision),
-        cancel: () => core.cancel(),
+        async cancel(target) {
+            if (target?.agentId === undefined || target.agentId === threadId) return core.cancel();
+            const agent = agents.get(target.agentId);
+            if (!agent || AGENT_TERMINAL.has(agent.status)) throw new AgentError('protocol_error', `[sigx ai-agent-codex] thread "${threadId}" has no running sub-agent "${target.agentId}"`);
+            const child = childOf(target.agentId);
+            // One cancel targets one turn: the running one, or — for a child between turns
+            // (not started yet, or waiting on the host) — the next one it starts.
+            child.cancel = child.turnId !== undefined ? { turnId: child.turnId } : {};
+            if (child.turnId !== undefined) await deps.interrupt(target.agentId, child.turnId);
+        },
         async configure(patch) {
             if (patch.model !== undefined) overrides.model = patch.model;
             if (patch.approvalPolicy !== undefined && (APPROVAL_VALUES as readonly string[]).includes(patch.approvalPolicy)) overrides.approvalPolicy = patch.approvalPolicy as AskForApproval;
@@ -272,8 +365,69 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
         async close() {
             // The thread goes with the session, and its sub-agents with the thread.
             if (!core.closed) settleSubAgents(agents, 'cancelled', (e) => core.emit(e));
+            children.clear();
             await core.close();
             deps.onClose(threadId);
+        },
+        ownsThread: (id) => agents.has(id),
+        handleChildNotification(childThreadId, method, params) {
+            if (core.closed) return;
+            const child = childOf(childThreadId);
+            const agent = agents.get(childThreadId);
+            switch (method) {
+                case CODEX_METHODS.threadStarted: {
+                    const thread = params.thread as Thread | undefined;
+                    const name = thread?.agentNickname ?? thread?.agentRole;
+                    if (name) child.actor = name;
+                    return;
+                }
+                case CODEX_METHODS.turnStarted: {
+                    // Named like the host path does: a top-level `turnId`, else the `turn` object.
+                    const turnId = params.turnId ?? (params.turn as { id?: string } | undefined)?.id;
+                    child.turns++;
+                    child.turnId = turnId;
+                    child.mapper = childMapper(childThreadId, child, turnId);
+                    if (child.cancel && child.cancel.turnId === undefined && turnId !== undefined) {
+                        child.cancel.turnId = turnId;
+                        void deps.interrupt(childThreadId, turnId);
+                    }
+                    return;
+                }
+                case CODEX_METHODS.tokenUsage: {
+                    if (!agent) return;
+                    const p = params as unknown as ThreadTokenUsageUpdatedNotification;
+                    updateSubAgent(agents, childEmitter(undefined), childThreadId, { status: agent.status, ...(agent.summary !== undefined ? { summary: agent.summary } : {}), usage: toUsage(p.tokenUsage.total) });
+                    return;
+                }
+                case CODEX_METHODS.turnCompleted: {
+                    const p = params as unknown as Partial<TurnCompletedNotification>;
+                    const completedId = params.turnId ?? p.turn?.id;
+                    child.mapper?.notify(method, params);
+                    child.mapper = undefined;
+                    child.turnId = undefined;
+                    if (child.cancel?.turnId !== undefined && child.cancel.turnId === completedId) {
+                        const interrupted = p.turn?.status === 'interrupted';
+                        child.cancel = undefined;
+                        // The interrupt can lose the race to the turn finishing on its own: the
+                        // cancel is then spent and the agent carries on.
+                        if (interrupted) updateSubAgent(agents, childEmitter(undefined), childThreadId, { status: 'cancelled' });
+                    }
+                    return;
+                }
+                default: {
+                    // Thread status, MCP startup and the like are the child's bookkeeping, not its transcript.
+                    if (!method.startsWith('item/') && method !== CODEX_METHODS.turnPlan && method !== CODEX_METHODS.turnDiff) return;
+                    child.mapper ??= childMapper(childThreadId, child, child.turnId);
+                    child.mapper.notify(method, params);
+                }
+            }
+        },
+        async handleChildRequest(childThreadId, method, params, ctx) {
+            const turn = active;
+            if (!turn) throw new AgentError('protocol_error', `[sigx ai-agent-codex] "${method}" from sub-agent thread "${childThreadId}" arrived with no turn running on thread "${threadId}"`);
+            const child = childOf(childThreadId);
+            child.mapper ??= childMapper(childThreadId, child, child.turnId);
+            return answer(turn, child.mapper, method, params, ctx, agents.get(childThreadId)?.callId);
         },
         handleNotification(method, params) {
             if (!active) {
@@ -291,27 +445,7 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
         async handleRequest(method, params, ctx) {
             const turn = active;
             if (!turn) throw new AgentError('protocol_error', `[sigx ai-agent-codex] "${method}" arrived with no turn running on thread "${threadId}"`);
-            const resolve = (request: Parameters<TurnContext['resolve']>[0]) => turn.ctx.resolve(request);
-            switch (method) {
-                case CODEX_METHODS.commandApproval:
-                    return approveCommand(params as CommandExecutionRequestApprovalParams, resolve);
-                case CODEX_METHODS.fileChangeApproval:
-                    return approveFileChange(params as FileChangeRequestApprovalParams, resolve);
-                case CODEX_METHODS.permissionsApproval:
-                    return approvePermissions(params as PermissionsRequestApprovalParams, resolve);
-                case CODEX_METHODS.userInput:
-                    return askUserInput(params as ToolRequestUserInputParams, resolve);
-                case CODEX_METHODS.toolCall: {
-                    const p = params as DynamicToolCallParams;
-                    return callDynamicTool(tools, p, {
-                        signal: ctx.signal,
-                        resolve,
-                        onStatus: (status, message) => turn.mapper.toolStatus(p.callId, status, message)
-                    });
-                }
-                default:
-                    throw new AgentError('protocol_error', `[sigx ai-agent-codex] unsupported request "${method}"`);
-            }
+            return answer(turn, turn.mapper, method, params, ctx);
         },
         peerClosed(message) {
             const turn = active;
