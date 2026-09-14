@@ -13,9 +13,9 @@
  * no business holding a subscription it cannot close.
  */
 import { component, useHead, onMounted, onUnmounted, signal } from 'sigx';
-import { toolOutput } from '@sigx/ai-agent';
+import { agentMessages, childAgents, spawnedAgent, toolOutput } from '@sigx/ai-agent';
 import { connectSession, type AgentSessionClient } from '@sigx/ai-agent/wire';
-import { useAgentSession, type AgentMessage, type AgentPart, type OpenRequest, type ToolPartState } from '@sigx/ai-agent/app';
+import { useAgentSession, type AgentMessage, type AgentPart, type AgentState, type AgentTranscript, type OpenRequest, type ToolPartState } from '@sigx/ai-agent/app';
 import { agentCommand, agentEvents } from './agent.server';
 
 type Answers = Record<string, string | string[]>;
@@ -187,13 +187,17 @@ function outputText(p: ToolPartState): string | undefined {
 /**
  * What a part needs from the session: the open requests and the two ways to
  * settle one, plus the live reasoning-token count — the only progress a
- * harness that redacts its thinking gives us.
+ * harness that redacts its thinking gives us. A tool card that spawned a
+ * sub-agent reads the agent and its messages from the `transcript`.
  */
 interface ThreadProps {
     readonly requests: readonly OpenRequest[];
     readonly onDecide: (requestId: string, allow: boolean) => void;
     readonly onAnswer: (requestId: string, answers: Answers) => void;
     readonly reasoningTokens?: number;
+    readonly transcript: AgentTranscript;
+    /** Stop one sub-agent — passed only when the agent controls its sub-agents (`subagents: 'control'`). */
+    readonly onCancelAgent?: (agentId: string) => void;
 }
 
 const Part = component<{ part: AgentPart } & ThreadProps>((ctx) => {
@@ -230,6 +234,8 @@ const Part = component<{ part: AgentPart } & ThreadProps>((ctx) => {
         const open = p.requestId ? ctx.props.requests.find((r) => r.requestId === p.requestId) : undefined;
         const sig = signature(p.input);
         const output = outputText(p);
+        // The call spawned a sub-agent (its `agent-start` set `agentId`): its card hangs under this one.
+        const agent = p.agentId !== undefined ? ctx.props.transcript.agents[p.agentId] : undefined;
         return (
             <div class={`tool ${p.status}`}>
                 <code class="tool-head">
@@ -256,6 +262,79 @@ const Part = component<{ part: AgentPart } & ThreadProps>((ctx) => {
                         </button>
                     </p>
                 )}
+                {agent && (
+                    <AgentCard
+                        agent={agent}
+                        transcript={ctx.props.transcript}
+                        requests={ctx.props.requests}
+                        onDecide={ctx.props.onDecide}
+                        onAnswer={ctx.props.onAnswer}
+                        reasoningTokens={ctx.props.reasoningTokens}
+                        onCancelAgent={ctx.props.onCancelAgent}
+                    />
+                )}
+            </div>
+        );
+    };
+});
+
+/**
+ * A sub-agent card: who it is, its status, and — folded away once it is done
+ * — its own messages, rendered with the same `Message` and `Part` as the
+ * thread. That is the recursion: a sub-agent's tool call that spawns another
+ * one carries its own card, one level deeper. A child with no spawning call
+ * (an ambient task) has nothing to hang on, so it follows at the end.
+ *
+ * Cancel stops THIS agent and leaves the turn running. It is offered from the
+ * `subagents: 'control'` capability, never from who the agent is.
+ */
+const AgentCard = component<{ agent: AgentState } & ThreadProps>((ctx) => {
+    return () => {
+        const { agent, transcript } = ctx.props;
+        const messages = agentMessages(transcript, agent.agentId);
+        const ambient = childAgents(transcript, agent.agentId).filter((child) => child.callId === undefined);
+        const running = agent.status === 'running' || agent.status === 'paused';
+        const cancel = ctx.props.onCancelAgent;
+        return (
+            <div class={`agent ${agent.status}`}>
+                <div class="agent-head">
+                    <strong>{agent.title ?? agent.kind ?? 'sub-agent'}</strong>
+                    <span class="agent-status">{agent.status}</span>
+                    {cancel && running && (
+                        <button type="button" onClick={() => cancel(agent.agentId)}>
+                            Cancel
+                        </button>
+                    )}
+                </div>
+                {agent.summary && <p class="agent-summary">{oneLine(agent.summary)}</p>}
+                {agent.error && <span class="tool-error">{agent.error.message}</span>}
+                {messages.length > 0 && (
+                    <details class="agent-work" open={running}>
+                        <summary>{running ? 'Working…' : `Its work (${messages.length} message${messages.length === 1 ? '' : 's'})`}</summary>
+                        {messages.map((m) => (
+                            <Message
+                                message={m}
+                                transcript={transcript}
+                                requests={ctx.props.requests}
+                                onDecide={ctx.props.onDecide}
+                                onAnswer={ctx.props.onAnswer}
+                                reasoningTokens={ctx.props.reasoningTokens}
+                                onCancelAgent={cancel}
+                            />
+                        ))}
+                    </details>
+                )}
+                {ambient.map((child) => (
+                    <AgentCard
+                        agent={child}
+                        transcript={transcript}
+                        requests={ctx.props.requests}
+                        onDecide={ctx.props.onDecide}
+                        onAnswer={ctx.props.onAnswer}
+                        reasoningTokens={ctx.props.reasoningTokens}
+                        onCancelAgent={cancel}
+                    />
+                ))}
             </div>
         );
     };
@@ -265,7 +344,15 @@ const Message = component<{ message: AgentMessage } & ThreadProps>((ctx) => {
     return () => (
         <div class={`msg ${ctx.props.message.role}`}>
             {ctx.props.message.parts.map((part) => (
-                <Part part={part} requests={ctx.props.requests} onDecide={ctx.props.onDecide} onAnswer={ctx.props.onAnswer} reasoningTokens={ctx.props.reasoningTokens} />
+                <Part
+                    part={part}
+                    transcript={ctx.props.transcript}
+                    requests={ctx.props.requests}
+                    onDecide={ctx.props.onDecide}
+                    onAnswer={ctx.props.onAnswer}
+                    reasoningTokens={ctx.props.reasoningTokens}
+                    onCancelAgent={ctx.props.onCancelAgent}
+                />
             ))}
         </div>
     );
@@ -314,6 +401,21 @@ const Session = component<{ session: AgentSessionClient }>((ctx) => {
     /** Questions with no tool call of their own; the rest render on their card. */
     const questions = () => view.requests.filter((r) => r.kind === 'input' && r.callId === undefined);
 
+    /**
+     * The thread's own messages. One produced inside a sub-agent renders on
+     * that agent's card instead — but only when an agent claims its call, so a
+     * harness that nests work without announcing an agent still shows it here.
+     */
+    const thread = () => view.messages.filter((m) => m.parentCallId === undefined || !spawnedAgent(view.transcript, m.parentCallId));
+
+    /** Sub-agents no tool call spawned (ambient tasks): nothing to hang them on but the thread. */
+    const ambient = () => view.agentTree.filter((node) => node.agent.callId === undefined);
+
+    /** Capabilities, never the agent's id. */
+    const busy = () => view.state === 'running' || view.state === 'awaiting';
+    const steers = () => view.capabilities?.steer === true;
+    const cancelAgent = () => (view.capabilities?.subagents === 'control' ? (agentId: string) => void view.cancelAgent(agentId) : undefined);
+
     const tokens = () => {
         const u = view.usage;
         return u ? (u.totalTokens ?? (u.inputTokens ?? 0) + (u.outputTokens ?? 0)) : 0;
@@ -332,10 +434,15 @@ const Session = component<{ session: AgentSessionClient }>((ctx) => {
             </header>
             <section class="thread">
                 {view.messages.length === 0 && (
-                    <p class="hint">Ask about the incidents: the read-only tool runs unasked, the destructive one stops and asks you. Then open this page in a second tab — it replays everything and follows along.</p>
+                    <p class="hint">
+                        Ask about the incidents: a triage sub-agent reads them on its own card (Cancel stops it alone), and the destructive tool stops and asks you. Type while a turn runs to steer it. Then open this page in a second tab — it replays everything and follows along.
+                    </p>
                 )}
-                {view.messages.map((m) => (
-                    <Message message={m} requests={view.requests} onDecide={decide} onAnswer={answer} reasoningTokens={view.usage?.reasoningTokens} />
+                {thread().map((m) => (
+                    <Message message={m} transcript={view.transcript} requests={view.requests} onDecide={decide} onAnswer={answer} reasoningTokens={view.usage?.reasoningTokens} onCancelAgent={cancelAgent()} />
+                ))}
+                {ambient().map((node) => (
+                    <AgentCard agent={node.agent} transcript={view.transcript} requests={view.requests} onDecide={decide} onAnswer={answer} reasoningTokens={view.usage?.reasoningTokens} onCancelAgent={cancelAgent()} />
                 ))}
                 {questions().map((r) => (
                     <Ask request={r} onAnswer={answer} />
@@ -346,19 +453,21 @@ const Session = component<{ session: AgentSessionClient }>((ctx) => {
                 <textarea
                     rows={2}
                     aria-label="Message"
-                    placeholder="Message…"
+                    placeholder={busy() && steers() ? 'Steer the running turn…' : 'Message…'}
                     onInput={(e) => {
                         draft = (e.target as HTMLTextAreaElement).value;
                     }}
                     onKeyDown={onKey}
                 />
-                {/* Capabilities, never the agent's id: an agent that cannot cancel does not get a Cancel button. */}
-                {view.capabilities?.cancel && (view.state === 'running' || view.state === 'awaiting') ? (
+                {/* An agent that cannot cancel gets no Cancel button. One that can steer keeps Send during a
+                    turn, beside Cancel: the message lands inside the running turn instead of waiting for it. */}
+                {busy() && view.capabilities?.cancel && (
                     <button type="button" onClick={() => void view.cancel()}>
                         Cancel
                     </button>
-                ) : (
-                    <button type="submit" disabled={view.state === 'running'}>
+                )}
+                {(!busy() || steers() || !view.capabilities?.cancel) && (
+                    <button type="submit" disabled={busy() && !steers()}>
                         Send
                     </button>
                 )}

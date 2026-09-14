@@ -21,11 +21,18 @@ agent dev  http://localhost:5320  (agent: sigx, model: mock)
 
 Type *“any incidents?”*. Watch, in order:
 
-1. `list_incidents` runs **unasked** — it is annotated `readOnly: true` and
-   the session's policy is `allowReadOnly`.
+1. `triage` starts a **sub-agent**, unasked — it only reads, so it is
+   annotated `readOnly: true` and the session's policy is `allowReadOnly`.
+   Its card opens under the tool call that spawned it, shows `running`, and
+   streams its own work: its own `list_incidents` call, then its report.
+   While it runs, **Cancel** on the card stops that agent alone; the turn
+   carries on without it.
 2. `restart_service` **stops and asks**: the turn goes `awaiting`, the tool
    card grows an Allow / Deny prompt, and the turn continues on your answer.
 3. The answer streams in, token by token.
+
+Type while a turn runs: our engine can steer (`capabilities.steer`), so Send
+stays next to Cancel and the message lands inside the running turn.
 
 Now open a second tab. It shows the whole conversation — replayed from
 `(epoch 0, seq 0)` — and the next turn reaches both tabs live. Approve a
@@ -106,8 +113,10 @@ pnpm --filter agent-example smoke   # boots the server, runs one mock turn, join
 
 - **`src/agent.server.ts`** — the whole server side. Two tools (`defineTool`
   with a Zod schema; `list_incidents` carries `annotations: { readOnly: true }`,
-  which is what `allowReadOnly` reads), the agent picked by env (our engine
-  or any harness adapter — one `switch`, the same `SESSION_OPTIONS` for all),
+  which is what `allowReadOnly` reads), a `triage` sub-agent for our engine
+  (`agentTool` over a second `modelAgent`: its events nest under the call,
+  and the mock gives it a script of its own), the agent picked by env (our
+  engine or any harness adapter — one `switch`, the same `SESSION_OPTIONS` for all),
   one session opened with a policy, and `serveSession` — then two endpoints: a
   `serverFn` that takes wire commands and a `serverStream` that yields wire
   frames from the client's cursor. Deliberately **one process-wide session**,
@@ -116,13 +125,20 @@ pnpm --filter agent-example smoke   # boots the server, runs one mock turn, join
   `useAgentSession(session)` and a view that just reads the transcript. A
   token is one write to one part's `text`: open devtools and watch only that
   text node update. Permission prompts render **on the tool card** they
-  belong to, from `part.requestId` → `view.requests`.
+  belong to, from `part.requestId` → `view.requests`. A sub-agent renders as
+  a card **under the tool call that spawned it**, from `part.agentId` →
+  `transcript.agents`, with its own messages (`agentMessages`) inside — so a
+  nested agent nests one card deeper. Its Cancel is `view.cancelAgent(id)`,
+  offered from `capabilities.subagents === 'control'`; the composer keeps
+  Send during a turn when `capabilities.steer` is set.
 - **`vite.config.ts`** — `sigx()` + `sigxServer()`. The client build swaps
   `agent.server.ts` for stubs, so neither the agent, nor the policy, nor a
   key reaches the browser.
 - **`smoke.mjs`** — the example as a test: boot the dev server, load the real
   endpoints, drive one turn through `connectSession`, answer the permission
-  request, then connect a second client and assert both transcripts match.
+  request, check the sub-agent (bound to its spawning call, its work nested
+  under it, ended `completed`), then connect a second client and assert both
+  transcripts — and their sub-agents — match.
 
 **Non-goals:** no auth, no rate limit, no persistence, one shared session. A
 real app puts `createServerApp({ authenticate, middleware: [rateLimit] })` in
@@ -167,7 +183,7 @@ in `onUnmounted`).
 | File | What |
 |---|---|
 | `src/agent.server.ts` | tools, agent selection, the session, `serveSession`, and the two endpoints |
-| `src/App.tsx` | `connectSession` + `useAgentSession`; tool cards, permission prompts, cancel, usage |
+| `src/App.tsx` | `connectSession` + `useAgentSession`; tool cards, permission prompts, sub-agent cards, cancel, steering, usage |
 | `src/entry-server.tsx` / `src/entry-client.tsx` | the per-request app factory / the hydrating browser entry |
 | `src/env.d.ts` | Vite client types |
 | `dev-server.mjs` / `server.mjs` | dev (Vite middleware) / production (Node) servers |

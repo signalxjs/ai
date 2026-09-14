@@ -93,21 +93,45 @@ try {
     assert(client.capabilities.permissions === 'every-call', 'the hello carries the agent capabilities');
     const first = follow(client);
 
-    // 3. One turn: a read-only tool runs unasked, a destructive one asks.
+    // 3. One turn: a read-only sub-agent and its read-only tool run unasked, a destructive tool asks.
     const turn = client.prompt('Any incidents?');
     await until(() => Object.values(first.transcript.requests).length > 0, 'the destructive tool to ask for permission');
     const request = Object.values(first.transcript.requests)[0];
-    assert(request.toolName === 'restart_service', 'the read-only tool ran unasked; the destructive one asked');
+    assert(request.toolName === 'restart_service', 'the read-only calls ran unasked; the destructive one asked');
     await client.respond(request.requestId, { type: 'permission', outcome: 'allow', scope: 'session' });
 
     const result = await turn.result;
     assert(result.stopReason === 'end_turn', `the turn ended (${result.stopReason})`);
-    await until(() => tools(first.transcript).length === 2 && text(first.transcript).length > 0, 'the transcript to catch up');
+    // Three tool calls: the host's `triage` and `restart_service`, and the sub-agent's own `list_incidents`.
+    // Wait for all three to SETTLE, not merely to exist: the sub-agent's report
+    // is text that arrives before `restart_service` finishes, so "some text"
+    // no longer means the follower has caught up with the end of the turn.
+    const settled = (t) => t.status !== 'pending' && t.status !== 'in_progress';
+    const describe = (transcript) =>
+        tools(transcript)
+            .map((t) => `${t.name}#${t.callId}=${t.status}`)
+            .join(', ');
+    await until(() => tools(first.transcript).length === 3 && tools(first.transcript).every(settled), 'the transcript to catch up').catch((error) => {
+        throw new Error(`${error.message} (${describe(first.transcript)})`);
+    });
+    const statuses = describe(first.transcript);
     assert(
         tools(first.transcript).every((t) => t.status === 'completed'),
-        'both tool calls completed'
+        `every tool call completed, the sub-agent one included (${statuses})`
     );
     assert(/checkout/i.test(text(first.transcript)), 'the agent answered');
+
+    // The sub-agent: an `agent-start` bound to the call that spawned it, its
+    // work nested under that call, and one terminal `agent-update`.
+    const agents = Object.values(first.transcript.agents);
+    const spawn = tools(first.transcript).find((t) => t.name === 'triage');
+    assert(agents.length === 1 && spawn !== undefined && agents[0].callId === spawn.callId && spawn.agentId === agents[0].agentId, 'the sub-agent started bound to the tool call that spawned it');
+    assert(agents[0].status === 'completed' && agents[0].depth === 0, 'the sub-agent ended completed');
+    const nested = first.transcript.messages.filter((m) => m.parentCallId === spawn.callId).flatMap((m) => m.parts);
+    assert(
+        nested.some((p) => p.type === 'tool' && p.name === 'list_incidents') && nested.some((p) => p.type === 'text' && /INC-41/.test(p.text)),
+        'the sub-agent tool call and its report are nested under the spawning call'
+    );
     // The exposed-reasoning shape: text, and `done` once `part-end` arrived —
     // which is how the view tells "still thinking" from "thought nothing".
     const thoughts = reasoning(first.transcript);
@@ -117,9 +141,11 @@ try {
     // 4. A LATE JOINER — the second tab — replays to the same transcript.
     const late = await connectSession(transport, { from: FROM });
     const second = follow(late);
-    await until(() => tools(second.transcript).length === 2, 'the late joiner to replay the turn');
+    await until(() => tools(second.transcript).length === 3 && second.transcript.state === first.transcript.state, 'the late joiner to replay the turn');
     assert(text(second.transcript) === text(first.transcript), 'the late joiner reached the same transcript');
     assert(second.transcript.state === first.transcript.state, 'the late joiner reached the same state');
+    const agentsOf = (transcript) => JSON.stringify(Object.values(transcript.agents).map((a) => [a.agentId, a.callId, a.status, a.depth]));
+    assert(agentsOf(second.transcript) === agentsOf(first.transcript), 'the late joiner reached the same sub-agents');
 
     first.stop();
     second.stop();
