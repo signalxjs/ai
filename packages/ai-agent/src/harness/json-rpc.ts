@@ -8,6 +8,10 @@
  * An incoming cancel aborts the handler's signal but the handler's result is
  * still sent — the protocols we speak expect a response even after a cancel.
  * Writes go through one serialized writer that honours backpressure.
+ *
+ * Strict JSON-RPC 2.0 by default. `requireVersion: false` also accepts messages
+ * without the `jsonrpc` member, which `codex app-server` omits on everything it
+ * sends; outgoing messages always carry it.
  */
 
 import { LineTooLongError, messageDecoder, messageEncoder, ndjsonDecoder, ndjsonEncoder, type Framing } from './framing.js';
@@ -70,6 +74,12 @@ export interface JsonRpcPeerOptions {
     /** Its params; default `{ requestId: id }`. */
     readonly cancelParams?: (id: JsonRpcId) => unknown;
     readonly onProtocolError?: (error: JsonRpcProtocolError) => void;
+    /**
+     * Require `"jsonrpc": "2.0"` on incoming messages. Default `true`. `false` also accepts
+     * messages without the member (`codex app-server`); a member other than `"2.0"` is
+     * still refused. Outgoing messages always carry it.
+     */
+    readonly requireVersion?: boolean;
 }
 
 export interface RequestContext {
@@ -114,6 +124,7 @@ export function createJsonRpcPeer(options: JsonRpcPeerOptions): JsonRpcPeer {
     const framing = options.framing ?? 'ndjson';
     const cancelMethod = options.cancelMethod === undefined ? '$/cancel_request' : options.cancelMethod;
     const cancelParams = options.cancelParams ?? ((id: JsonRpcId) => ({ requestId: id }));
+    const requireVersion = options.requireVersion ?? true;
 
     const pending = new Map<JsonRpcId, Pending>();
     const inflight = new Map<JsonRpcId, AbortController>();
@@ -204,10 +215,11 @@ export function createJsonRpcPeer(options: JsonRpcPeerOptions): JsonRpcPeer {
             return;
         }
         const m = message as { jsonrpc?: unknown; id?: unknown; method?: unknown; params?: unknown; result?: unknown; error?: unknown };
-        if (m.jsonrpc !== '2.0') {
-            // Not JSON-RPC 2.0: answer anything request-shaped so its sender never waits
-            // (a malformed id is echoed as null, as the spec requires); report the rest.
-            if (typeof m.method === 'string') void respond(isId(m.id) ? m.id : null, { error: { code: JSON_RPC.INVALID_REQUEST, message: 'Not a JSON-RPC 2.0 message' } });
+        if (m.jsonrpc !== '2.0' && (requireVersion || m.jsonrpc !== undefined)) {
+            // Not JSON-RPC 2.0: answer a request that carries an id so its sender never waits
+            // (a malformed id is echoed as null, as the spec requires). Without an id the
+            // message is notification-shaped and nobody waits for a reply: report it, like the rest.
+            if (typeof m.method === 'string' && 'id' in m && m.id !== undefined) void respond(isId(m.id) ? m.id : null, { error: { code: JSON_RPC.INVALID_REQUEST, message: 'Not a JSON-RPC 2.0 message' } });
             else protocolError(JSON_RPC.INVALID_REQUEST, 'Not a JSON-RPC 2.0 message', line);
             return;
         }

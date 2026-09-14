@@ -65,6 +65,11 @@ export interface FakeAppServerOptions {
     readonly steer?: (params: TurnSteerParams) => TurnSteerResponse | Promise<TurnSteerResponse>;
     /** Runs before `thread/start` / `thread/resume` / `thread/fork` answers — notifications sent here precede the response on the wire. */
     readonly onThreadStart?: (threadId: string, notify: (method: string, params: unknown) => Promise<void>) => Promise<void>;
+    /**
+     * How the server frames what it sends. `'lite'` (default) omits the `jsonrpc` member on every
+     * message, exactly as `codex app-server` 0.154 does; `'jsonrpc2'` keeps it (#126).
+     */
+    readonly wire?: 'lite' | 'jsonrpc2';
 }
 
 export interface FakeAppServer {
@@ -216,7 +221,7 @@ export function fakeAppServer(options: FakeAppServerOptions): FakeAppServer {
     });
 
     return {
-        transport: { readable: s2c.readable, writable: c2s.writable },
+        transport: { readable: (options.wire ?? 'lite') === 'lite' ? s2c.readable.pipeThrough(liteWire()) : s2c.readable, writable: c2s.writable },
         peer,
         requests,
         threads,
@@ -234,3 +239,29 @@ export const say =
         await ctx.item({ type: 'agentMessage', id, text }, 'completed');
         await ctx.complete();
     };
+
+/** Strips the `jsonrpc` member from every NDJSON line: the JSON-RPC lite `codex app-server` speaks. */
+function liteWire(): TransformStream<Uint8Array, Uint8Array> {
+    const decoder = new TextDecoder();
+    const encoder = new TextEncoder();
+    let buffer = '';
+    const strip = (line: string): string => {
+        if (!line.trim()) return line;
+        const { jsonrpc: _version, ...rest } = JSON.parse(line) as Record<string, unknown>;
+        return JSON.stringify(rest);
+    };
+    return new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) {
+            buffer += decoder.decode(chunk, { stream: true });
+            let i;
+            while ((i = buffer.indexOf('\n')) >= 0) {
+                const line = buffer.slice(0, i);
+                buffer = buffer.slice(i + 1);
+                controller.enqueue(encoder.encode(strip(line) + '\n'));
+            }
+        },
+        flush(controller) {
+            if (buffer.trim()) controller.enqueue(encoder.encode(strip(buffer)));
+        }
+    });
+}

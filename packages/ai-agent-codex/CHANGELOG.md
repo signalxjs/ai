@@ -51,6 +51,10 @@ follow [SemVer](https://semver.org/).
 
 ### Fixed
 
+- The adapter connects to a real `codex app-server`. The server omits the `jsonrpc` member on
+  everything it sends and the JSON-RPC peer dropped those messages, so `initialize` never
+  settled and `session()` hung; the peer now opens with `requireVersion: false` (#126). The
+  test fake speaks the same dialect, so the suite exercises what Codex actually sends.
 - `configure({ sandbox })` was recorded in the `config` event but never sent:
   the next `turn/start` now carries the matching `sandboxPolicy`.
 - A `config` option's `current` is always one of its `values` — a granular

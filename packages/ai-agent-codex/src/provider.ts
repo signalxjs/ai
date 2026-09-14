@@ -118,7 +118,8 @@ export function codex(options: CodexOptions = {}): CodexAgent {
                 await process.spawned;
                 transport = { readable: process.readable, writable: process.writable };
             }
-            const peer = createJsonRpcPeer({ readable: transport.readable, writable: transport.writable, cancelMethod: null });
+            // codex app-server omits the jsonrpc member on everything it sends (#126).
+            const peer = createJsonRpcPeer({ readable: transport.readable, writable: transport.writable, cancelMethod: null, requireVersion: false });
             // Route everything the server sends to the thread it belongs to — a session's
             // own thread, or a sub-agent thread of one (held until a session claims it).
             peer.onUnhandled((message) => {

@@ -61,6 +61,31 @@ const shellProgram =
         await say('Done.')(ctx);
     };
 
+describe('@sigx/ai-agent-codex over JSON-RPC lite (#126)', () => {
+    it('connects to a server that omits the jsonrpc member, as codex app-server does', async () => {
+        const fake = fakeAppServer({ onTurn: say('pong'), wire: 'lite' });
+        const chunks: string[] = [];
+        const decoder = new TextDecoder();
+        const tap = new TransformStream<Uint8Array, Uint8Array>({
+            transform(chunk, controller) {
+                chunks.push(decoder.decode(chunk, { stream: true }));
+                controller.enqueue(chunk);
+            }
+        });
+        const agent = codex({ transport: { readable: fake.transport.readable.pipeThrough(tap), writable: fake.transport.writable } });
+        const session = await agent.session({ cwd: '/repo' });
+        const turn = session.prompt('ping');
+        const { events } = await drain(turn);
+        expect((await turn.result).stopReason).toBe('end_turn');
+        expect(textOf(events)).toBe('pong');
+        const inbound = chunks.join('').split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l) as Record<string, unknown>);
+        expect(inbound.some((m) => 'id' in m && 'result' in m)).toBe(true);
+        expect(inbound.some((m) => 'method' in m && !('id' in m))).toBe(true);
+        expect(inbound.filter((m) => 'jsonrpc' in m)).toEqual([]);
+        await agent.dispose();
+    });
+});
+
 describe('@sigx/ai-agent-codex', () => {
     it('declares its capabilities and performs the handshake once', async () => {
         const fake = fakeAppServer({ onTurn: say('Hello there') });
@@ -1055,5 +1080,71 @@ describe.skipIf(!!liveReason)('@sigx/ai-agent-codex (live)', () => {
         expect(text.toLowerCase()).toContain('pong');
         await agent.dispose();
     }, 120_000);
+
+    it('a prompt during a real turn steers it: same turn, one more user-message, no refusal', async () => {
+        const agent = codex();
+        const session = await agent.session({ cwd: tmpdir(), interactive: false, policy: allowAll });
+        const first = session.prompt('Use the shell to wait about five seconds (Start-Sleep -Seconds 5 on Windows, sleep 5 elsewhere), then reply with the single word: done');
+        let second: ReturnType<typeof session.prompt> | undefined;
+        const { events } = await drain(first, (e) => {
+            if (!second && e.type === 'tool-call') second = session.prompt('When you reply, add the word thanks.');
+        });
+        const result = await first.result;
+        expect(second, 'the turn never called a tool, so there was nothing to steer').toBeDefined();
+        expect(await second!.result).toEqual(result);
+        expect(second!.id).toBe(first.id);
+        // The prompt that opened the turn is a user-message too; the steer adds exactly one more.
+        const users = events.filter((e): e is Extract<AgentEvent, { type: 'user-message' }> => e.type === 'user-message');
+        expect(users).toHaveLength(2);
+        expect(users.filter((u) => u.parts.map((p) => (p.type === 'text' ? p.text : '')).join('').includes('thanks'))).toHaveLength(1);
+        expect(events.filter((e) => e.type === 'error' && e.code === 'protocol_error')).toEqual([]);
+        expect(result.stopReason).toBe('end_turn');
+        await agent.dispose();
+    }, 180_000);
+
+    it('a real sub-agent spawn is announced and cancel({ agentId }) ends it cancelled', async () => {
+        const agent = codex();
+        const session = await agent.session({ cwd: tmpdir(), interactive: false, policy: allowAll });
+        const started = Date.now();
+        const trace: string[] = [];
+        let target: string | undefined;
+        let settled: string | undefined;
+        let terminals = 0;
+        let watchdogFired = false;
+        // What the parent does after its sub-agent is cancelled is up to the model (it may wait on the
+        // thread or spawn again), so the turn is ended here once the cancel is observed; a watchdog bounds
+        // the run. The turn is only ended after the sub-agent settled, so its sweep cannot fake a pass.
+        const watchdog = setTimeout(() => {
+            watchdogFired = true;
+            void session.cancel();
+        }, 150_000);
+        const turn = session.prompt('Spawn exactly one sub-agent and ask it to reply with the number 4.');
+        try {
+            await drain(turn, async (e) => {
+                const at = ((Date.now() - started) / 1000).toFixed(1) + 's';
+                if (e.type === 'agent-start' || e.type === 'agent-update') trace.push(at + ' ' + e.type + ' ' + e.agentId + (e.type === 'agent-update' ? ' ' + e.status : ''));
+                else if (e.type === 'tool-call') trace.push(at + ' tool-call ' + e.name);
+                else if (e.type === 'turn-end') trace.push(at + ' turn-end ' + e.stopReason);
+                else if (e.type === 'error') trace.push(at + ' error ' + e.code);
+                const terminal = e.type === 'agent-update' && e.agentId === target && (e.status === 'completed' || e.status === 'failed' || e.status === 'cancelled');
+                if (terminal) terminals++;
+                if (!target && e.type === 'agent-start') {
+                    target = e.agentId;
+                    await session.cancel({ agentId: e.agentId });
+                } else if (terminal && !settled && !watchdogFired && e.type === 'agent-update') {
+                    settled = e.status;
+                    void session.cancel();
+                }
+            });
+            await turn.result;
+        } finally {
+            clearTimeout(watchdog);
+        }
+        const context = trace.slice(-30).join(' | ');
+        expect(target, 'Codex did not spawn a sub-agent: ' + context).toBeDefined();
+        expect(settled, 'the sub-agent did not settle before the watchdog: ' + context).toBe('cancelled');
+        expect(terminals, 'one terminal update per agent: ' + context).toBe(1);
+        await agent.dispose();
+    }, 240_000);
 });
 if (liveReason) console.log(`[ai-agent-codex] live smoke skipped: ${liveReason}`);
