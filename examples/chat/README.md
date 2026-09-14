@@ -1,9 +1,14 @@
-# chat — AI chat in a real SignalX app
+# chat — the `@sigx/ai` playground
 
 One `serverStream` endpoint streams `UIChunk`s to `useChat`; the model runs
-tools on the server; the provider is whatever the environment says; the
-assistant's text renders as markdown through `RichTextView` from `@sigx/richtext/dom` (with `markdownFormat` from `@sigx/richtext-markdown`). No key
-needed to run it.
+tools on the server; **the provider and model are picked in the page**, per
+conversation; the assistant's text renders as markdown through `RichTextView`
+from `@sigx/richtext/dom` (with `markdownFormat` from
+`@sigx/richtext-markdown`). No key needed to run it.
+
+(The agent layer has its own playground next door —
+[`examples/agent`](../agent) — where the unit is a *session* on an agent
+rather than a model round.)
 
 ## Quickstart
 
@@ -17,13 +22,36 @@ pnpm --filter chat-example dev   # http://localhost:5310, scripted mock model
 chat dev  http://localhost:5310  (provider: mock)
 ```
 
-With a real model:
+The header carries two dropdowns: provider, then model. With no key set the
+scripted mock is the only one offered — a provider whose key is missing is
+never listed, so it cannot be picked and then fail at request time. Set a key
+and its models appear:
 
 ```sh
-ANTHROPIC_API_KEY=sk-ant-… pnpm --filter chat-example dev      # Claude (claude-opus-5)
-OPENAI_API_KEY=sk-…         pnpm --filter chat-example dev      # OpenAI (gpt-5)
+ANTHROPIC_API_KEY=sk-ant-… pnpm --filter chat-example dev      # Claude Opus 5, Sonnet 5, Haiku 4.5
+OPENAI_API_KEY=sk-…         pnpm --filter chat-example dev      # GPT-5, GPT-5 mini
+```
+
+Switch model mid-conversation and the next turn runs on the new one; the
+transcript is the same either way. The picker is frozen while a turn streams —
+the reply arriving belongs to the model that started it.
+
+`SIGX_AI_PROVIDER` and `SIGX_AI_MODEL` now choose what the picker **starts
+on**, not what the process runs for its life:
+
+```sh
 SIGX_AI_PROVIDER=openai SIGX_AI_MODEL=gpt-5-mini pnpm --filter chat-example dev
 ```
+
+### The selection is attacker-controlled
+
+It arrives from the browser like the transcript does, so the endpoint checks
+it against an allowlist before building a model — and the allowlist is
+`src/catalog.ts`, the same table the picker renders from, so the two cannot
+drift into offering something the server would refuse. `ChatInput` validates
+`messages` unchanged (it already does the careful work); `ChatRequest` wraps it
+and adds the one field. Keys never reach the browser: `vite.config.ts` swaps
+`ai.server.ts` for a stub, and the catalogue endpoint serves names only.
 
 Or put them in a file — `dev` and `start` both load `.env` (node's
 `--env-file-if-exists`, so a missing file is fine):
@@ -33,7 +61,8 @@ cp .env.example .env             # then uncomment a key in it
 ```
 
 `.env` is gitignored; `.env.example` documents every var the example reads
-(`SIGX_AI_PROVIDER`, `SIGX_AI_MODEL`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `PORT`).
+(`SIGX_AI_PROVIDER`, `SIGX_AI_MODEL`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `PORT`)
+— the first two being the picker's starting point, not the law.
 Note that this is the example wiring it up, not the framework: nothing in sigx
 loads `.env` for you today (signalxjs/cli#113).
 

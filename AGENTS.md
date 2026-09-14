@@ -255,10 +255,19 @@ on every OS in the matrix).
 - `packages/ai-openai` → `@sigx/ai-openai` — OpenAI on the official
   `openai` SDK (peer, literal range): `openai()` → `.model(id)` over the
   Responses API stream, function calling mapped onto tool events.
-- `examples/chat` → `chat-example` — an SSR sigx app: `serverStream` chat
-  endpoint in `src/ai.server.ts`, `useChat` transcript, provider picked by
-  env (`SIGX_AI_PROVIDER`), `mockModel` when no key is set so it runs out of
-  the box. Not published.
+- `examples/chat` → `chat-example` — the **`@sigx/ai` playground**: an SSR
+  sigx app with the provider and model picked in the page, per conversation.
+  `src/catalog.ts` is the model list AND the server's allowlist (one table, so
+  the picker cannot offer what the endpoint would refuse); `src/ai.server.ts`
+  holds the `serverStream` chat endpoint, a `catalog` `serverFn` that serves
+  only the providers whose key is set, and a `ChatRequest` schema that runs
+  `ChatInput` over `messages` unchanged and checks the selection against the
+  allowlist — it arrives from the browser, so it is attacker-controlled.
+  `useChat` gets the selection through its `stream` callback (its input is
+  `{ messages }` only), so no package change. `mockModel` when no key is set so
+  it runs out of the box; the env vars choose the picker's starting point.
+  `__tests__/app.test.tsx` mounts the exported `ModelPicker` and asserts what
+  reaches the wire. Not published.
 - `examples/agent` → `agent-example` — the **`@sigx/ai-agent` playground**: an
   SSR sigx app where sessions are opened from the UI against any agent, model
   and mode, several at once, and compared side by side. `src/catalog.ts` is
