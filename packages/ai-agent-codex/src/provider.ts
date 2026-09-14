@@ -41,11 +41,16 @@ export const CODEX_CAPABILITIES: AgentCapabilities = capabilities({
     tools: 'native',
     permissions: 'harness-filtered',
     listSessions: true,
-    // Codex reports its sub-agents (collab tool calls, sub-agent activity) on the
-    // parent thread, so they can be observed. Their own threads are not routed to
-    // us yet, so a child cannot be cancelled or answered — `control` waits on that.
-    subagents: 'observe'
+    // Codex reports its sub-agents on the parent thread and streams their own
+    // threads on the same connection (verified live against CLI 0.154, #100):
+    // a child's transcript nests under its spawn call, its requests go through
+    // the host policy, and `cancel({ agentId })` interrupts its turn.
+    subagents: 'control'
 });
+
+/** Frames for threads no session has claimed yet — a child can speak before the activity that names it. */
+const ORPHAN_THREADS = 32;
+const ORPHAN_FRAMES = 256;
 
 export const DEFAULT_CODEX_COMMAND = 'codex';
 export const DEFAULT_CODEX_ARGS: readonly string[] = ['app-server'];
@@ -64,8 +69,36 @@ export interface CodexAgent extends Agent<CodexSessionOptions> {
 export function codex(options: CodexOptions = {}): CodexAgent {
     const id = options.id ?? 'codex';
     const sessions = new Map<string, CodexSession>();
+    /** Sub-agent thread → the session that spawned it (directly or through one of its own children). */
+    const childOwner = new Map<string, CodexSession>();
+    type Params = { readonly threadId?: string; readonly turnId?: string } & Record<string, unknown>;
+    const orphans = new Map<string, { method: string; params: Params }[]>();
     let connecting: Promise<Connection> | undefined;
     let disposed = false;
+
+    const hold = (threadId: string, method: string, params: Params) => {
+        let queue = orphans.get(threadId);
+        if (!queue) {
+            if (orphans.size >= ORPHAN_THREADS) orphans.delete(orphans.keys().next().value!);
+            queue = [];
+            orphans.set(threadId, queue);
+        }
+        if (queue.length < ORPHAN_FRAMES) queue.push({ method, params });
+    };
+    /** Route `childThreadId` to `owner` from now on, delivering what arrived for it before. */
+    const adopt = (childThreadId: string, owner: CodexSession) => {
+        if (sessions.has(childThreadId) || childOwner.get(childThreadId) === owner) return;
+        childOwner.set(childThreadId, owner);
+        const held = orphans.get(childThreadId) ?? [];
+        orphans.delete(childThreadId);
+        for (const frame of held) owner.handleChildNotification(childThreadId, frame.method, frame.params);
+    };
+    const ownerOf = (threadId: string): CodexSession | undefined => {
+        const owner = childOwner.get(threadId);
+        if (owner) return owner;
+        for (const s of sessions.values()) if (s.ownsThread(threadId)) return s;
+        return undefined;
+    };
 
     const connect = (): Promise<Connection> => {
         if (disposed) return Promise.reject(new AgentError('protocol_error', `[sigx ai-agent-codex] agent "${id}" is disposed`));
@@ -86,18 +119,33 @@ export function codex(options: CodexOptions = {}): CodexAgent {
                 transport = { readable: process.readable, writable: process.writable };
             }
             const peer = createJsonRpcPeer({ readable: transport.readable, writable: transport.writable, cancelMethod: null });
-            // Route everything the server sends to the thread it belongs to.
+            // Route everything the server sends to the thread it belongs to — a session's
+            // own thread, or a sub-agent thread of one (held until a session claims it).
             peer.onUnhandled((message) => {
-                const params = (message.params ?? {}) as { threadId?: string; turnId?: string } & Record<string, unknown>;
                 if (message.id !== undefined) return; // requests have their own handlers
-                if (params.threadId !== undefined) sessions.get(params.threadId)?.handleNotification(message.method, params);
-                else for (const s of sessions.values()) s.handleNotification(message.method, params);
+                const params = (message.params ?? {}) as Params;
+                const thread = params.thread as { id?: string; parentThreadId?: string | null } | undefined;
+                const threadId = params.threadId ?? thread?.id;
+                if (threadId === undefined) {
+                    for (const s of sessions.values()) s.handleNotification(message.method, params);
+                    return;
+                }
+                const own = sessions.get(threadId);
+                if (own) return own.handleNotification(message.method, params);
+                const parentId = thread?.parentThreadId ?? undefined;
+                const owner = ownerOf(threadId) ?? (parentId !== undefined ? (sessions.get(parentId) ?? ownerOf(parentId)) : undefined);
+                if (!owner) return hold(threadId, message.method, params);
+                adopt(threadId, owner);
+                owner.handleChildNotification(threadId, message.method, params);
             });
             for (const method of [CODEX_METHODS.commandApproval, CODEX_METHODS.fileChangeApproval, CODEX_METHODS.permissionsApproval, CODEX_METHODS.userInput, CODEX_METHODS.toolCall]) {
                 peer.onRequest(method, (params: { threadId?: string }, ctx) => {
-                    const session = params.threadId !== undefined ? sessions.get(params.threadId) : undefined;
-                    if (!session) throw new AgentError('protocol_error', `[sigx ai-agent-codex] "${method}" for unknown thread "${String(params.threadId)}"`);
-                    return session.handleRequest(method, params, ctx);
+                    const threadId = params.threadId;
+                    const own = threadId !== undefined ? sessions.get(threadId) : undefined;
+                    if (own) return own.handleRequest(method, params, ctx);
+                    const owner = threadId !== undefined ? ownerOf(threadId) : undefined;
+                    if (owner) return owner.handleChildRequest(threadId!, method, params, ctx);
+                    throw new AgentError('protocol_error', `[sigx ai-agent-codex] "${method}" for unknown thread "${String(threadId)}"`);
                 });
             }
             void peer.closed.then((why) => {
@@ -155,9 +203,16 @@ export function codex(options: CodexOptions = {}): CodexAgent {
             epoch,
             onClose: (threadId) => {
                 sessions.delete(threadId);
-            }
+                for (const [child, owner] of childOwner) if (owner === session) childOwner.delete(child);
+            },
+            adoptChild: (childThreadId) => adopt(childThreadId, session)
         });
         sessions.set(session.threadId, session);
+        // Frames for this thread that raced the session into existence (sent while
+        // thread/start was in flight) are the session's own: deliver them, in order.
+        const early = orphans.get(session.threadId) ?? [];
+        orphans.delete(session.threadId);
+        for (const frame of early) session.handleNotification(frame.method, frame.params);
         return session;
     }
 
@@ -187,6 +242,8 @@ export function codex(options: CodexOptions = {}): CodexAgent {
             const pending = connecting;
             connecting = undefined;
             await Promise.all([...sessions.values()].map((s) => s.close().catch(() => {})));
+            childOwner.clear();
+            orphans.clear();
             if (!pending) return;
             const conn = await pending.catch(() => undefined);
             if (!conn) return;

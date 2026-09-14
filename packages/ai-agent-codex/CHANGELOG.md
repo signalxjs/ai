@@ -23,15 +23,25 @@ follow [SemVer](https://semver.org/).
   `user-message` of that turn; the returned handle is the running turn's. A
   refused steer is a recoverable `error` inside the turn; one Codex answers
   after the turn already ended is a recoverable session-level `error`.
-- Sub-agents (`subagents: 'observe'`): `collabAgentToolCall` items are
+- Sub-agents (`subagents: 'control'`): `collabAgentToolCall` items are
   `tool-call { name: 'collab/<tool>' }` / `tool-update`, a `spawnAgent`'s
   child thread an `agent-start { kind: 'subagent' }` bound to that call, and
   every change in the reported agent states an `agent-update` (one terminal
-  per agent). `subAgentActivity` items update the thread they name,
-  announcing it first when no collab call did. Running sub-agents are
-  cancelled with an interrupted turn and when the session closes; otherwise
-  they may outlive their turn. The `Thread` type carries `parentThreadId`,
-  `source`, `agentNickname` and `agentRole`.
+  per agent). `subAgentActivity` items update the thread they name; a
+  `started` activity for a thread not yet seen is the spawn itself, as Codex
+  0.154 reports it (a `collab/spawnAgent` call under the activity's id).
+  Running sub-agents are cancelled with an interrupted turn and when the
+  session closes; otherwise they may outlive their turn. The `Thread` type
+  carries `parentThreadId`, `source`, `agentNickname` and `agentRole`.
+- Sub-agent threads are routed to the session that spawned them (verified live
+  against Codex CLI 0.154, #100): their turns stream as parts and tool calls
+  nested under the spawn call and spoken by the agent, frames that arrive
+  before the activity naming the child are held and replayed, their requests
+  go through the session policy with the same `parentCallId`, and their token
+  usage is reported as `agent-update.usage` instead of the host's totals.
+  `cancel({ agentId })` interrupts the child's running turn (or its next one,
+  when it has none yet) and ends the agent `cancelled` when that turn does; a
+  finished or unknown agent is refused with `protocol_error`.
 
 ### Changed
 
