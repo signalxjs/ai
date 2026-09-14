@@ -40,6 +40,22 @@
             .tool-output, .tool-input > pre { margin: 0.4rem 0 0; padding: 0.4rem 0.6rem; border-radius: 0.3rem; background: color-mix(in srgb, CanvasText 8%, Canvas); font-family: ui-monospace, monospace; font-size: 0.78em; white-space: pre-wrap; overflow-wrap: anywhere; }
             .tool-input > pre { font-size: 1em; }
             .tool-error { color: crimson; font-size: 0.82em; }
+            /* A SUB-AGENT card, under the tool card whose call spawned it: its
+               status, and its own messages — open while it works, folded once
+               it is done. A nested agent sits one card deeper. */
+            .agent { margin: 0.5rem 0 0 0.6rem; padding: 0.4rem 0.6rem; border-left: 3px dashed GrayText; border-radius: 0.4rem; background: color-mix(in srgb, CanvasText 4%, Canvas); }
+            .agent.running, .agent.paused { border-color: Highlight; }
+            .agent.completed { border-color: seagreen; }
+            .agent.failed, .agent.cancelled { border-color: crimson; }
+            .agent-head { display: flex; align-items: baseline; gap: 0.5rem; font-size: 0.85em; }
+            .agent-status { font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.7; }
+            .agent.running .agent-status::after { content: ''; display: inline-block; width: 0.45em; height: 0.45em; margin-left: 0.35em; border-radius: 50%; background: currentColor; animation: pulse 1.2s ease-in-out infinite; }
+            @media (prefers-reduced-motion: reduce) { .agent.running .agent-status::after { animation: none; } }
+            .agent-head button { margin-left: auto; padding: 0.15rem 0.6rem; font-size: 0.9em; }
+            .agent-summary { margin: 0.25rem 0 0; font-size: 0.82em; opacity: 0.75; }
+            .agent-work { margin-top: 0.3rem; }
+            .agent-work > summary { cursor: pointer; opacity: 0.7; font-size: 0.8em; }
+            .agent-work .msg { max-width: 100%; padding: 0.4rem 0.6rem; margin-top: 0.3rem; }
             .ask { margin: 0.5rem 0 0; font-size: 0.9em; }
             .ask code { font-family: ui-monospace, monospace; }
             /* An input request: one fieldset per question, answered in one go. */

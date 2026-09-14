@@ -24,7 +24,7 @@ import { defineTool, type LanguageModel } from '@sigx/ai';
 import { mockModel } from '@sigx/ai/testing';
 import { anthropic } from '@sigx/ai-anthropic';
 import { openai } from '@sigx/ai-openai';
-import { modelAgent, allowReadOnly, memoryEventLog, type Agent, type AgentSession } from '@sigx/ai-agent';
+import { agentTool, modelAgent, allowReadOnly, memoryEventLog, type Agent, type AgentSession } from '@sigx/ai-agent';
 import type { CodingSessionOptions } from '@sigx/ai-agent/coding';
 import { serveSession, isWireCommand, WIRE_PROTOCOL_VERSION, type Cursor, type WireCommand, type WireFrame, type WireReply } from '@sigx/ai-agent/wire';
 import { ExecutableNotFoundError } from '@sigx/ai-agent-node';
@@ -75,14 +75,19 @@ const TOOLS = [listIncidents, restartService];
 
 // ── The agent ───────────────────────────────────────────────────────────────
 
-/** The scripted model: a two-step tool flow, then an answer — no key needed. */
+/**
+ * The scripted host model — no key needed: hand the reading to the `triage`
+ * sub-agent, restart what it found (which stops and asks), then answer.
+ */
 function demoModel(): LanguageModel {
     return mockModel({
         respond: (request) => {
             const last = request.messages[request.messages.length - 1];
             if (last?.role === 'tool') {
                 const result = last.content[0];
-                if (result?.toolName === 'list_incidents') {
+                if (result?.toolName === 'triage' || result?.toolName === 'list_incidents') {
+                    // A cancelled (or failed) sub-agent comes back as a tool error: the turn goes on without it.
+                    if (result.isError) return { text: `Triage did not finish — ${String(result.output)}. Nothing was restarted.`, delayMs: 30 };
                     return { toolCalls: [{ name: 'restart_service', input: { service: 'checkout' } }], delayMs: 30 };
                 }
                 if (result?.toolName === 'restart_service') {
@@ -101,16 +106,70 @@ function demoModel(): LanguageModel {
                 // other half of the story: Claude Code redacts its thinking
                 // and the view renders a live indicator instead (#77/#78).
                 return {
-                    reasoning: 'The operator wants the incident list. `list_incidents` is annotated read-only, so the policy lets it run unasked; anything that restarts a service has to stop and ask.',
-                    toolCalls: [{ name: 'list_incidents', input: {} }],
+                    reasoning: 'The operator wants the incidents looked at. Reading them is work for the `triage` sub-agent: it only reads, so the policy lets it start unasked. Anything that restarts a service has to stop and ask.',
+                    toolCalls: [{ name: 'triage', input: { task: 'List the open incidents and say which one to act on first.' } }],
                     delayMs: 30
                 };
             }
             return {
-                text: 'Hello from the scripted mock model. Ask about the incidents to see a read-only tool run unasked and a destructive one stop for your approval — or set ANTHROPIC_API_KEY / OPENAI_API_KEY for a real model.',
+                text: 'Hello from the scripted mock model. Ask about the incidents to see a sub-agent triage them, and a destructive tool stop for your approval — or set ANTHROPIC_API_KEY / OPENAI_API_KEY for a real model.',
                 delayMs: 30
             };
         }
+    });
+}
+
+/**
+ * The sub-agent's own script: read the incidents, then report. The pause
+ * before its tool call is deliberate — long enough to watch its card run, and
+ * to press its Cancel.
+ */
+function triageModel(): LanguageModel {
+    // Its own call ids. Each `mockModel` numbers generated ids from `call_1`,
+    // so the host's `triage` call and this model's first call would share one
+    // — and a transcript settles a tool card by its call id. A real provider
+    // hands out unique ids; two scripts in one session need distinct ones.
+    let calls = 0;
+    return mockModel({
+        respond: (request) => {
+            const last = request.messages[request.messages.length - 1];
+            if (last?.role === 'tool') {
+                return { text: 'INC-41 first: checkout latency is over 2s on /pay, the only high-severity incident. INC-42, a stale search index, can wait.', delayMs: 30 };
+            }
+            return { toolCalls: [{ id: `triage_call_${++calls}`, name: 'list_incidents', input: {} }], delayMs: 1500 };
+        }
+    });
+}
+
+const TriageInput = z.object({ task: z.string().describe('What the triage sub-agent should find out') });
+
+/**
+ * A SUB-AGENT as a tool. `agentTool` opens a session on a second
+ * `modelAgent` for each call; because the host is `modelAgent` too, the
+ * delegate is a sub-agent of the host turn — an `agent-start` bound to this
+ * call, its own messages nested under it, `agent-update`s, exactly one
+ * terminal status — and `cancelAgent` stops it while the turn goes on.
+ *
+ * It only reads, so it is annotated read-only and the host's `allowReadOnly`
+ * starts it unasked; inside, the same policy judges its own tool calls.
+ * Our engine only: a harness has its own sub-agents, reported the same way.
+ */
+function triage(model: LanguageModel) {
+    const delegate = modelAgent({
+        model,
+        system: 'You triage incidents for an operations agent. Read, never change anything, and report in two sentences.',
+        tools: [listIncidents],
+        maxSteps: 4
+    });
+    return agentTool(delegate, {
+        name: 'triage',
+        title: 'Triage',
+        description: 'A sub-agent that reads the open incidents and reports which one to act on first.',
+        input: TriageInput,
+        jsonSchema: z.toJSONSchema(TriageInput),
+        annotations: { readOnly: true },
+        prompt: ({ task }) => task,
+        sessionOptions: { policy: allowReadOnly, interactive: true, requestTimeoutMs: 5 * 60_000 }
     });
 }
 
@@ -128,15 +187,20 @@ function pick<T extends string>(name: string, allowed: readonly T[], fallback: T
     return fallback;
 }
 
-function modelFor(): LanguageModel {
+/** The host's model and the sub-agent's: a real provider plays both parts; the mock gets a script for each. */
+function modelsFor(): { host: LanguageModel; triage: LanguageModel } {
     const wanted = pick('SIGX_AI_PROVIDER', ['anthropic', 'openai', 'mock'] as const, process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.OPENAI_API_KEY ? 'openai' : 'mock');
     switch (wanted) {
-        case 'anthropic':
-            return anthropic().model(process.env.SIGX_AI_MODEL ?? 'claude-opus-5');
-        case 'openai':
-            return openai().model(process.env.SIGX_AI_MODEL ?? 'gpt-5');
+        case 'anthropic': {
+            const model = anthropic().model(process.env.SIGX_AI_MODEL ?? 'claude-opus-5');
+            return { host: model, triage: model };
+        }
+        case 'openai': {
+            const model = openai().model(process.env.SIGX_AI_MODEL ?? 'gpt-5');
+            return { host: model, triage: model };
+        }
         default:
-            return demoModel();
+            return { host: demoModel(), triage: triageModel() };
     }
 }
 
@@ -242,8 +306,10 @@ async function openSession(): Promise<{ agent: Agent; session: AgentSession }> {
             console.warn(unavailable(choice, e));
         }
     }
-    const agent = modelAgent({ model: modelFor(), system: SYSTEM, tools: TOOLS, maxSteps: 6 });
-    return { agent, session: await agent.session(SESSION_OPTIONS) };
+    const models = modelsFor();
+    const tools = [...TOOLS, triage(models.triage)];
+    const agent = modelAgent({ model: models.host, system: SYSTEM, tools, maxSteps: 6 });
+    return { agent, session: await agent.session({ ...SESSION_OPTIONS, tools }) };
 }
 
 const { agent, session } = await openSession();
