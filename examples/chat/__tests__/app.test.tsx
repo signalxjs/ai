@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { component, jsx, defineApp } from 'sigx';
-import { CATALOG, defaultFor, isKnown, type ChatCatalog, type ProviderChoice, type Selection } from '../src/catalog';
+import { CATALOG, defaultFor, isKnown, isOffered, type ChatCatalog, type ProviderChoice, type Selection } from '../src/catalog';
 
 // `ai.server` builds provider clients and reads keys; the client build
 // replaces it with stubs anyway, and `useChat` only ever calls what it is
@@ -65,6 +65,16 @@ describe('the catalogue', () => {
         const mock = CATALOG.find((p) => p.id === 'mock')!;
         expect(mock.keyEnv).toBeUndefined();
         expect(CATALOG.filter((p) => p.id !== 'mock').every((p) => typeof p.keyEnv === 'string')).toBe(true);
+    });
+
+    it('refuses a pair whose provider this server cannot serve, even though the catalogue names it', () => {
+        // The threat: the picker hides a provider with no key, but nothing
+        // stops a client posting one anyway. That has to be a bad request, not
+        // a failure when the SDK client is built.
+        const mockOnly = CATALOG.filter((p) => p.id === 'mock');
+        expect(isKnown({ provider: 'anthropic', model: 'claude-opus-5' })).toBe(true);
+        expect(isOffered(mockOnly, { provider: 'anthropic', model: 'claude-opus-5' })).toBe(false);
+        expect(isOffered(mockOnly, { provider: 'mock', model: 'mock-1' })).toBe(true);
     });
 
     it('is the allowlist: a pair it does not name is refused', () => {

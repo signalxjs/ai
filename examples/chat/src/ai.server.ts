@@ -13,7 +13,7 @@
 import { serverFn, serverStream } from '@sigx/server';
 import { defineTool, type LanguageModel, type StandardSchemaV1 } from '@sigx/ai';
 import { chatStream, ChatInput } from '@sigx/ai/server';
-import { CATALOG, PROVIDERS, defaultFor, isKnown, type ChatCatalog, type ProviderChoice, type Selection } from './catalog.js';
+import { CATALOG, PROVIDERS, defaultFor, isOffered, type ChatCatalog, type ProviderChoice, type Selection } from './catalog.js';
 import { mockModel } from '@sigx/ai/testing';
 import { anthropic } from '@sigx/ai-anthropic';
 import { openai } from '@sigx/ai-openai';
@@ -168,7 +168,13 @@ const ChatRequest: StandardSchemaV1<ChatRequest, ChatRequest> = {
             if ('issues' in messages && messages.issues) return { issues: [...messages.issues] };
             const selection = (value as { selection?: unknown }).selection as Selection | undefined;
             if (!selection || typeof selection !== 'object') return { issues: [{ message: 'a provider and model are required', path: ['selection'] }] };
-            if (!isKnown(selection)) return { issues: [{ message: `"${String(selection.provider)}" / "${String(selection.model)}" is not a model this server offers`, path: ['selection'] }] };
+            // Against what this server can actually SERVE, not the whole
+            // catalogue: a provider whose key is missing is a bad request, not
+            // a failure when the client is built. The picker hiding it is not
+            // a check — nothing stops a client posting one anyway.
+            if (!isOffered(CATALOG.filter(configured), selection)) {
+                return { issues: [{ message: `"${String(selection.provider)}" / "${String(selection.model)}" is not a model this server offers`, path: ['selection'] }] };
+            }
             return { value: { messages: (messages as { value: ChatInput }).value.messages, selection } };
         }
     }

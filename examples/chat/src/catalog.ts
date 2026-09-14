@@ -56,13 +56,24 @@ export interface Selection {
 
 /**
  * THE ALLOWLIST. The selection arrives from the browser, so it is
- * attacker-controlled: the server checks it against this before building a
- * model, and the picker renders from the same table. One source, so the two
- * cannot drift into offering something the server would refuse — or, worse,
- * accepting something it never offered.
+ * attacker-controlled: the server checks it before building a model, and the
+ * picker renders from the same table. One source, so the two cannot drift into
+ * offering something the server would refuse — or, worse, accepting something
+ * it never offered.
+ *
+ * The server passes the providers it can actually SERVE, not the whole
+ * catalogue: a pair naming a provider whose key is missing is a request this
+ * server cannot honour, and it should be refused as a bad request rather than
+ * fail when the SDK client is built. The UI hiding those providers is not a
+ * check — nothing stops a client posting one anyway.
  */
+export function isOffered(usable: readonly ProviderChoice[], selection: Selection): boolean {
+    return usable.some((p) => p.id === selection.provider && p.models.some((m) => m.id === selection.model));
+}
+
+/** `isOffered` over the whole catalogue — "is this a pair that exists at all". */
 export function isKnown(selection: Selection): boolean {
-    return CATALOG.some((p) => p.id === selection.provider && p.models.some((m) => m.id === selection.model));
+    return isOffered(CATALOG, selection);
 }
 
 /**
