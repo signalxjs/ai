@@ -3,9 +3,9 @@
  * process, no network.
  */
 
-import type { AgentDefinition as SdkAgentDefinition, Options, OutputFormat, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { AgentDefinition as SdkAgentDefinition, Options, OutputFormat, SDKUserMessage, ThinkingConfig } from '@anthropic-ai/claude-agent-sdk';
 import { jsonSchemaOf, type JsonSchema, type StandardSchemaV1 } from '@sigx/ai';
-import { AgentError, type AgentDefinition, type PromptPart, type ToolAnnotations } from '@sigx/ai-agent';
+import { AgentError, type AgentDefinition, type ConfigOption, type PromptPart, type ToolAnnotations } from '@sigx/ai-agent';
 import { categoryOf } from '@sigx/ai-agent/coding';
 import type { OutputSpec } from '@sigx/ai-agent';
 import { DEFAULT_ENV_ALLOWLIST, buildChildEnv } from '@sigx/ai-agent-node';
@@ -16,6 +16,70 @@ const READ_ONLY = new Set(['Read', 'Glob', 'Grep', 'LS', 'NotebookRead']);
 
 /** Every permission mode the CLI knows — what a `config` event advertises. */
 export const PERMISSION_MODES = ['default', 'acceptEdits', 'plan', 'dontAsk', 'auto', 'bypassPermissions'] as const;
+
+/** How much of Claude's thinking reaches the client — what the `thinkingDisplay` config option advertises. */
+export const THINKING_DISPLAYS = ['summarized', 'omitted'] as const;
+export type ThinkingDisplay = (typeof THINKING_DISPLAYS)[number];
+
+/**
+ * Thinking the way Claude Code shows it itself. The CLI defaults to
+ * `omitted`, which leaves every reasoning part empty; `adaptive` is what the
+ * SDK already picks for models that support it, and the CLI degrades it to
+ * the model's own thinking mode on ones that do not (measured against
+ * Sonnet 4.5 and Haiku 4.5: both stream summaries, neither errors).
+ */
+export const DEFAULT_THINKING: ThinkingConfig = { type: 'adaptive', display: 'summarized' };
+
+/** The `thinking` the query gets: the default unless the caller decided — `null` opts out of sending one at all. */
+export function resolveThinking(thinking: ThinkingConfig | null | undefined): ThinkingConfig | undefined {
+    if (thinking === null) return undefined;
+    return thinking ?? DEFAULT_THINKING;
+}
+
+/** The display the session runs with, or `undefined` when we cannot know (thinking off, or inherited from the CLI's own settings). */
+export function thinkingDisplayOf(thinking: ThinkingConfig | null | undefined): ThinkingDisplay | undefined {
+    const t = resolveThinking(thinking);
+    if (!t || t.type === 'disabled') return undefined;
+    return t.display ?? 'omitted';
+}
+
+/**
+ * The `maxThinkingTokens` argument that leaves the session's thinking MODE
+ * alone while `setMaxThinkingTokens` changes only its display: a fixed budget
+ * stays fixed, `0` stays disabled, and adaptive (or unknown) is `null` — no
+ * limit.
+ */
+export function thinkingBudgetOf(thinking: ThinkingConfig | null | undefined): number | null {
+    const t = resolveThinking(thinking);
+    if (t?.type === 'enabled' && t.budgetTokens !== undefined) return t.budgetTokens;
+    if (t?.type === 'disabled') return 0;
+    return null;
+}
+
+/**
+ * What a `config` event advertises — one entry per setting we know the
+ * current value of, so a client can both show it and switch it through
+ * `configure()`.
+ */
+export function configOptions(current: { readonly model?: string; readonly permissionMode?: string; readonly thinkingDisplay?: ThinkingDisplay }): ConfigOption[] {
+    return [
+        ...(current.model !== undefined ? [{ id: 'model', label: 'Model', values: [{ id: current.model }], current: current.model }] : []),
+        ...(current.permissionMode !== undefined ? [{ id: 'permissionMode', label: 'Permission mode', values: PERMISSION_MODES.map((id) => ({ id })), current: current.permissionMode }] : []),
+        ...(current.thinkingDisplay !== undefined
+            ? [
+                  {
+                      id: 'thinkingDisplay',
+                      label: 'Thinking',
+                      values: [
+                          { id: 'summarized', label: 'Summarized', description: "Stream a summary of Claude's thinking as reasoning parts." },
+                          { id: 'omitted', label: 'Hidden', description: 'Report that Claude is thinking, but none of it.' }
+                      ],
+                      current: current.thinkingDisplay
+                  }
+              ]
+            : [])
+    ];
+}
 
 /** Annotations we can vouch for on a built-in tool. */
 export function toolAnnotations(name: string): ToolAnnotations | undefined {
@@ -109,8 +173,10 @@ export function toQueryOptions(input: QueryOptionsInput): Options {
         throw new AgentError('protocol_error', '[sigx ai-agent-claude-code] permissionMode "bypassPermissions" needs allowDangerouslySkipPermissions: true — every tool would run unasked');
     }
     const system = session.system;
+    const thinking = resolveThinking(session.thinking);
     return {
         cwd: session.cwd,
+        ...(thinking ? { thinking } : {}),
         ...(session.model !== undefined ? { model: session.model } : {}),
         ...(system !== undefined ? { systemPrompt: session.systemPromptPreset ? { type: 'preset', preset: 'claude_code', append: system } : system } : {}),
         settingSources: [...(session.settingSources ?? agent.settingSources ?? [])],

@@ -187,8 +187,8 @@ function outputText(p: ToolPartState): string | undefined {
 /**
  * What a part needs from the session: the open requests and the two ways to
  * settle one, plus the live reasoning-token count — the only progress a
- * harness that redacts its thinking gives us. A tool card that spawned a
- * sub-agent reads the agent and its messages from the `transcript`.
+ * harness that shows none of its thinking gives us. A tool card that spawned
+ * a sub-agent reads the agent and its messages from the `transcript`.
  */
 interface ThreadProps {
     readonly requests: readonly OpenRequest[];
@@ -206,8 +206,9 @@ const Part = component<{ part: AgentPart } & ThreadProps>((ctx) => {
         if (p.type === 'text') return <span class="text">{p.text}</span>;
         if (p.type === 'reasoning') {
             // Four states, and only two of them have text to show. A harness
-            // that redacts thinking (Claude Code) opens a REAL reasoning part
-            // whose text stays empty for the whole thinking window, so
+            // that shows none of its thinking (Claude Code under
+            // `thinking.display: 'omitted'`) still opens a REAL reasoning
+            // part whose text stays empty for the whole thinking window, so
             // rendering `null` on empty text is ten seconds of blank thread
             // (#78). While the part is open, say that it is thinking — with
             // the neutral `usage.reasoningTokens` count once one arrives;
