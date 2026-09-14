@@ -266,9 +266,9 @@ session). Every id on a forwarded event is therefore rewritten
 `<delegate session id>/<the delegate's own id>` before it enters the host's
 turn — `callId`, `parentCallId` below the delegate, `agentId`, `requestId`,
 `messageId`, `partId` — and mapped back when `respond()` or
-`cancel({ agentId })` is routed into the delegate. The one id that stays as it
-is, is the delegate's own `agentId` on the `agent-start` bound to the call: it
-is the delegate session id, already host-space. Nesting composes, so a
+`cancel({ agentId })` is routed into the delegate. One id is left alone: the
+delegate's own `agentId` on the `agent-start` bound to the call, which is the
+delegate session id and so already host-space. Nesting composes, so a
 grandchild's id carries one prefix per level it travelled up. Read ids off the
 events, never construct them.
 
