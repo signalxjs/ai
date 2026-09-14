@@ -131,18 +131,15 @@ function demoModel(): LanguageModel {
  * to press its Cancel.
  */
 function triageModel(): LanguageModel {
-    // Its own call ids. Each `mockModel` numbers generated ids from `call_1`,
-    // so the host's `triage` call and this model's first call would share one
-    // — and a transcript settles a tool card by its call id. A real provider
-    // hands out unique ids; two scripts in one session need distinct ones.
-    let calls = 0;
+    // Its call ids may repeat the host's — both mocks number from `call_1`.
+    // `agentTool` namespaces what it forwards, so the two spaces stay apart.
     return mockModel({
         respond: (request) => {
             const last = request.messages[request.messages.length - 1];
             if (last?.role === 'tool') {
                 return { text: 'INC-41 first: checkout latency is over 2s on /pay, the only high-severity incident. INC-42, a stale search index, can wait.', delayMs: 30 };
             }
-            return { toolCalls: [{ id: `triage_call_${++calls}`, name: 'list_incidents', input: {} }], delayMs: 1500 };
+            return { toolCalls: [{ name: 'list_incidents', input: {} }], delayMs: 1500 };
         }
     });
 }
@@ -240,8 +237,8 @@ const INSTALL: Record<HarnessChoice, string> = {
     codex: 'npm i -g @openai/codex',
     'acp:gemini': 'npm i -g @google/gemini-cli',
     'acp:cursor': 'the Cursor CLI (`agent`), see https://cursor.com/cli',
-    'acp:claude-code': 'npm i -g @zed-industries/claude-code-acp',
-    'acp:codex': 'npm i -g @zed-industries/codex-acp'
+    'acp:claude-code': 'npm i -g @agentclientprotocol/claude-agent-acp',
+    'acp:codex': 'npm i -g @agentclientprotocol/codex-acp'
 };
 
 /**

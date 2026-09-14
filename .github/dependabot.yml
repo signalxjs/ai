@@ -16,9 +16,31 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # core is still on vitest 4 and size-limit 11 — this repo follows the
+      # estate rather than leading it. Revisit when core moves.
+      - dependency-name: vitest
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "@vitest/coverage-v8"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: size-limit
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "@size-limit/preset-small-lib"
+        update-types:
+          - version-update:semver-major
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # Pinned to v6 to pair with actions/checkout@v5 in core-sync.yml; newer
+      # majors hit peter-evans/create-pull-request#4272 (`Duplicate header:
+      # "Authorization"`). Revisit when that issue closes or the estate moves.
+      - dependency-name: peter-evans/create-pull-request
+        update-types:
+          - version-update:semver-major

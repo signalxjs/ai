@@ -18,6 +18,12 @@ follow [SemVer](https://semver.org/).
   the session roots and gated by the policy) and `terminal/*` (through
   `spawnAgentProcess`).
 - Presets: `gemini()`, `cursor()`, `claudeCodeAcp()`, `codexAcp()`.
+  `claudeCodeAcp()` runs `claude-agent-acp`, the command installed by
+  `@agentclientprotocol/claude-agent-acp` — the bridge moved out of
+  `@zed-industries`, where `@zed-industries/claude-code-acp` is deprecated and
+  installs the older `claude-code-acp`. `codexAcp()` keeps `codex-acp`; only
+  the package to install changed, to `@agentclientprotocol/codex-acp`. Override
+  `command` to stay on a deprecated bridge.
 - Usage is reported under the well-known `Usage` keys every adapter shares
   instead of ACP's own spellings: `thoughtTokens` → `reasoningTokens`,
   `cachedReadTokens` → `cacheReadInputTokens`, `cachedWriteTokens` →

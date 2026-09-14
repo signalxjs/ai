@@ -10,7 +10,7 @@ import { acp, gemini, cursor, claudeCodeAcp, codexAcp, type AcpPreset } from '@s
 const presets: { name: string; flag: string; preset: AcpPreset }[] = [
     { name: 'gemini', flag: 'SIGX_LIVE_ACP_GEMINI', preset: gemini() },
     { name: 'cursor', flag: 'SIGX_LIVE_ACP_CURSOR', preset: cursor() },
-    { name: 'claude-code-acp', flag: 'SIGX_LIVE_ACP_CLAUDE_CODE', preset: claudeCodeAcp() },
+    { name: 'claude-agent-acp', flag: 'SIGX_LIVE_ACP_CLAUDE_CODE', preset: claudeCodeAcp() },
     { name: 'codex-acp', flag: 'SIGX_LIVE_ACP_CODEX', preset: codexAcp() }
 ];
 

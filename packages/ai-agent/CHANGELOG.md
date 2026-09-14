@@ -221,6 +221,23 @@ follow [SemVer](https://semver.org/).
 
 ### Fixed
 
+- `agentTool` namespaced the ids it forwards out of a delegate, so a delegate
+  can no longer collide with the host. Ids are unique only within the session
+  that minted them, and sequential ids are normal — two `mockModel`s both
+  number their calls from `call_1`, a harness numbers its items per session —
+  so a delegate's `call_1` used to land on the host's `call_1`: the host's own
+  delegating call never settled, the delegate's updates resolved the wrong
+  transcript part, and `checkEventInvariants` reported the reused `callId`.
+  Every id on a forwarded event is now rewritten
+  `<delegate session id>/<the delegate's own id>` — `callId`, `parentCallId`
+  below the delegate, `agentId`, `requestId`, `messageId`, `partId` — and
+  mapped back when `respond()` or `cancel({ agentId })` is routed into the
+  delegate, which also stops either from reaching a delegate it was not
+  addressed to. Unchanged: the delegate's own `agentId` on the `agent-start`
+  bound to the call (the delegate session id, already host-space). Prefixes
+  nest, one per level a grandchild's id travels up. **Ids inside a sub-agent
+  are what the events say they are** — code that matched a delegate's id
+  literally (a test, a UI keyed on a harness id) must read it off the event.
 - `modelAgent` fed a delegate's flattened text back to the host model as the
   host's own words on the next turn; it now builds the conversation with
   `toUIMessages(transcript, { subagents: 'omit' })`.

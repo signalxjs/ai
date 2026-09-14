@@ -100,14 +100,17 @@ describe('modelAgent agent definitions (defineAgents)', () => {
 
     it('a permission request raised inside the delegate is answered through the host session', async () => {
         const seen: AgentEvent[] = [];
+        // The delegate's own ids reach the host namespaced by its session id.
+        let delegateId: string | undefined;
         const { events, result, t } = await run(
             (req) => (isDelegate(req) ? (afterTools(req) ? { text: 'echoed' } : { toolCalls: [{ name: 'echo', input: { a: 1 }, id: 'd1' }] }) : afterTools(req) ? { text: 'Reviewed.' } : { toolCalls: [{ name: 'reviewer', input: { task: 'use echo' }, id: 'r1' }] }),
             { policy: allowReadOnly, agents: { reviewer: { description: 'x', prompt: REVIEW_PROMPT } } },
             async (e, session) => {
+                if (e.type === 'agent-start') delegateId = e.agentId;
                 // The host asks about spawning the reviewer (not read-only) — then the reviewer asks about echo.
                 if (e.type === 'request') {
                     seen.push(e);
-                    if (e.toolName === 'echo') expect(e).toMatchObject({ parentCallId: 'r1', kind: 'permission', callId: 'd1' });
+                    if (e.toolName === 'echo') expect(e).toMatchObject({ parentCallId: 'r1', kind: 'permission', callId: `${delegateId}/d1` });
                     else expect(e).toMatchObject({ kind: 'permission', toolName: 'reviewer', callId: 'r1' });
                     expect(e.parentCallId === undefined).toBe(e.toolName === 'reviewer');
                     await session.respond(e.requestId, { type: 'permission', outcome: 'allow', scope: 'once' });
@@ -117,7 +120,7 @@ describe('modelAgent agent definitions (defineAgents)', () => {
         expect(result.stopReason).toBe('end_turn');
         expect(seen.map((e) => (e as Extract<AgentEvent, { type: 'request' }>).toolName)).toEqual(['reviewer', 'echo']);
         expect(events.find((e) => e.type === 'request-resolved' && e.parentCallId === 'r1')).toMatchObject({ by: 'client', outcome: 'allow' });
-        expect(events.find((e) => e.type === 'tool-update' && e.callId === 'd1' && e.status === 'completed')).toBeDefined();
+        expect(events.find((e) => e.type === 'tool-update' && e.callId === `${delegateId}/d1` && e.status === 'completed')).toBeDefined();
         expect(spawnedAgent(t, 'r1')).toMatchObject({ status: 'completed', output: 'echoed' });
     });
 
@@ -128,7 +131,8 @@ describe('modelAgent agent definitions (defineAgents)', () => {
             { policy: allowAll, agents: { reviewer: { description: 'x', prompt: REVIEW_PROMPT } } },
             async (e, session) => {
                 if (e.type === 'agent-start') agentId = e.agentId;
-                if (e.type === 'tool-update' && e.callId === 'd1' && e.status === 'in_progress') await session.cancel({ agentId: agentId! });
+                // The delegate's `d1` arrives namespaced; what identifies it here is the call it sits under.
+                if (e.type === 'tool-update' && e.parentCallId === 'r1' && e.status === 'in_progress') await session.cancel({ agentId: agentId! });
             }
         );
         expect(result.stopReason).toBe('end_turn');
