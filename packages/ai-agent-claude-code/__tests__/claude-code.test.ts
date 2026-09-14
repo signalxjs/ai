@@ -476,6 +476,11 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
             expect(fake.calls[0]!.thinking).toEqual(thinking ?? undefined);
             expect(events.find((e) => e.type === 'config')).toMatchObject({ options: [{ id: 'model' }, { id: 'permissionMode' }] });
             expect((events.find((e) => e.type === 'config') as Extract<AgentEvent, { type: 'config' }>).options).toHaveLength(2);
+            // An option nobody advertised is not one a client may switch: the
+            // session deferred the display (or has no thinking at all), and
+            // overriding it here would answer a question nobody could ask.
+            await expect(session.configure!({ thinkingDisplay: 'summarized' })).rejects.toThrow(/does not advertise thinkingDisplay/);
+            expect(fake.thinking).toEqual([]);
             await agent.dispose();
         }
     });

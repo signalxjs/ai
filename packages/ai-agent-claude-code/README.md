@@ -85,6 +85,9 @@ Claude Code's own), `maxTurns`, `maxBudgetUsd`, `additionalDirectories`,
   Code's own `thinking.display` / `--thinking-display` setting. Mid-session,
   `configure({ thinkingDisplay: 'summarized' | 'omitted' })` switches the
   display through `setMaxThinkingTokens`, keeping the session's thinking mode.
+  A session that advertises no `thinkingDisplay` — thinking disabled, or
+  `thinking: null` deferring to the CLI's own setting — refuses the patch
+  rather than overriding what it was told to leave alone.
 - **Structured output** is per query in the SDK: a `prompt(input, { output })`
   whose schema differs from the running query's restarts the query with
   `resume`, transparently.

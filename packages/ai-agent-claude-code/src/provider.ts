@@ -356,6 +356,14 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
                 if (patch.thinkingDisplay !== undefined) {
                     const next = patch.thinkingDisplay as ThinkingDisplay;
                     if (!THINKING_DISPLAYS.includes(next)) throw new AgentError('protocol_error', `[sigx ai-agent-claude-code] thinkingDisplay must be one of ${THINKING_DISPLAYS.join(', ')}, not "${patch.thinkingDisplay}"`);
+                    // Only a session that ADVERTISES the option can be switched:
+                    // one started with `thinking: null` deferred the display to
+                    // Claude Code's own settings, and one with
+                    // `{ type: 'disabled' }` has no thinking to display —
+                    // changing either would answer a question nobody could ask.
+                    if (thinkingDisplay === undefined) {
+                        throw new AgentError('protocol_error', '[sigx ai-agent-claude-code] this session does not advertise thinkingDisplay — it was opened with thinking disabled, or with `thinking: null` to inherit Claude Code\'s own setting');
+                    }
                     // The display is the only thing that changes: the budget
                     // argument carries the session's own thinking mode back in.
                     await q.setMaxThinkingTokens(thinkingBudgetOf(sessionOptions.thinking), next);

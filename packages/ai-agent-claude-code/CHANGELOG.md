@@ -21,6 +21,8 @@ versions follow [SemVer](https://semver.org/).
   advertised whenever the session knows its display), switchable with
   `configure({ thinkingDisplay })` → `Query.setMaxThinkingTokens`, which
   carries the session's own thinking mode along so only the display changes.
+  A session that advertises no `thinkingDisplay` (thinking disabled, or
+  `thinking: null`) refuses the patch.
 - `configOptions`, `resolveThinking`, `thinkingDisplayOf`, `thinkingBudgetOf`,
   `THINKING_DISPLAYS` and `DEFAULT_THINKING` are exported.
 - Sub-agents. Claude Code's task frames (`system/task_started`,
