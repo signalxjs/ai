@@ -18,6 +18,7 @@
         "@sigx/ai-agent-acp": "workspace:*",
         "@sigx/ai-agent-claude-code": "workspace:*",
         "@sigx/ai-agent-codex": "workspace:*",
+        "@sigx/ai-agent-copilot": "workspace:*",
         "@sigx/ai-agent-node": "workspace:*",
         "@sigx/ai-anthropic": "workspace:*",
         "@sigx/ai-openai": "workspace:*",

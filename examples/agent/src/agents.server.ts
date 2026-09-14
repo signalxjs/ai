@@ -200,9 +200,14 @@ async function harness(choice: HarnessChoice): Promise<Agent<CodingSessionOption
             const { codex } = await import('@sigx/ai-agent-codex');
             return codex(command ? { command } : {});
         }
+        case 'copilot': {
+            const { copilot } = await import('@sigx/ai-agent-copilot');
+            // The SDK bundles the runtime, so the override is a path on the adapter, not a PATH lookup.
+            return copilot(command ? { cliPath: command } : {});
+        }
         default: {
-            const { acp, gemini, cursor, claudeCodeAcp, codexAcp } = await import('@sigx/ai-agent-acp');
-            const presets = { 'acp:gemini': gemini, 'acp:cursor': cursor, 'acp:claude-code': claudeCodeAcp, 'acp:codex': codexAcp } as const;
+            const { acp, gemini, cursor, claudeCodeAcp, codexAcp, copilotAcp } = await import('@sigx/ai-agent-acp');
+            const presets = { 'acp:gemini': gemini, 'acp:cursor': cursor, 'acp:claude-code': claudeCodeAcp, 'acp:codex': codexAcp, 'acp:copilot': copilotAcp } as const;
             return acp({ ...presets[choice](), ...(command ? { command } : {}) });
         }
     }
@@ -368,10 +373,12 @@ const LABELS: Record<AgentChoice, string> = {
     mock: 'mock (scripted)',
     'claude-code': 'Claude Code',
     codex: 'Codex',
+    copilot: 'GitHub Copilot CLI',
     'acp:gemini': 'Gemini CLI (ACP)',
     'acp:cursor': 'Cursor CLI (ACP)',
     'acp:claude-code': 'Claude Code (ACP bridge)',
-    'acp:codex': 'Codex (ACP bridge)'
+    'acp:codex': 'Codex (ACP bridge)',
+    'acp:copilot': 'GitHub Copilot CLI (ACP)'
 };
 
 /**
