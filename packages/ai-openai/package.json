@@ -48,9 +48,9 @@
     "devDependencies": {
         "@sigx/ai": "workspace:*",
         "@sigx/vite": "catalog:",
-        "@types/node": "^25.9.1",
+        "@types/node": "^26.5.1",
         "openai": "^7.15.0",
-        "typescript": "^6.0.3",
+        "typescript": "^7.0.2",
         "vite": "^8.0.3"
     },
     "publishConfig": {
