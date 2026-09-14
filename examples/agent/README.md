@@ -53,7 +53,7 @@ Needs the "codex" CLI on PATH — install it (npm i -g @openai/codex) or point S
 | `mock` | `mockAgent` from `@sigx/ai-agent/testing` | — | — |
 | `claude-code` | `@sigx/ai-agent-claude-code` | the SDK's bundled Claude Code | `ANTHROPIC_*`, `CLAUDE_CONFIG_DIR` |
 | `codex` | `@sigx/ai-agent-codex` | `codex` (`npm i -g @openai/codex`) | `OPENAI_API_KEY`, `CODEX_HOME` |
-| `copilot` | `@sigx/ai-agent-copilot` | the SDK's bundled Copilot CLI runtime (`copilot login` to sign in) | the whole environment — the SDK spawns its runtime with `process.env` |
+| `copilot` | `@sigx/ai-agent-copilot` | the SDK's bundled Copilot CLI runtime (`copilot login` to sign in) | `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, `COPILOT_HOME` |
 | `acp:gemini` | `@sigx/ai-agent-acp` | `gemini` (`npm i -g @google/gemini-cli`) | `GEMINI_API_KEY`, `GOOGLE_API_KEY` |
 | `acp:cursor` | `@sigx/ai-agent-acp` | `agent` (the Cursor CLI) | `CURSOR_API_KEY`, `CURSOR_AUTH_TOKEN` |
 | `acp:claude-code` | `@sigx/ai-agent-acp` | `claude-agent-acp` (`npm i -g @agentclientprotocol/claude-agent-acp`) | `ANTHROPIC_API_KEY`, `CLAUDE_CONFIG_DIR` |
