@@ -71,7 +71,7 @@
   {
     "name": "@sigx/ai-agent-codex",
     "path": "packages/ai-agent-codex/dist/index.prod.js",
-    "limit": "8 KB",
+    "limit": "10 KB",
     "ignore": ["@sigx/ai", "@sigx/ai-agent", "@sigx/ai-agent/coding", "@sigx/ai-agent/harness", "@sigx/ai-agent-node"]
   },
   {

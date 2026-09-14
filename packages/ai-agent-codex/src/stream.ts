@@ -13,12 +13,14 @@
  * (`collab/spawnAgent`) and the spawned thread an `agent-start` bound to it;
  * state changes become `agent-update`s, once per change and one terminal
  * each. The registry lives with the session, not the turn: a sub-agent can
- * outlive the turn that spawned it.
+ * outlive the turn that spawned it. Codex 0.154 reports the spawn itself as a
+ * `subAgentActivity` "started" item whose id is the model's tool call, and
+ * streams the child thread's own turns on the same connection; the session
+ * maps those through a nested mapper (see `nested`).
  */
 
 import type { Usage } from '@sigx/ai';
 import type { AgentErrorCode, AgentStatus, StopReason, ToolStatus, UnstampedEvent } from '@sigx/ai-agent';
-import type { TurnDriver } from '@sigx/ai-agent';
 import { codingEvent } from '@sigx/ai-agent/coding';
 import { CODEX_METHODS } from './schema.js';
 import type {
@@ -61,6 +63,8 @@ export interface TurnMapper {
 /** What the session knows about one sub-agent thread: the call that spawned it and where it stands. */
 export interface SubAgent {
     readonly callId?: string;
+    /** Codex's name for it (the agent path), when reported. */
+    readonly title?: string;
     status: AgentStatus;
     summary?: string;
 }
@@ -68,15 +72,43 @@ export interface SubAgent {
 /** Sub-agents by thread id, for the life of the session. */
 export type SubAgents = Map<string, SubAgent>;
 
-const TERMINAL: ReadonlySet<AgentStatus> = new Set<AgentStatus>(['completed', 'failed', 'cancelled']);
+export const AGENT_TERMINAL: ReadonlySet<AgentStatus> = new Set<AgentStatus>(['completed', 'failed', 'cancelled']);
 
 /** Every sub-agent still running gets `status` — an interrupted turn, or the session closing under it. */
 export function settleSubAgents(agents: SubAgents, status: 'cancelled' | 'failed', emit: (e: UnstampedEvent) => void): void {
     for (const [agentId, agent] of agents) {
-        if (TERMINAL.has(agent.status)) continue;
+        if (AGENT_TERMINAL.has(agent.status)) continue;
         agent.status = status;
         emit({ type: 'agent-update', agentId, status, ...(agent.callId !== undefined ? { parentCallId: agent.callId } : {}) });
     }
+}
+
+export interface SubAgentChange {
+    readonly status: AgentStatus;
+    readonly summary?: string;
+    readonly output?: unknown;
+    readonly error?: string;
+    /** The sub-agent's own cumulative usage; a usage report always goes out, even when nothing else changed. */
+    readonly usage?: Usage;
+}
+
+/** A state change for a known sub-agent — nothing after its terminal, nothing for a repeat. */
+export function updateSubAgent(agents: SubAgents, emit: (e: UnstampedEvent) => void, agentId: string, next: SubAgentChange): void {
+    const agent = agents.get(agentId);
+    if (!agent || AGENT_TERMINAL.has(agent.status)) return;
+    if (next.usage === undefined && next.status === agent.status && next.summary === agent.summary) return;
+    agent.status = next.status;
+    agent.summary = next.summary;
+    emit({
+        type: 'agent-update',
+        agentId,
+        status: next.status,
+        ...(next.summary !== undefined ? { summary: next.summary } : {}),
+        ...(next.output !== undefined ? { output: next.output } : {}),
+        ...(next.error !== undefined ? { error: { code: 'provider_error', message: next.error } } : {}),
+        ...(next.usage !== undefined ? { usage: next.usage } : {}),
+        ...(agent.callId !== undefined ? { parentCallId: agent.callId } : {})
+    });
 }
 
 function collabCallStatus(status: CollabAgentToolCallStatus): ToolStatus {
@@ -167,9 +199,32 @@ function itemStatus(status: string | undefined, success?: boolean | null): ToolS
     }
 }
 
-export function createTurnMapper(driver: TurnDriver, options: { readonly messageId: string; readonly agents?: SubAgents }): TurnMapper {
-    const { messageId } = options;
+export interface TurnMapperOptions {
+    readonly messageId: string;
+    /** The session's sub-agent registry (a sub-agent can outlive the turn). */
+    readonly agents?: SubAgents;
+    /** A sub-agent thread seen for the first time, so the session can route that thread's frames to itself. */
+    readonly onAgent?: (agentId: string) => void;
+    /**
+     * Set when this mapper reads a sub-agent's own thread: its parts speak as
+     * `actor`, and its usage and errors stay off the host's totals and state
+     * (the session reports usage on the agent; its outcome is the agent's status).
+     */
+    readonly nested?: { readonly actor?: string };
+}
+
+/** Where a mapper publishes: a turn driver, or a sub-agent's emitter that nests and routes its events. */
+export interface EventSink {
+    emit(event: UnstampedEvent): unknown;
+}
+
+export function createTurnMapper(driver: EventSink, options: TurnMapperOptions): TurnMapper {
+    const { messageId, nested } = options;
+    const actor = nested?.actor;
     const agents: SubAgents = options.agents ?? new Map();
+    /** Spawn calls reported as a `subAgentActivity` "started" item, and which of them completed. */
+    const activitySpawns = new Set<string>();
+    const settledSpawns = new Set<string>();
     /** Open text/reasoning parts by part id, with how much of them has been streamed. */
     const parts = new Map<string, { kind: 'text' | 'reasoning'; streamed: number }>();
     /** Item ids of tool calls announced, so updates for unknown items are ignored. */
@@ -191,7 +246,7 @@ export function createTurnMapper(driver: TurnDriver, options: { readonly message
     const openPart = (partId: string, kind: 'text' | 'reasoning') => {
         if (parts.has(partId)) return;
         parts.set(partId, { kind, streamed: 0 });
-        emit({ type: 'part-start', messageId, partId, kind });
+        emit({ type: 'part-start', messageId, partId, kind, ...(actor !== undefined ? { actor } : {}) });
     };
     const delta = (partId: string, kind: 'text' | 'reasoning', text: string) => {
         openPart(partId, kind);
@@ -218,7 +273,12 @@ export function createTurnMapper(driver: TurnDriver, options: { readonly message
     /** First sight of a sub-agent thread: announce it (bound to its spawn call when we saw one) as running. */
     const startAgent = (agentId: string, init: { readonly callId?: string; readonly title?: string; readonly description?: string; readonly model?: string; readonly summary?: string }) => {
         if (agents.has(agentId)) return;
-        agents.set(agentId, { ...(init.callId !== undefined ? { callId: init.callId } : {}), status: 'running', ...(init.summary !== undefined ? { summary: init.summary } : {}) });
+        agents.set(agentId, {
+            ...(init.callId !== undefined ? { callId: init.callId } : {}),
+            ...(init.title !== undefined ? { title: init.title } : {}),
+            status: 'running',
+            ...(init.summary !== undefined ? { summary: init.summary } : {})
+        });
         const parent = init.callId !== undefined ? { parentCallId: init.callId } : {};
         emit({
             type: 'agent-start',
@@ -231,24 +291,9 @@ export function createTurnMapper(driver: TurnDriver, options: { readonly message
             ...parent
         });
         emit({ type: 'agent-update', agentId, status: 'running', ...(init.summary !== undefined ? { summary: init.summary } : {}), ...parent });
+        options.onAgent?.(agentId);
     };
-    /** A state change for a known sub-agent — nothing after its terminal, nothing for a repeat. */
-    const updateAgent = (agentId: string, next: { readonly status: AgentStatus; readonly summary?: string; readonly output?: unknown; readonly error?: string }) => {
-        const agent = agents.get(agentId);
-        if (!agent || TERMINAL.has(agent.status)) return;
-        if (next.status === agent.status && next.summary === agent.summary) return;
-        agent.status = next.status;
-        agent.summary = next.summary;
-        emit({
-            type: 'agent-update',
-            agentId,
-            status: next.status,
-            ...(next.summary !== undefined ? { summary: next.summary } : {}),
-            ...(next.output !== undefined ? { output: next.output } : {}),
-            ...(next.error !== undefined ? { error: { code: 'provider_error', message: next.error } } : {}),
-            ...(agent.callId !== undefined ? { parentCallId: agent.callId } : {})
-        });
-    };
+    const updateAgent = (agentId: string, next: SubAgentChange) => updateSubAgent(agents, emit, agentId, next);
 
     const emitDiffs = (itemId: string, changes: readonly FileUpdateChange[]) => {
         for (const c of changes) {
@@ -373,9 +418,22 @@ export function createTurnMapper(driver: TurnDriver, options: { readonly message
                 break;
             }
             case 'subAgentActivity': {
-                // Activity of a thread nobody spawned in our sight is still an agent — without a spawning call.
                 const running = item.kind === 'started' || item.kind === 'interacted';
-                startAgent(item.agentThreadId, { title: item.agentPath, ...(running ? { summary: item.kind } : {}) });
+                if (item.kind === 'started' && (activitySpawns.has(item.id) || !agents.has(item.agentThreadId))) {
+                    // Codex 0.154 reports the spawn as the "started" activity, under the model's
+                    // tool call id: that call spawns the thread (a collab spawnAgent that already
+                    // named the thread keeps it).
+                    activitySpawns.add(item.id);
+                    announceCall(item, 'collab/spawnAgent', 'other', { agentPath: item.agentPath });
+                    startAgent(item.agentThreadId, { callId: item.id, title: item.agentPath, summary: item.kind });
+                    if (phase === 'completed' && !settledSpawns.has(item.id)) {
+                        settledSpawns.add(item.id);
+                        emit({ type: 'tool-update', callId: item.id, status: 'completed' });
+                    }
+                } else {
+                    // Activity of a thread nobody spawned in our sight is still an agent — without a spawning call.
+                    startAgent(item.agentThreadId, { title: item.agentPath, ...(running ? { summary: item.kind } : {}) });
+                }
                 switch (item.kind) {
                     case 'interrupted':
                         updateAgent(item.agentThreadId, { status: 'cancelled' });
@@ -444,6 +502,8 @@ export function createTurnMapper(driver: TurnDriver, options: { readonly message
                     emit({ type: 'ext', ns: CODEX_NS, name: 'turn-diff', data: { diff: (params as TurnDiffUpdatedNotification).diff } });
                     break;
                 case CODEX_METHODS.tokenUsage: {
+                    // A sub-agent's tokens are its own, reported on the agent by the session.
+                    if (nested) break;
                     const p = params as ThreadTokenUsageUpdatedNotification;
                     turnUsage = toUsage(p.tokenUsage.last);
                     emit({ type: 'usage', scope: 'turn', usage: turnUsage });
@@ -451,6 +511,8 @@ export function createTurnMapper(driver: TurnDriver, options: { readonly message
                     break;
                 }
                 case CODEX_METHODS.error: {
+                    // A sub-agent's error would read as the host session's own.
+                    if (nested) break;
                     const p = params as ErrorNotification;
                     emit({ type: 'error', code: toErrorCode(p.error.codexErrorInfo), message: p.error.message, recoverable: p.willRetry });
                     break;
@@ -460,9 +522,10 @@ export function createTurnMapper(driver: TurnDriver, options: { readonly message
                     for (const [partId, part] of Array.from(parts)) closePart(partId, part.kind, '');
                     const stopReason = toStopReason(p.turn.status);
                     // An interrupt stops the sub-agents with the turn; otherwise they may run on.
-                    if (stopReason === 'cancelled') settleSubAgents(agents, 'cancelled', emit);
+                    // A sub-agent's own interrupted turn is not the host's: the session settles that agent.
+                    if (stopReason === 'cancelled' && !nested) settleSubAgents(agents, 'cancelled', emit);
                     const error = p.turn.error ? { code: toErrorCode(p.turn.error.codexErrorInfo), message: p.turn.error.message } : undefined;
-                    if (stopReason === 'error' && error) emit({ type: 'error', code: error.code, message: error.message, recoverable: false });
+                    if (stopReason === 'error' && error && !nested) emit({ type: 'error', code: error.code, message: error.message, recoverable: false });
                     resolveOutcome({ stopReason, ...(error ? { error } : {}), finalText, ...(turnUsage ? { usage: turnUsage } : {}) });
                     break;
                 }

@@ -23,6 +23,28 @@ export interface TurnProgramContext {
     /** `item/started` + `item/completed` helpers keep programs short. */
     item(item: Record<string, unknown>, phase: 'started' | 'completed'): Promise<void>;
     complete(status?: Turn['status'], error?: Turn['error']): Promise<void>;
+    /** A sub-agent thread of this one: its frames carry the child's `threadId`, as Codex 0.154 sends them to the parent's client. */
+    child(threadId: string): ChildThread;
+}
+
+export interface ChildThread {
+    readonly threadId: string;
+    /** `turn/started` on the child thread; the turn answers `turn/interrupt` like a parent turn. */
+    startTurn(turnId?: string): Promise<ChildTurn>;
+}
+
+export interface ChildTurn {
+    readonly turnId: string;
+    /** Resolves when the client interrupts this child turn. */
+    readonly interrupted: Promise<void>;
+    readonly isInterrupted: () => boolean;
+    item(item: Record<string, unknown>, phase: 'started' | 'completed'): Promise<void>;
+    delta(itemId: string, delta: string): Promise<void>;
+    /** `thread/tokenUsage/updated` on the child thread (`total` doubles as `last`). */
+    usage(total: Record<string, number>): Promise<void>;
+    /** A server→client request raised on the child thread (`threadId` / `turnId` filled in). */
+    request<R = unknown>(method: string, params: Record<string, unknown>): Promise<R>;
+    complete(status?: Turn['status'], error?: Turn['error']): Promise<void>;
 }
 
 export type TurnProgram = (ctx: TurnProgramContext) => Promise<void>;
@@ -106,6 +128,31 @@ export function fakeAppServer(options: FakeAppServerOptions): FakeAppServer {
         interrupts.get(p.turnId)?.();
         return {};
     });
+    const childThread = (childId: string): ChildThread => ({
+        threadId: childId,
+        startTurn: async (turnId = `cturn_${++ids}`) => {
+            let flag = false;
+            let fire!: () => void;
+            const interrupted = new Promise<void>((resolve) => {
+                fire = () => {
+                    flag = true;
+                    resolve();
+                };
+            });
+            interrupts.set(turnId, fire);
+            await peer.notify('turn/started', { threadId: childId, turn: { id: turnId, status: 'inProgress', error: null } });
+            return {
+                turnId,
+                interrupted,
+                isInterrupted: () => flag,
+                item: (item, phase) => peer.notify(phase === 'started' ? 'item/started' : 'item/completed', { item, threadId: childId, turnId }),
+                delta: (itemId, delta) => peer.notify('item/agentMessage/delta', { threadId: childId, turnId, itemId, delta }),
+                usage: (total) => peer.notify('thread/tokenUsage/updated', { threadId: childId, turnId, tokenUsage: { total, last: total, modelContextWindow: null } }),
+                request: (method, params) => peer.request(method, { threadId: childId, turnId, ...params }),
+                complete: (status = 'completed', error = null) => peer.notify('turn/completed', { threadId: childId, turn: { id: turnId, status, error, items: [] } })
+            };
+        }
+    });
     // Steering: input queued per active turn; a program takes it with `nextSteer()`.
     const steers = new Map<string, { queue: UserInput[][]; waiters: ((input: UserInput[]) => void)[] }>();
     peer.onRequest('turn/steer', (p: TurnSteerParams) => {
@@ -150,7 +197,8 @@ export function fakeAppServer(options: FakeAppServerOptions): FakeAppServer {
             complete: (status = 'completed', error = null) => {
                 steers.delete(turnId);
                 return peer.notify('turn/completed', { threadId, turn: { id: turnId, status, error, items: [] } });
-            }
+            },
+            child: childThread
         };
         // The response goes out first; the program runs on the next tick.
         setTimeout(() => {

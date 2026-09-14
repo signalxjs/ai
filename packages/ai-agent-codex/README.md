@@ -30,14 +30,15 @@ await agent.dispose(); // kills the app-server tree, on Windows too
 |---|---|
 | `thread/start` / `thread/resume` / `thread/fork` / `thread/list` | `session()` / `resume: 'local'` / `fork` / `listSessions()` |
 | `turn/start` … `turn/completed` (`completed`, `interrupted`, `failed`) | one turn (`end_turn`, `cancelled`, `error` with `codexErrorInfo` → `context_exceeded`, `rate_limited`, `auth_required`, `provider_error`) |
-| `turn/interrupt` | `cancel()` |
+| `turn/interrupt` | `cancel()`; on a sub-agent's thread, `cancel({ agentId })` |
 | `turn/steer` | `prompt()` while a turn runs (`steer: true`): the input joins the running turn as a second `user-message`; a refusal is a recoverable `error` in that turn |
 | `agentMessage`, `plan`, `reasoning` items and their deltas | text and reasoning parts |
 | `commandExecution` + `outputDelta` | `tool-call { name: 'shell', category: 'execute' }`, `coding.terminal`, `coding.terminal-exit` |
 | `fileChange` + `patchUpdated` | `tool-call { name: 'apply_patch', category: 'edit' }`, `coding.diff`, `coding.files-changed` |
 | `mcpToolCall`, `dynamicToolCall`, `webSearch` | `tool-call` / `tool-update` |
 | `collabAgentToolCall` (`spawnAgent`, `wait`, `sendInput`, `interruptAgent`, …) | `tool-call { name: 'collab/<tool>', category: 'other' }` / `tool-update`; the spawned thread is an `agent-start { kind: 'subagent', callId }` bound to the spawn call, and every change in the reported `agentsStates` an `agent-update` (`completed` with the agent's message as `output`, `errored` / `notFound` → `failed`, `interrupted` / `shutdown` → `cancelled`) |
-| `subAgentActivity` | `agent-update` for that thread (`started` / `interacted` → `running` with the kind as `summary`, `interrupted` → `cancelled`, `completed`); a thread no collab call named is announced first, without a spawning call |
+| `subAgentActivity` | a `started` activity for a thread not yet seen is the spawn (Codex 0.154 reports it this way): `tool-call { name: 'collab/spawnAgent' }` under the activity's id, with the thread's `agent-start` bound to it; every activity is an `agent-update` for its thread (`started` / `interacted` → `running` with the kind as `summary`, `interrupted` → `cancelled`, `completed`); a thread first seen through another kind is announced without a spawning call |
+| a sub-agent thread's own `turn/*`, `item/*` and deltas | the same parts and tool calls, nested under the spawn call (`parentCallId`), spoken by the agent (`actor`: its nickname, role, or the last segment of its path); its requests go through your policy with the same `parentCallId`; its `thread/tokenUsage/updated` is `agent-update.usage`, never the host's `usage` |
 | `turn/plan/updated` | `coding.plan` |
 | `item/commandExecution/requestApproval`, `item/fileChange/requestApproval`, `item/permissions/requestApproval` | `request { kind: 'permission' }` through your policy → `accept` / `acceptForSession` / `decline` / `cancel` |
 | `item/tool/requestUserInput` | `request { kind: 'input' }` |
@@ -58,18 +59,32 @@ turn carries on without the input.
 
 ### Sub-agents
 
-Codex runs a sub-agent as a thread of its own and reports it on the parent
-thread, so the adapter declares `subagents: 'observe'`: you see every
-sub-agent as an `agent-start` bound to the `collab/spawnAgent` call that
-started it and follow it through `agent-update`s, exactly one terminal per
-agent. A sub-agent can outlive the turn that spawned it — one still running
-when its turn completes stays `running`; an interrupted turn cancels them, and
-so does closing the session (the app-server, and its threads, go with it).
-The sub-agent's own thread is not routed to this client yet, so its transcript
-is not nested under the call and it cannot be cancelled or answered from here
-(`cancel({ agentId })` is refused: `subagents` is not `'control'`). That
-step needs a live capture of how the app-server delivers child-thread
-notifications — [signalxjs/ai#100](https://github.com/signalxjs/ai/issues/100).
+Codex runs a sub-agent as a thread of its own, reports it on the parent
+thread, and streams the child thread's turns on the same connection, so the
+adapter declares `subagents: 'control'`. You see every sub-agent as an
+`agent-start` bound to the `collab/spawnAgent` call that started it and follow
+it through `agent-update`s, exactly one terminal per agent. Its own transcript
+nests under that call: text, reasoning and tool calls carry the call as
+`parentCallId` and the agent as `actor`, and a request it raises (a command
+approval, a question) reaches your policy — and `respond()` — with the same
+`parentCallId`. Its token usage is `agent-update.usage`; the host's `usage`
+events stay the host's. Frames Codex sends for the child before the activity
+that names it are held and replayed once it is known.
+
+`cancel({ agentId })` sends `turn/interrupt` for the child's running turn — or,
+when it has none yet (just spawned, or waiting for the parent), for the next
+one it starts — and the agent ends `cancelled` when that turn does. The
+parent's turn goes on. A finished or unknown agent is refused with
+`protocol_error`. A sub-agent can outlive the turn that spawned it: one still
+running when its turn completes stays `running`; an interrupted host turn
+cancels them, and so does closing the session.
+
+What was verified against Codex CLI 0.154 is in
+[signalxjs/ai#100](https://github.com/signalxjs/ai/issues/100): the spawn
+arrives as a `subAgentActivity` "started" item rather than a `spawnAgent`
+collab call, and the child thread is never announced with `thread/started`.
+Both shapes are handled. Child approval requests did not occur in that capture,
+so their routing is covered by tests against the fake app-server only.
 
 ## Sandbox and approvals
 
