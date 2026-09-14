@@ -70,9 +70,9 @@
         "@sigx/runtime-dom": "catalog:",
         "@sigx/server-renderer": "catalog:",
         "@sigx/vite": "catalog:",
-        "@types/node": "^25.9.1",
+        "@types/node": "^26.5.1",
         "sigx": "catalog:",
-        "typescript": "^6.0.3",
+        "typescript": "^7.0.2",
         "vite": "^8.0.3"
     },
     "publishConfig": {
