@@ -9,7 +9,9 @@ import { collect } from '../helpers';
 async function hostTurn(tools: Parameters<typeof modelAgent>[0]['tools'], rounds: (round: number) => MockReply, on?: (e: AgentEvent, session: AgentSession) => Promise<void> | void) {
     const model = mockModel({ respond: (_r, round) => rounds(round) });
     const session = await modelAgent({ model, tools }).session({ policy: allowAll });
-    const all = collect(session.subscribe());
+    // From the start, not live: a session announces its `config` before
+    // anyone can subscribe, and `fromStart: true` below means the whole log.
+    const all = collect(session.subscribe({ epoch: 0, seq: 0 }));
     const turn = session.prompt('go');
     const events: AgentEvent[] = [];
     for await (const e of turn) {

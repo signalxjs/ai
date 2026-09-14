@@ -22,9 +22,17 @@ import { generateId } from '../utils/id.js';
 import { definitionTools } from './definitions.js';
 import { gateTools } from './gate-tools.js';
 import { createChunkMapper } from './map-chunks.js';
+import { findModel, modelChoices, modelOption } from './models.js';
 
 export interface ModelAgentOptions {
+    /** The default: what a session runs on when it names no model of its own. */
     readonly model: LanguageModel;
+    /**
+     * Further models a session may be opened on (`session({ model })`) or
+     * switched to (`configure({ model })`), keyed by their `modelId`. The
+     * default is always a choice; duplicates of it are dropped.
+     */
+    readonly models?: readonly LanguageModel[];
     readonly system?: string;
     /** Tools every session gets; a session's own `tools` are added. */
     readonly tools?: readonly AnyTool[];
@@ -60,6 +68,8 @@ export const MODEL_AGENT_CAPABILITIES: AgentCapabilities = capabilities({
     cancel: true,
     // A prompt during a turn is injected between model rounds (`streamText`'s `steer`).
     steer: true,
+    // A session advertises its model as a `config` option and `configure({ model })` switches it.
+    config: true,
     structuredOutput: true,
     promptParts: 'text+image+file',
     tools: 'native',
@@ -152,10 +162,24 @@ export function modelAgent(options: ModelAgentOptions): Agent {
             subagents: MODEL_AGENT_CAPABILITIES.subagents,
             promptParts: MODEL_AGENT_CAPABILITIES.promptParts
         });
+        // The model is the AGENT's, but switching it is a SESSION's business:
+        // each session keeps its own choice and every turn reads it, so two
+        // sessions of one agent can run different models.
+        const choices = modelChoices(options.model, options.models);
+        let active = options.model;
+        if (sessionOptions.model !== undefined) {
+            const wanted = findModel(choices, sessionOptions.model);
+            if (!wanted) {
+                throw new AgentError('protocol_error', `[sigx ai-agent] agent "${id}" has no model "${sessionOptions.model}" (it offers ${choices.map((m) => m.modelId).join(', ')})`);
+            }
+            active = wanted;
+        }
         const base: AnyTool[] = [...(options.tools ?? []), ...(sessionOptions.tools ?? [])];
-        // A definition's delegate is this engine again: same model, its own
-        // prompt and tool subset, its own step budget. `definition.model` is a
-        // harness alias and is ignored here.
+        // A definition's delegate is this engine again: its own prompt, tool
+        // subset and step budget, on the session's model unless the definition
+        // names one this agent offers. A definition's `model` is a harness
+        // alias, so an id we do not know is not an error — the delegate just
+        // runs on the host's model.
         const tools: AnyTool[] = sessionOptions.agents
             ? [
                   ...base,
@@ -167,6 +191,7 @@ export function modelAgent(options: ModelAgentOptions): Agent {
                           const { store: _store, system: _system, ...shared } = options;
                           return modelAgent({
                               ...shared,
+                              model: (definition.model !== undefined ? findModel(choices, definition.model) : undefined) ?? active,
                               id: `${id}:${name}`,
                               ...(definition.prompt !== undefined ? { system: definition.prompt } : {}),
                               tools: own,
@@ -209,7 +234,8 @@ export function modelAgent(options: ModelAgentOptions): Agent {
                     });
                     try {
                         for await (const chunk of streamText({
-                            model: options.model,
+                            // Read per turn, so a `configure({ model })` between turns takes effect.
+                            model: active,
                             ...(system !== undefined ? { system } : {}),
                             // `omit`: a delegate's words are its own, never the host model's.
                             messages: toModelMessages(toUIMessages(transcript!, { subagents: 'omit' })),
@@ -238,6 +264,20 @@ export function modelAgent(options: ModelAgentOptions): Agent {
             },
             respond: (requestId, decision) => core.respond(requestId, decision),
             cancel: (target) => core.cancel(target),
+            async configure(patch) {
+                // Unknown keys are ignored, like every harness adapter: a
+                // client may send a patch meant for a richer agent.
+                if (patch.model !== undefined) {
+                    const wanted = findModel(choices, patch.model);
+                    if (!wanted) {
+                        throw new AgentError('protocol_error', `[sigx ai-agent] agent "${id}" has no model "${patch.model}" (it offers ${choices.map((m) => m.modelId).join(', ')})`);
+                    }
+                    active = wanted;
+                }
+                // The WHOLE list: a `config` event is the options, not a patch
+                // of them, and the reducer replaces the list with it.
+                core.emit({ type: 'config', options: [modelOption(active, choices)] });
+            },
             subscribe: (from) => core.subscribe(from),
             async close() {
                 await core.close();
@@ -246,6 +286,10 @@ export function modelAgent(options: ModelAgentOptions): Agent {
             }
         };
         sessions.add(session);
+        // Announced at open, not at the first turn, so a client has something
+        // to show before anyone prompts — and a late joiner replaying from
+        // `{ epoch: 0, seq: 0 }` sees it like any other event.
+        core.emit({ type: 'config', options: [modelOption(active, choices)] });
         return session;
     }
 
