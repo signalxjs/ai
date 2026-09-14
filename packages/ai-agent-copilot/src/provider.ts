@@ -22,7 +22,8 @@ export const COPILOT_CAPABILITIES: AgentCapabilities = capabilities({
     resume: 'local',
     fork: false,
     cancel: true,
-    // A prompt during a turn is queued by the runtime and starts its own turn — not steering.
+    // No same-turn injection: the runtime would queue a second message as a turn of its
+    // own, so the session core refuses a prompt while one runs (SessionBusyError).
     steer: false,
     config: true,
     structuredOutput: false,

@@ -59,7 +59,7 @@ export function createCopilotSession(deps: CopilotSessionDeps): CopilotSession {
         interactive: options.interactive ?? true,
         ...(options.requestTimeoutMs !== undefined ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
         ...(options.signal ? { signal: options.signal } : {}),
-        // A second prompt waits: the runtime queues messages, but a queued one starts its own turn.
+        // A prompt during a turn is refused as busy — the runtime would queue it as a turn of its own, not steer this one.
         steer: false,
         promptParts: 'text',
         // Sub-agents are reported (`subagent.*`, nested events); the SDK has no per-agent cancel.
