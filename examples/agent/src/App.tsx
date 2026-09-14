@@ -172,16 +172,37 @@ function elide(text: string): string {
 }
 
 /**
+ * Text worth putting in an element — `undefined` for anything that would
+ * render blank. A block element drawn around nothing is not "empty", it is a
+ * grey rectangle that says nothing (#128), and it is the same defect as the
+ * blank assistant bubble in #71. Every branch below that opens a box guards on
+ * this, never on mere presence.
+ */
+function nonBlank(text: string | undefined): string | undefined {
+    return text !== undefined && text.trim() !== '' ? text : undefined;
+}
+
+/** Did the tool report a result at all? Absent (still running, or a harness that reports none) is not the same as empty. */
+function reportedOutput(p: ToolPartState): boolean {
+    return p.output !== undefined || !!p.content?.length;
+}
+
+/**
  * The output block, as TEXT. A string is already text — `JSON.stringify` on
  * one is what turned a shell listing into a single quoted line of `\n`
  * escapes, inside a `<pre>`. `toolOutput` collapses `output` and the
  * `content` blocks a harness may send instead; anything that is not a string
  * is pretty-printed JSON. The error has its own line, so it stays out.
+ *
+ * A result that renders blank is `undefined` here — there is no text to put
+ * in the `<pre>`, so there is no `<pre>`. The card says so in one dim word
+ * instead; `reportedOutput` is what tells "returned nothing" from "has not
+ * returned".
  */
 function outputText(p: ToolPartState): string | undefined {
-    if (p.output === undefined && !p.content?.length) return undefined;
+    if (!reportedOutput(p)) return undefined;
     const out = toolOutput(p);
-    return elide(typeof out === 'string' ? out : JSON.stringify(out, null, 2));
+    return nonBlank(elide(typeof out === 'string' ? out : JSON.stringify(out, null, 2)));
 }
 
 /**
@@ -200,7 +221,8 @@ interface ThreadProps {
     readonly onCancelAgent?: (agentId: string) => void;
 }
 
-const Part = component<{ part: AgentPart } & ThreadProps>((ctx) => {
+/** Exported for `__tests__/app.test.tsx`: what a part renders is the thing worth asserting on. */
+export const Part = component<{ part: AgentPart } & ThreadProps>((ctx) => {
     return () => {
         const p = ctx.props.part;
         if (p.type === 'text') return <span class="text">{p.text}</span>;
@@ -213,7 +235,8 @@ const Part = component<{ part: AgentPart } & ThreadProps>((ctx) => {
             // (#78). While the part is open, say that it is thinking — with
             // the neutral `usage.reasoningTokens` count once one arrives;
             // once it has ended with nothing to show, there is nothing to say.
-            if (!p.text) {
+            const thought = nonBlank(p.text);
+            if (!thought) {
                 const n = ctx.props.reasoningTokens;
                 return p.done ? null : <div class="reasoning thinking">Thinking…{n ? ` ${n} tokens` : ''}</div>;
             }
@@ -222,7 +245,7 @@ const Part = component<{ part: AgentPart } & ThreadProps>((ctx) => {
             return (
                 <details class="reasoning" open={!p.done}>
                     <summary>{p.done ? 'Thought' : 'Thinking…'}</summary>
-                    {p.text}
+                    {thought}
                 </details>
             );
         }
@@ -235,6 +258,7 @@ const Part = component<{ part: AgentPart } & ThreadProps>((ctx) => {
         const open = p.requestId ? ctx.props.requests.find((r) => r.requestId === p.requestId) : undefined;
         const sig = signature(p.input);
         const output = outputText(p);
+        const error = nonBlank(p.error);
         // The call spawned a sub-agent (its `agent-start` set `agentId`): its card hangs under this one.
         const agent = p.agentId !== undefined ? ctx.props.transcript.agents[p.agentId] : undefined;
         return (
@@ -250,7 +274,10 @@ const Part = component<{ part: AgentPart } & ThreadProps>((ctx) => {
                     </details>
                 )}
                 {output !== undefined && <pre class="tool-output">{output}</pre>}
-                {p.error && <span class="tool-error">{p.error}</span>}
+                {/* It ran and handed back nothing: one dim word, so "returned
+                    empty" still reads differently from "has not returned". */}
+                {output === undefined && reportedOutput(p) && <span class="tool-empty">no output</span>}
+                {error && <span class="tool-error">{error}</span>}
                 {open?.kind === 'input' && <Ask request={open} onAnswer={ctx.props.onAnswer} />}
                 {open && open.kind !== 'input' && (
                     <p class="ask">
@@ -296,6 +323,11 @@ const AgentCard = component<{ agent: AgentState } & ThreadProps>((ctx) => {
         const ambient = childAgents(transcript, agent.agentId).filter((child) => child.callId === undefined);
         const running = agent.status === 'running' || agent.status === 'paused';
         const cancel = ctx.props.onCancelAgent;
+        // Same rule as the tool card: a summary or an error that reads blank
+        // opens no element. The status pill and the card's colour already say
+        // that it failed, so there is nothing left unsaid.
+        const summary = nonBlank(agent.summary === undefined ? undefined : oneLine(agent.summary));
+        const error = nonBlank(agent.error?.message);
         return (
             <div class={`agent ${agent.status}`}>
                 <div class="agent-head">
@@ -307,8 +339,8 @@ const AgentCard = component<{ agent: AgentState } & ThreadProps>((ctx) => {
                         </button>
                     )}
                 </div>
-                {agent.summary && <p class="agent-summary">{oneLine(agent.summary)}</p>}
-                {agent.error && <span class="tool-error">{agent.error.message}</span>}
+                {summary && <p class="agent-summary">{summary}</p>}
+                {error && <span class="tool-error">{error}</span>}
                 {messages.length > 0 && (
                     <details class="agent-work" open={running}>
                         <summary>{running ? 'Working…' : `Its work (${messages.length} message${messages.length === 1 ? '' : 's'})`}</summary>
@@ -448,7 +480,9 @@ const Session = component<{ session: AgentSessionClient }>((ctx) => {
                 {questions().map((r) => (
                     <Ask request={r} onAnswer={answer} />
                 ))}
-                {view.error && <p class="error">{view.error.message}</p>}
+                {/* An error is never an empty box — and never swallowed
+                    either: a failure with no message still gets a line. */}
+                {view.error && <p class="error">{nonBlank(view.error.message) ?? 'The session reported an error.'}</p>}
             </section>
             <form onSubmit={submit}>
                 <textarea
@@ -492,7 +526,10 @@ export const App = component(() => {
                 status.ready = true;
             },
             (e: unknown) => {
-                status.error = e instanceof Error ? e.message : String(e);
+                // Never blank: an error whose message is empty would leave
+                // "Connecting…" up for ever, which is the same lie as an
+                // empty box.
+                status.error = nonBlank(e instanceof Error ? e.message : String(e)) ?? 'Could not open the agent session.';
             }
         );
     });

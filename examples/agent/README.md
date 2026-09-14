@@ -107,6 +107,7 @@ End to end, without a browser:
 
 ```sh
 pnpm --filter agent-example smoke   # boots the server, runs one mock turn, joins late
+pnpm test examples/agent            # the view's render decisions, in the DOM
 ```
 
 ## What to look at
@@ -139,6 +140,12 @@ pnpm --filter agent-example smoke   # boots the server, runs one mock turn, join
   request, check the sub-agent (bound to its spawning call, its work nested
   under it, ended `completed`), then connect a second client and assert both
   transcripts — and their sub-agents — match.
+- **`__tests__/app.test.tsx`** — the view itself, mounted in happy-dom. One
+  rule, checked everywhere the view opens a block: **an element is for content
+  that exists, never for content that is merely present.** A tool that
+  completed with an empty output gets no `<pre>` (one dim `no output`
+  instead), a blank sub-agent summary gets no `<p>`, a blank error gets no
+  `<span>`.
 
 **Non-goals:** no auth, no rate limit, no persistence, one shared session. A
 real app puts `createServerApp({ authenticate, middleware: [rateLimit] })` in
@@ -188,6 +195,7 @@ in `onUnmounted`).
 | `src/env.d.ts` | Vite client types |
 | `dev-server.mjs` / `server.mjs` | dev (Vite middleware) / production (Node) servers |
 | `smoke.mjs` | end-to-end check: boot, one mock turn, a late joiner (`pnpm --filter agent-example smoke`) |
+| `__tests__/app.test.tsx` | the view in the DOM: mounts the real `Part` and checks that no block is opened for content that does not exist (`pnpm test examples/agent`) |
 | `vite.config.ts` | `sigx()` + `sigxServer()` |
 | `.env.example` | every env var the example reads; copy to `.env` |
 | `index.html` | the shell and its CSS |
