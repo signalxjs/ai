@@ -93,7 +93,12 @@ export function codex(options: CodexOptions = {}): CodexAgent {
         orphans.delete(childThreadId);
         for (const frame of held) owner.handleChildNotification(childThreadId, frame.method, frame.params);
     };
-    const ownerOf = (threadId: string): CodexSession | undefined => childOwner.get(threadId) ?? [...sessions.values()].find((s) => s.ownsThread(threadId));
+    const ownerOf = (threadId: string): CodexSession | undefined => {
+        const owner = childOwner.get(threadId);
+        if (owner) return owner;
+        for (const s of sessions.values()) if (s.ownsThread(threadId)) return s;
+        return undefined;
+    };
 
     const connect = (): Promise<Connection> => {
         if (disposed) return Promise.reject(new AgentError('protocol_error', `[sigx ai-agent-codex] agent "${id}" is disposed`));

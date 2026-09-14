@@ -84,7 +84,9 @@ export function fakeAppServer(options: FakeAppServerOptions): FakeAppServer {
     const peer = createJsonRpcPeer({ readable: c2s.readable, writable: s2c.writable, cancelMethod: null });
     const requests: { method: string; params: unknown }[] = [];
     const threads: { method: string; params: unknown; id: string }[] = [];
+    /** Interrupt handlers by thread and turn: turn ids are only unique within a thread. */
     const interrupts = new Map<string, () => void>();
+    const turnKey = (threadId: string, turnId: string) => `${threadId}:${turnId}`;
     const record = (method: string) => (params: unknown) => {
         requests.push({ method, params });
         return params;
@@ -131,7 +133,7 @@ export function fakeAppServer(options: FakeAppServerOptions): FakeAppServer {
     });
     peer.onRequest('turn/interrupt', (p: { threadId: string; turnId: string }) => {
         record('turn/interrupt')(p);
-        interrupts.get(p.turnId)?.();
+        interrupts.get(turnKey(p.threadId, p.turnId))?.();
         return {};
     });
     const childThread = (childId: string): ChildThread => ({
@@ -145,7 +147,7 @@ export function fakeAppServer(options: FakeAppServerOptions): FakeAppServer {
                     resolve();
                 };
             });
-            interrupts.set(turnId, fire);
+            interrupts.set(turnKey(childId, turnId), fire);
             await peer.notify('turn/started', startOptions.announce === 'turnId' ? { threadId: childId, turnId } : { threadId: childId, turn: { id: turnId, status: 'inProgress', error: null } });
             return {
                 turnId,
@@ -183,7 +185,7 @@ export function fakeAppServer(options: FakeAppServerOptions): FakeAppServer {
                 resolve();
             };
         });
-        interrupts.set(turnId, fire);
+        interrupts.set(turnKey(threadId, turnId), fire);
         const steer = { queue: [] as UserInput[][], waiters: [] as ((input: UserInput[]) => void)[] };
         steers.set(turnId, steer);
         const ctx: TurnProgramContext = {
