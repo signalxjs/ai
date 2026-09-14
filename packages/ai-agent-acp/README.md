@@ -85,12 +85,26 @@ const agent = acp({ ...cursor(), fs: { read: true, write: true }, terminal: true
 
 ## Presets
 
-| Preset | Command | Passes |
-|---|---|---|
-| `gemini()` | `gemini --experimental-acp` | `GEMINI_API_KEY`, `GOOGLE_API_KEY` |
-| `cursor()` | `agent acp` | `CURSOR_API_KEY`, `CURSOR_AUTH_TOKEN` |
-| `claudeCodeAcp()` | `claude-code-acp` | `ANTHROPIC_API_KEY`, `CLAUDE_CONFIG_DIR` |
-| `codexAcp()` | `codex-acp` | `OPENAI_API_KEY`, `CODEX_HOME` |
+| Preset | Command | Install | Passes |
+|---|---|---|---|
+| `gemini()` | `gemini --experimental-acp` | `npm i -g @google/gemini-cli` | `GEMINI_API_KEY`, `GOOGLE_API_KEY` |
+| `cursor()` | `agent acp` | [cursor.com/install](https://cursor.com/install), below | `CURSOR_API_KEY`, `CURSOR_AUTH_TOKEN` |
+| `claudeCodeAcp()` | `claude-agent-acp` | `npm i -g @agentclientprotocol/claude-agent-acp` | `ANTHROPIC_API_KEY`, `CLAUDE_CONFIG_DIR` |
+| `codexAcp()` | `codex-acp` | `npm i -g @agentclientprotocol/codex-acp` | `OPENAI_API_KEY`, `CODEX_HOME` |
+
+The Cursor CLI is the one that does not come from npm — its install line has a
+pipe in it, so it lives here rather than in a table cell:
+
+```sh
+curl https://cursor.com/install -fsS | bash
+```
+
+The two bridges moved out of `@zed-industries`, where both packages are now
+deprecated. The Claude one renamed its command with the move
+(`claude-code-acp` → `claude-agent-acp`); the Codex one kept `codex-acp` and
+only changed the package you install. A preset name says which *agent* it
+runs, so both keep theirs — to stay on a deprecated bridge, override the
+command: `acp(claudeCodeAcp({ command: 'claude-code-acp' }))`.
 
 A preset is a plain object — override any field: `acp(gemini({ command: '/opt/gemini' }))`.
 Adding one is adding an object: `{ id: 'acp:<vendor>', command, args, passEnv }`.

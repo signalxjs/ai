@@ -11,17 +11,27 @@ export function gemini(overrides: Partial<AcpPreset> = {}): AcpPreset {
     return { id: 'acp:gemini', command: 'gemini', args: ['--experimental-acp'], passEnv: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], ...overrides };
 }
 
-/** Cursor's CLI agent: `agent acp`. */
+/** Cursor's CLI agent (`curl https://cursor.com/install -fsS | bash`): `agent acp`. */
 export function cursor(overrides: Partial<AcpPreset> = {}): AcpPreset {
     return { id: 'acp:cursor', command: 'agent', args: ['acp'], passEnv: ['CURSOR_API_KEY', 'CURSOR_AUTH_TOKEN'], ...overrides };
 }
 
-/** Claude Code through Zed's ACP bridge (`@zed-industries/claude-code-acp`). */
+/**
+ * Claude Code through its ACP bridge (`@agentclientprotocol/claude-agent-acp`):
+ * `claude-agent-acp`. The bridge moved out of `@zed-industries`, where
+ * `@zed-industries/claude-code-acp` is deprecated and installs the older
+ * `claude-code-acp` command — pass `{ command: 'claude-code-acp' }` to keep
+ * using it.
+ */
 export function claudeCodeAcp(overrides: Partial<AcpPreset> = {}): AcpPreset {
-    return { id: 'acp:claude-code', command: 'claude-code-acp', args: [], passEnv: ['ANTHROPIC_API_KEY', 'CLAUDE_CONFIG_DIR'], ...overrides };
+    return { id: 'acp:claude-code', command: 'claude-agent-acp', args: [], passEnv: ['ANTHROPIC_API_KEY', 'CLAUDE_CONFIG_DIR'], ...overrides };
 }
 
-/** Codex through Zed's ACP bridge (`@zed-industries/codex-acp`). */
+/**
+ * Codex through its ACP bridge (`@agentclientprotocol/codex-acp`): `codex-acp`.
+ * Same command as the deprecated `@zed-industries/codex-acp`; only the package
+ * to install changed.
+ */
 export function codexAcp(overrides: Partial<AcpPreset> = {}): AcpPreset {
     return { id: 'acp:codex', command: 'codex-acp', args: [], passEnv: ['OPENAI_API_KEY', 'CODEX_HOME'], ...overrides };
 }

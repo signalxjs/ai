@@ -237,8 +237,8 @@ const INSTALL: Record<HarnessChoice, string> = {
     codex: 'npm i -g @openai/codex',
     'acp:gemini': 'npm i -g @google/gemini-cli',
     'acp:cursor': 'the Cursor CLI (`agent`), see https://cursor.com/cli',
-    'acp:claude-code': 'npm i -g @zed-industries/claude-code-acp',
-    'acp:codex': 'npm i -g @zed-industries/codex-acp'
+    'acp:claude-code': 'npm i -g @agentclientprotocol/claude-agent-acp',
+    'acp:codex': 'npm i -g @agentclientprotocol/codex-acp'
 };
 
 /**

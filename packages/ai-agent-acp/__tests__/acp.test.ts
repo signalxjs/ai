@@ -70,7 +70,7 @@ describe('acp(): initialize and capabilities', () => {
     it('presets are data-only and override-able', () => {
         expect(gemini()).toMatchObject({ id: 'acp:gemini', command: 'gemini', args: ['--experimental-acp'] });
         expect(cursor({ command: '/opt/cursor/agent' })).toMatchObject({ id: 'acp:cursor', command: '/opt/cursor/agent', args: ['acp'] });
-        expect(claudeCodeAcp().command).toBe('claude-code-acp');
+        expect(claudeCodeAcp().command).toBe('claude-agent-acp');
         expect(codexAcp().command).toBe('codex-acp');
         expect(acp(gemini()).id).toBe('acp:gemini');
     });
