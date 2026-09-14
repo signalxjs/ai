@@ -10,6 +10,6 @@
 
 export { useAgentSession } from './use-agent-session.js';
 export type { AgentSessionSource, AgentSessionView, UseAgentSessionOptions } from './use-agent-session.js';
-export type { AgentMessage, AgentPart, AgentTranscript, OpenRequest, ReasoningPartState, ReducerExtension, TextPartState, ToolPartState, TranscriptError, TurnState } from '../state/index.js';
+export type { AgentMessage, AgentNode, AgentPart, AgentState, AgentTranscript, OpenRequest, ReasoningPartState, ReducerExtension, TextPartState, ToolPartState, TranscriptError, TurnState } from '../state/index.js';
 export type { AgentCapabilities, AgentEvent, ConfigOption, Decision, PromptInput, RequestOption, SessionState, ToolStatus } from '../protocol/index.js';
 export type { TurnResult } from '../session/index.js';

@@ -8,6 +8,13 @@ follow [SemVer](https://semver.org/).
 
 ### Added
 
+- `useAgentSession` shows and controls sub-agents: `view.agents` (the
+  transcript's agents in start order), `view.agentTree` (the same as a tree)
+  and `view.cancelAgent(agentId)` (fails into `error` without
+  `subagents: 'control'`). A `prompt()` during a turn steers it when the agent
+  has `steer`: `turn` stays the running turn, the promise resolves with its
+  result, and `onTurnEnd` fires once per turn. The `app` entry re-exports the
+  `AgentState` and `AgentNode` types.
 - `agentConformance` gains four scenarios for sub-agents and steering:
   `delegate-tree` (`subagents: 'observe'` or `'control'` — one `agent-start`
   bound to an earlier `tool-call`, nested text under it, exactly one terminal

@@ -350,8 +350,9 @@ import { useAgentSession } from '@sigx/ai-agent/app';
 const view = useAgentSession(session); // a local AgentSession, or a connectSession client
 
 // view.transcript · .messages · .state · .turn · .requests · .usage · .costUsd
-//     .config · .error · .live · .connected · .capabilities
-// view.prompt(input, opts?) · .respond(requestId, decision) · .cancel() · .configure(patch) · .reconnect()
+//     .config · .agents · .agentTree · .error · .live · .connected · .capabilities
+// view.prompt(input, opts?) · .respond(requestId, decision) · .cancel() · .cancelAgent(agentId)
+//     .configure(patch) · .reconnect()
 
 <>
     {view.messages.map((m) => m.parts.map((p) => (p.type === 'text' ? <span>{p.text}</span> : <ToolCard part={p} />)))}
@@ -359,6 +360,9 @@ const view = useAgentSession(session); // a local AgentSession, or a connectSess
         <button onClick={() => view.respond(r.requestId, { type: 'permission', outcome: 'allow', scope: 'session' })}>Allow {r.toolName}</button>
     ))}
     {view.capabilities?.cancel && view.state === 'running' && <button onClick={() => view.cancel()}>Cancel</button>}
+    {view.agentTree.map((node) => (
+        <AgentCard node={node} onCancel={view.capabilities?.subagents === 'control' ? () => view.cancelAgent(node.agent.agentId) : undefined} />
+    ))}
 </>;
 ```
 
@@ -384,6 +388,18 @@ What it guarantees:
   `view.error` (and `onError`), so a click handler needs no `catch`;
   `prompt()` resolves `undefined` in that case and with the `TurnResult`
   otherwise.
+- **Sub-agents are on the view.** `view.agents` is `transcript.agents` in start
+  order and `view.agentTree` the same as a tree (`agentTree(transcript)`) —
+  each node's `agent` is the transcript's own `AgentState`, so a card that
+  reads its `status` updates in place. `view.cancelAgent(agentId)` stops one
+  sub-agent while the turn goes on (`capabilities.subagents === 'control'`;
+  otherwise it fails into `error`), and `respond()` answers a request a
+  sub-agent raised like any other.
+- **A prompt during a turn steers it.** When the agent has `steer`,
+  `view.prompt()` while `state` is `running` or `awaiting` lands as a
+  `user-message` inside the running turn: `turn` stays that turn, the promise
+  resolves with its result, and `onTurnEnd` fires once per turn however many
+  prompts steered it. Without `steer` it lands in `error` as before.
 - **A lost connection is visible and recoverable.** `view.connected` follows
   a `connectSession` client's `status` (for a local session it equals `live`).
   When the client goes `lost`, `error` is set with `recoverable: true` and
