@@ -21,7 +21,7 @@ import type { Agent, AgentCapabilities, AgentSession, CancelTarget, PromptInput,
 import { listenMcp, resolveExecutable, spawnAgentProcess, type AgentProcess } from '@sigx/ai-agent-node';
 import type { ClaudeCodeOptions, ClaudeCodeSessionOptions } from './options.js';
 import { createCanUseTool, type PermissionTarget } from './permissions.js';
-import { THINKING_DISPLAYS, configOptions, createConfigState, thinkingBudgetOf, thinkingDisplayOf, toOutputFormat, toQueryOptions, toUserMessage, type ThinkingDisplay } from './request.js';
+import { THINKING_DISPLAYS, createConfigState, thinkingBudgetOf, thinkingDisplayOf, toOutputFormat, toQueryOptions, toUserMessage, type ThinkingDisplay } from './request.js';
 import { createTurnMapper, mapSessionMessage, type TurnMapper } from './stream.js';
 import { createAgentTracker } from './tasks.js';
 import { startToolServer, type ToolServer } from './tools.js';
