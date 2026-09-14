@@ -36,6 +36,18 @@ function toolPart(message: UIMessage, id: string): UIToolPart | undefined {
 }
 
 /**
+ * Re-read a streaming part's arguments from the raw text so far. Nothing
+ * parses out of `{"ci` yet, and while that is so the key is ABSENT rather
+ * than present holding `undefined` — `'input' in part` is then the honest
+ * test for "an argument can be read", the same shape `ChatInput` returns.
+ */
+function readInput(part: UIToolPart, text: string): void {
+    const parsed = parsePartialJson(text);
+    if (parsed === undefined) delete part.input;
+    else part.input = parsed;
+}
+
+/**
  * Fold chunks into a message IN PLACE. Works on a plain object and on a
  * reactive proxy alike — `useChat` hands it the proxied message so a text
  * delta is one property write on one part.
@@ -73,7 +85,9 @@ export function applyChunk(message: UIMessage, chunk: UIChunk): boolean {
             const open = toolPart(message, chunk.id);
             if (!open) {
                 const text = chunk.delta.slice(0, MAX_STREAMING_INPUT_TEXT);
-                parts.push({ type: 'tool', id: chunk.id, name: chunk.name, input: parsePartialJson(text), state: 'streaming', inputText: text });
+                const fresh: UIToolPart = { type: 'tool', id: chunk.id, name: chunk.name, state: 'streaming', inputText: text };
+                readInput(fresh, text);
+                parts.push(fresh);
                 return false;
             }
             // A delta for a call that already landed is stale — never reopen it.
@@ -82,7 +96,7 @@ export function applyChunk(message: UIMessage, chunk: UIChunk): boolean {
             // At the cap the part stops growing, and stops being re-read.
             if (soFar.length >= MAX_STREAMING_INPUT_TEXT) return false;
             open.inputText = (soFar + chunk.delta).slice(0, MAX_STREAMING_INPUT_TEXT);
-            open.input = parsePartialJson(open.inputText);
+            readInput(open, open.inputText);
             return false;
         }
         case 'tool-call': {

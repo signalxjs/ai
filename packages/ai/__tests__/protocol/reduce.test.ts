@@ -86,6 +86,15 @@ describe('applyChunk / assembleMessage', () => {
         expect(m.parts[0]).toMatchObject({ input: { city: 'Oslo' }, inputText: '{"city": "Oslo"}' });
     });
 
+    it('leaves input absent, not undefined, while nothing parses out of the text yet', () => {
+        const m = createMessage('assistant');
+        applyChunk(m, { type: 'tool-input', id: 'c1', name: 'weather', delta: '  ' });
+        expect(m.parts[0]).toEqual({ type: 'tool', id: 'c1', name: 'weather', state: 'streaming', inputText: '  ' });
+        expect('input' in (m.parts[0] as object)).toBe(false);
+        applyChunk(m, { type: 'tool-input', id: 'c1', name: 'weather', delta: '{"city"' });
+        expect(m.parts[0]).toMatchObject({ input: {}, inputText: '  {"city"' });
+    });
+
     it('stops growing a streaming part at the 100k cap, and the assembled call still settles it', () => {
         const m = createMessage('assistant');
         applyChunk(m, { type: 'tool-input', id: 'c1', name: 't', delta: '{"a":"' + 'x'.repeat(99_000) });
