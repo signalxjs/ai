@@ -47,8 +47,8 @@ SIGX_AI_AGENT=claude-code      pnpm --filter agent-example dev   # Claude Code i
 SIGX_AI_AGENT=codex            pnpm --filter agent-example dev   # Codex (`codex app-server`)
 SIGX_AI_AGENT=acp:gemini       pnpm --filter agent-example dev   # Gemini CLI over ACP
 SIGX_AI_AGENT=acp:cursor       pnpm --filter agent-example dev   # the Cursor CLI agent over ACP
-SIGX_AI_AGENT=acp:claude-code  pnpm --filter agent-example dev   # Claude Code via Zed's ACP bridge
-SIGX_AI_AGENT=acp:codex        pnpm --filter agent-example dev   # Codex via Zed's ACP bridge
+SIGX_AI_AGENT=acp:claude-code  pnpm --filter agent-example dev   # Claude Code via its ACP bridge
+SIGX_AI_AGENT=acp:codex        pnpm --filter agent-example dev   # Codex via its ACP bridge
 ```
 
 Every harness runs on your own login. Each one needs its CLI installed and
@@ -73,8 +73,8 @@ does not exist, the warning names it instead of asking you to install the CLI.
 | `codex` | `@sigx/ai-agent-codex` | `codex` (`npm i -g @openai/codex`) | `OPENAI_API_KEY`, `CODEX_HOME` |
 | `acp:gemini` | `@sigx/ai-agent-acp` | `gemini` (`npm i -g @google/gemini-cli`) | `GEMINI_API_KEY`, `GOOGLE_API_KEY` |
 | `acp:cursor` | `@sigx/ai-agent-acp` | `agent` (the Cursor CLI) | `CURSOR_API_KEY`, `CURSOR_AUTH_TOKEN` |
-| `acp:claude-code` | `@sigx/ai-agent-acp` | `claude-code-acp` (`npm i -g @zed-industries/claude-code-acp`) | `ANTHROPIC_API_KEY`, `CLAUDE_CONFIG_DIR` |
-| `acp:codex` | `@sigx/ai-agent-acp` | `codex-acp` (`npm i -g @zed-industries/codex-acp`) | `OPENAI_API_KEY`, `CODEX_HOME` |
+| `acp:claude-code` | `@sigx/ai-agent-acp` | `claude-agent-acp` (`npm i -g @agentclientprotocol/claude-agent-acp`) | `ANTHROPIC_API_KEY`, `CLAUDE_CONFIG_DIR` |
+| `acp:codex` | `@sigx/ai-agent-acp` | `codex-acp` (`npm i -g @agentclientprotocol/codex-acp`) | `OPENAI_API_KEY`, `CODEX_HOME` |
 
 A harness child gets an allowlisted environment (`PATH`, `HOME`, proxy
 variables, …) plus the vendor variables in the last column — nothing else.
