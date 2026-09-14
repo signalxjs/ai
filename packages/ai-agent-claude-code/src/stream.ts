@@ -11,7 +11,7 @@ import type { SDKMessage, SDKResultMessage } from '@anthropic-ai/claude-agent-sd
 import { parsePartialJson, type Usage } from '@sigx/ai';
 import type { AgentErrorCode, StopReason, TurnDriver, UnstampedEvent } from '@sigx/ai-agent';
 import { codingEvent, type CodingPlanEntry } from '@sigx/ai-agent/coding';
-import { categoryFor, configOptions, splitToolName, toolAnnotations, type ThinkingDisplay } from './request.js';
+import { categoryFor, configOptions, splitToolName, toolAnnotations, type ConfigTracker } from './request.js';
 import { toUsage, type AgentTracker } from './tasks.js';
 
 export const CLAUDE_CODE_NS = 'claude-code';
@@ -30,8 +30,8 @@ export interface TurnMapperOptions {
     readonly interrupted: () => boolean;
     /** The cumulative cost the previous result reported, to make `turn-end.costUsd` a delta. */
     readonly previousCostUsd: () => number;
-    /** The session's thinking display, for the `config` event `system/init` becomes; `undefined` when we cannot know. */
-    readonly thinkingDisplay?: () => ThinkingDisplay | undefined;
+    /** The session's advertised settings, for the `config` event `system/init` becomes. */
+    readonly config?: ConfigTracker;
 }
 
 interface OpenBlock {
@@ -269,10 +269,10 @@ export function createTurnMapper(options: TurnMapperOptions): TurnMapper {
                     break;
                 }
                 case 'system':
-                    if (!tracker.handleTask(message, emit, (id) => calls.has(id))) mapSessionMessage(message, emit, options.thinkingDisplay?.());
+                    if (!tracker.handleTask(message, emit, (id) => calls.has(id))) mapSessionMessage(message, emit, options.config);
                     break;
                 default:
-                    mapSessionMessage(message, emit, options.thinkingDisplay?.());
+                    mapSessionMessage(message, emit, options.config);
             }
         }
     };
@@ -382,7 +382,7 @@ function sessionUsage(result: SDKResultMessage): Usage {
 }
 
 /** Frames that are not about a turn: config, state, rate limits, auth — or an `ext`. */
-export function mapSessionMessage(message: SDKMessage, emit: Emit, thinkingDisplay?: ThinkingDisplay | undefined): void {
+export function mapSessionMessage(message: SDKMessage, emit: Emit, config?: ConfigTracker): void {
     const strip = (m: object) => {
         const { uuid: _u, session_id: _s, ...rest } = m as Record<string, unknown>;
         return rest;
@@ -391,14 +391,14 @@ export function mapSessionMessage(message: SDKMessage, emit: Emit, thinkingDispl
         case 'system': {
             const m = message as { subtype: string } & Record<string, unknown>;
             if (m.subtype === 'init') {
-                // `init` says nothing about thinking — the display is ours,
-                // from the session options (or the last `configure()`), and
-                // is left out when we cannot know it (thinking disabled, or
+                // `init` is the CLI's word on the model and the mode, so it
+                // wins over whatever the session had recorded. It says
+                // nothing about thinking — the display is ours, from the
+                // session options (or the last `configure()`), and is left
+                // out when we cannot know it (thinking disabled, or
                 // inherited from the CLI's own settings).
-                emit({
-                    type: 'config',
-                    options: configOptions({ model: String(m.model ?? ''), permissionMode: String(m.permissionMode ?? 'default'), ...(thinkingDisplay !== undefined ? { thinkingDisplay } : {}) })
-                });
+                const next = { model: String(m.model ?? ''), permissionMode: String(m.permissionMode ?? 'default') };
+                emit({ type: 'config', options: configOptions(config ? config.update(next) : next) });
             } else if (m.subtype === 'session_state_changed') {
                 if (m.state === 'requires_action') emit({ type: 'state', value: 'awaiting' });
             } else if (m.subtype === 'permission_denied') {

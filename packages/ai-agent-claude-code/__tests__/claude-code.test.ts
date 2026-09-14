@@ -500,12 +500,15 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
         await session.configure!({ thinkingDisplay: 'summarized' });
         // The display is the ONLY thing that changed: the session's own budget rides along.
         expect(fake.thinking).toEqual([[4000, 'summarized']]);
-        const config = events.filter((e) => e.type === 'config');
-        expect(config.at(-1)).toMatchObject({ options: [{ id: 'thinkingDisplay', current: 'summarized' }] });
+        // `at(-1)` is re-read each time: the filtered array is a snapshot, so
+        // holding one would assert the same event twice.
+        const latest = (id: string) => events.filter((e) => e.type === 'config').at(-1)!.options.find((o) => o.id === id);
+        expect(latest('thinkingDisplay')).toMatchObject({ current: 'summarized' });
 
-        // …and the next `system/init` (a fresh query on the same session) reports the new value.
-        await session.configure!({ model: 'claude-opus-5' });
-        expect(config.at(-1)).toMatchObject({ options: [{ id: 'thinkingDisplay', current: 'summarized' }] });
+        // …and switching something else leaves it advertised, at its own value (#137).
+        await session.configure!({ model: 'claude-sonnet-5' });
+        expect(latest('thinkingDisplay')).toMatchObject({ current: 'summarized' });
+        expect(latest('model')).toMatchObject({ current: 'claude-sonnet-5' });
 
         await expect(session.configure!({ thinkingDisplay: 'verbose' })).rejects.toThrow(/thinkingDisplay must be one of/);
         await agent.dispose();
@@ -1120,7 +1123,39 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
         await session.configure!({ permissionMode: 'bypassPermissions' });
         await session.close();
         const configs = (await all).filter((e): e is Extract<AgentEvent, { type: 'config' }> => e.type === 'config');
-        expect(configs.at(-1)!.options[0]).toMatchObject({ id: 'permissionMode', current: 'bypassPermissions', values: expect.arrayContaining([{ id: 'bypassPermissions' }]) });
+        expect(configs.at(-1)!.options.find((o) => o.id === 'permissionMode')).toMatchObject({ current: 'bypassPermissions', values: expect.arrayContaining([{ id: 'bypassPermissions' }]) });
+    });
+
+    it('configure() re-announces the WHOLE config, not just the keys it changed', async () => {
+        const fake = fakeQuery(() => [messageStart(), ...textBlocks('hi'), ...messageStop(), RESULT()]);
+        const agent = claudeCode({ query: fake.query, listen: fakeListen });
+        const session = await agent.session({ cwd, interactive: false });
+        const events: AgentEvent[] = [];
+        const collecting = (async () => {
+            for await (const e of session.subscribe({ epoch: 0, seq: 0 })) events.push(e);
+        })();
+        const configs = () => events.filter((e): e is Extract<AgentEvent, { type: 'config' }> => e.type === 'config');
+        await drain(session.prompt('x'));
+        expect(configs().at(-1)!.options.map((o) => o.id)).toEqual(['model', 'permissionMode', 'thinkingDisplay']);
+
+        // A `config` event is THE options, not a patch of them — the reducer
+        // replaces the list wholesale. Announcing only what changed empties
+        // every other control a client is driving off it.
+        await session.configure!({ permissionMode: 'plan' });
+        const after = configs().at(-1)!;
+        expect(after.options.map((o) => o.id)).toEqual(['model', 'permissionMode', 'thinkingDisplay']);
+        expect(after.options.find((o) => o.id === 'permissionMode')!.current).toBe('plan');
+        expect(after.options.find((o) => o.id === 'model')!.current).toBe('claude-opus-5');
+        expect(after.options.find((o) => o.id === 'thinkingDisplay')!.current).toBe('summarized');
+
+        // What a client actually sees, folded the way `useAgentSession` folds it.
+        const t = createTranscript(session.id);
+        const reduce = createReducer();
+        for (const e of events) reduce(t, e);
+        expect(t.config.map((o) => o.id)).toEqual(['model', 'permissionMode', 'thinkingDisplay']);
+
+        await agent.dispose();
+        await collecting;
     });
 
     it('the MCP tool server accepts its bearer token case-insensitively and rejects others', async () => {
