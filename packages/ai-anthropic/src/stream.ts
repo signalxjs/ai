@@ -73,7 +73,7 @@ export async function* streamClaude(
                     } else if (d.type === 'input_json_delta') {
                         if (o?.kind === 'tool') {
                             o.json += d.partial_json;
-                            yield { type: 'tool-input-delta', id: o.id, delta: d.partial_json };
+                            yield { type: 'tool-input-delta', id: o.id, name: o.name, delta: d.partial_json };
                         }
                     }
                     break;

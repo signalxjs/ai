@@ -40,4 +40,22 @@ describe('mockModel', () => {
         expect((ev[2] as { id: string }).id).toMatch(/^call_\d+$/);
         expect(ev[3]).toEqual({ type: 'finish', reason: 'tool' });
     });
+
+    it('emits scripted inputDeltas before the call, carrying its id and name', async () => {
+        const m = mockModel({ script: [{ toolCalls: [{ name: 'weather', id: 'c1', input: { city: 'Oslo' }, inputDeltas: ['{"city":', ' "Oslo"}'] }] }] });
+        expect(await collect(m.stream({ messages: [] }))).toEqual([
+            { type: 'tool-input-delta', id: 'c1', name: 'weather', delta: '{"city":' },
+            { type: 'tool-input-delta', id: 'c1', name: 'weather', delta: ' "Oslo"}' },
+            { type: 'tool-call', id: 'c1', name: 'weather', input: { city: 'Oslo' } },
+            { type: 'finish', reason: 'tool' }
+        ]);
+    });
+
+    it('gives a generated id to the deltas and the call alike', async () => {
+        const m = mockModel({ script: [{ toolCalls: [{ name: 't', input: {}, inputDeltas: ['{}'] }] }] });
+        const ev = await collect(m.stream({ messages: [] }));
+        const id = (ev[0] as { id: string }).id;
+        expect(id).toMatch(/^call_\d+$/);
+        expect(ev[1]).toEqual({ type: 'tool-call', id, name: 't', input: {} });
+    });
 });

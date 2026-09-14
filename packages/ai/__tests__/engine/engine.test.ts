@@ -48,6 +48,23 @@ describe('streamText', () => {
         expect(textOf(chunks)).toBe('Answer from 3 messages');
     });
 
+    it('forwards tool-input deltas in order, before the assembled call', async () => {
+        const model = mockModel({
+            respond: (_req, round) =>
+                round === 0
+                    ? { toolCalls: [{ name: 'weather', input: { city: 'Oslo' }, id: 'c1', inputDeltas: ['{"city":', ' "Oslo"}'] }] }
+                    : { text: 'ok' }
+        });
+        const chunks = await collect(streamText({ model, messages: [userMessage('weather?')], tools: [weather] }));
+        expect(chunks.map((c) => c.type)).toEqual(['start', 'tool-input', 'tool-input', 'tool-call', 'tool-result', 'text', 'finish']);
+        expect(chunks[1]).toEqual({ type: 'tool-input', id: 'c1', name: 'weather', delta: '{"city":' });
+        expect(chunks[2]).toEqual({ type: 'tool-input', id: 'c1', name: 'weather', delta: ' "Oslo"}' });
+        expect(chunks[3]).toEqual({ type: 'tool-call', id: 'c1', name: 'weather', input: { city: 'Oslo' } });
+        // The deltas are a UI affordance only: the model side carries the
+        // assembled call and nothing else.
+        expect(model.requests[1]!.messages[1]).toEqual({ role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'weather', input: { city: 'Oslo' } }] });
+    });
+
     it('reports an unknown tool and bad arguments as error results, and keeps going', async () => {
         const model = mockModel({
             respond: (_req, round) =>

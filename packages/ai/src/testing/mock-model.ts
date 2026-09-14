@@ -15,7 +15,13 @@ import type { FinishReason, Usage } from '../protocol/index.js';
 export interface MockReply {
     readonly text?: string;
     readonly reasoning?: string;
-    readonly toolCalls?: readonly { readonly name: string; readonly input: unknown; readonly id?: string }[];
+    /**
+     * Tool calls for this round. `inputDeltas`, when given, are emitted as
+     * `tool-input-delta` events (same id and name as the call) before the
+     * assembled `tool-call` — written out rather than auto-chunked, so a test
+     * can script a split mid-object and exercise the partial-JSON read.
+     */
+    readonly toolCalls?: readonly { readonly name: string; readonly input: unknown; readonly id?: string; readonly inputDeltas?: readonly string[] }[];
     readonly finishReason?: FinishReason;
     readonly usage?: Usage;
     /** Throw this instead of finishing — after any text already emitted. */
@@ -96,9 +102,15 @@ export function mockModel(options: MockModelOptions = {}): MockModel {
             }
             if (reply.toolCalls?.length) {
                 for (const call of reply.toolCalls) {
+                    const id = call.id ?? `call_${++callSeq}`;
+                    for (const delta of call.inputDeltas ?? []) {
+                        await tick(reply.delayMs);
+                        if (signal?.aborted) return;
+                        yield { type: 'tool-input-delta', id, name: call.name, delta };
+                    }
                     await tick(reply.delayMs);
                     if (signal?.aborted) return;
-                    yield { type: 'tool-call', id: call.id ?? `call_${++callSeq}`, name: call.name, input: call.input };
+                    yield { type: 'tool-call', id, name: call.name, input: call.input };
                 }
                 yield { type: 'finish', reason: reply.finishReason ?? 'tool', ...(reply.usage ? { usage: reply.usage } : {}) };
                 return;

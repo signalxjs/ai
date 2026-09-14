@@ -4,14 +4,18 @@ import type { FinishReason, Usage } from '../protocol/index.js';
 
 /**
  * What a provider yields. Mirrors the UI chunks plus the things only the
- * engine consumes (`tool-input-delta` for progressive argument display,
- * `providerData` for replay).
+ * engine consumes (`providerData` for replay).
+ *
+ * `tool-input-delta` is a call's arguments arriving as raw JSON text, before
+ * the assembled `tool-call`. It carries the SAME `id` and `name` that call
+ * will, so a UI can label the chip and settle it in place; the engine
+ * forwards it as the `tool-input` chunk.
  */
 export type ModelEvent =
     | { readonly type: 'text-delta'; readonly delta: string }
     | { readonly type: 'reasoning-delta'; readonly delta: string }
     | { readonly type: 'reasoning-end'; readonly providerData?: unknown }
-    | { readonly type: 'tool-input-delta'; readonly id: string; readonly delta: string }
+    | { readonly type: 'tool-input-delta'; readonly id: string; readonly name: string; readonly delta: string }
     | { readonly type: 'tool-call'; readonly id: string; readonly name: string; readonly input: unknown }
     | { readonly type: 'finish'; readonly reason: FinishReason; readonly usage?: Usage; readonly providerData?: unknown }
     | { readonly type: 'error'; readonly error: unknown };

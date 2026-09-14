@@ -5,8 +5,47 @@
  * identical.
  */
 
-import { createMessage, type UIMessage } from './message.js';
+import { parsePartialJson } from '../utils/partial-json.js';
+import { createMessage, type UIMessage, type UIToolPart } from './message.js';
 import type { UIChunk } from './chunk.js';
+
+/**
+ * How much raw argument text a `streaming` tool part accumulates before it
+ * stops growing. The reducer folds a stream it does not control — a faulty
+ * or hostile server can send deltas for ever — and every delta re-reads the
+ * whole text, so an uncapped part is both unbounded memory and quadratic
+ * work. Past the cap the part keeps what it has and the deltas are dropped:
+ * a *display* of arguments degrades, and the assembled `tool-call` settles
+ * the part with the real input regardless. Matches `ChatInput`'s cap on tool
+ * JSON, which is what a client may post such a part back under.
+ */
+const MAX_STREAMING_INPUT_TEXT = 100_000;
+
+/**
+ * The last tool part carrying `id`, or `undefined` — a call is opened,
+ * settled and finished wherever it was announced. (Not the exported
+ * `findTool`, which looks a *tool* up by name.)
+ */
+function toolPart(message: UIMessage, id: string): UIToolPart | undefined {
+    const parts = message.parts;
+    for (let i = parts.length - 1; i >= 0; i--) {
+        const p = parts[i]!;
+        if (p.type === 'tool' && p.id === id) return p;
+    }
+    return undefined;
+}
+
+/**
+ * Re-read a streaming part's arguments from the raw text so far. Nothing
+ * parses out of `{"ci` yet, and while that is so the key is ABSENT rather
+ * than present holding `undefined` — `'input' in part` is then the honest
+ * test for "an argument can be read", the same shape `ChatInput` returns.
+ */
+function readInput(part: UIToolPart, text: string): void {
+    const parsed = parsePartialJson(text);
+    if (parsed === undefined) delete part.input;
+    else part.input = parsed;
+}
 
 /**
  * Fold chunks into a message IN PLACE. Works on a plain object and on a
@@ -40,29 +79,51 @@ export function applyChunk(message: UIMessage, chunk: UIChunk): boolean {
             if (last && last.type === 'reasoning' && last.providerData === undefined) last.providerData = chunk.providerData;
             else parts.push({ type: 'reasoning', text: '', providerData: chunk.providerData });
             return false;
-        case 'tool-call':
+        case 'tool-input': {
+            // Arguments still arriving. `input` is re-read from the whole text
+            // on every delta, so a UI bound to it sees the object fill in.
+            const open = toolPart(message, chunk.id);
+            if (!open) {
+                const text = chunk.delta.slice(0, MAX_STREAMING_INPUT_TEXT);
+                const fresh: UIToolPart = { type: 'tool', id: chunk.id, name: chunk.name, state: 'streaming', inputText: text };
+                readInput(fresh, text);
+                parts.push(fresh);
+                return false;
+            }
+            // A delta for a call that already landed is stale — never reopen it.
+            if (open.state !== 'streaming') return false;
+            const soFar = open.inputText ?? '';
+            // At the cap the part stops growing, and stops being re-read.
+            if (soFar.length >= MAX_STREAMING_INPUT_TEXT) return false;
+            open.inputText = (soFar + chunk.delta).slice(0, MAX_STREAMING_INPUT_TEXT);
+            readInput(open, open.inputText);
+            return false;
+        }
+        case 'tool-call': {
+            // The assembled call settles the part the deltas opened, in place,
+            // so the UI keeps one chip rather than gaining a second.
+            const open = toolPart(message, chunk.id);
+            if (open && open.state === 'streaming') {
+                open.input = chunk.input;
+                open.state = 'pending';
+                delete open.inputText;
+                return false;
+            }
             parts.push({ type: 'tool', id: chunk.id, name: chunk.name, input: chunk.input, state: 'pending' });
             return false;
+        }
         case 'tool-approval-request': {
-            for (let i = parts.length - 1; i >= 0; i--) {
-                const p = parts[i]!;
-                if (p.type === 'tool' && p.id === chunk.id) {
-                    // A request re-sent for a call the client already settled
-                    // (a resumed turn) never reopens it.
-                    if (p.state === 'pending' || p.state === 'awaiting') p.state = 'awaiting';
-                    break;
-                }
-            }
+            const p = toolPart(message, chunk.id);
+            // A request re-sent for a call the client already settled
+            // (a resumed turn) never reopens it.
+            if (p && (p.state === 'pending' || p.state === 'awaiting')) p.state = 'awaiting';
             return false;
         }
         case 'tool-result': {
-            for (let i = parts.length - 1; i >= 0; i--) {
-                const p = parts[i]!;
-                if (p.type === 'tool' && p.id === chunk.id) {
-                    p.output = chunk.output;
-                    p.state = chunk.denied ? 'denied' : chunk.isError ? 'error' : 'done';
-                    break;
-                }
+            const p = toolPart(message, chunk.id);
+            if (p) {
+                p.output = chunk.output;
+                p.state = chunk.denied ? 'denied' : chunk.isError ? 'error' : 'done';
             }
             return false;
         }

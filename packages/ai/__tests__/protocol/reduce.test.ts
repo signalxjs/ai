@@ -75,6 +75,72 @@ describe('applyChunk / assembleMessage', () => {
         expect(m.parts[0]).toMatchObject({ state: 'denied' });
     });
 
+    it('opens a streaming tool part on tool-input and grows inputText, with input readable mid-stream', () => {
+        const m = createMessage('assistant');
+        expect(applyChunk(m, { type: 'tool-input', id: 'c1', name: 'weather', delta: '{"city":' })).toBe(false);
+        expect(m.parts).toEqual([{ type: 'tool', id: 'c1', name: 'weather', input: {}, state: 'streaming', inputText: '{"city":' }]);
+        applyChunk(m, { type: 'tool-input', id: 'c1', name: 'weather', delta: ' "Os' });
+        // The prefix is repaired, so the partial object is already readable.
+        expect(m.parts[0]).toEqual({ type: 'tool', id: 'c1', name: 'weather', input: { city: 'Os' }, state: 'streaming', inputText: '{"city": "Os' });
+        applyChunk(m, { type: 'tool-input', id: 'c1', name: 'weather', delta: 'lo"}' });
+        expect(m.parts[0]).toMatchObject({ input: { city: 'Oslo' }, inputText: '{"city": "Oslo"}' });
+    });
+
+    it('leaves input absent, not undefined, while nothing parses out of the text yet', () => {
+        const m = createMessage('assistant');
+        applyChunk(m, { type: 'tool-input', id: 'c1', name: 'weather', delta: '  ' });
+        expect(m.parts[0]).toEqual({ type: 'tool', id: 'c1', name: 'weather', state: 'streaming', inputText: '  ' });
+        expect('input' in (m.parts[0] as object)).toBe(false);
+        applyChunk(m, { type: 'tool-input', id: 'c1', name: 'weather', delta: '{"city"' });
+        expect(m.parts[0]).toMatchObject({ input: {}, inputText: '  {"city"' });
+    });
+
+    it('stops growing a streaming part at the 100k cap, and the assembled call still settles it', () => {
+        const m = createMessage('assistant');
+        applyChunk(m, { type: 'tool-input', id: 'c1', name: 't', delta: '{"a":"' + 'x'.repeat(99_000) });
+        // One oversized delta is truncated rather than stored whole.
+        applyChunk(m, { type: 'tool-input', id: 'c1', name: 't', delta: 'y'.repeat(50_000) });
+        const part = m.parts[0] as { inputText: string; input: unknown };
+        expect(part.inputText).toHaveLength(100_000);
+        expect(part.input).toEqual({ a: 'x'.repeat(99_000) + 'y'.repeat(994) });
+        // At the cap further deltas are dropped outright.
+        applyChunk(m, { type: 'tool-input', id: 'c1', name: 't', delta: 'z' });
+        expect(part.inputText).toHaveLength(100_000);
+        expect(part.inputText.endsWith('z')).toBe(false);
+        applyChunk(m, { type: 'tool-call', id: 'c1', name: 't', input: { a: 'real' } });
+        expect(m.parts).toEqual([{ type: 'tool', id: 'c1', name: 't', input: { a: 'real' }, state: 'pending' }]);
+    });
+
+    it('tool-call settles the streaming part in place rather than adding a second one', () => {
+        const m = createMessage('assistant');
+        applyChunk(m, { type: 'text', delta: 'Checking ' });
+        applyChunk(m, { type: 'tool-input', id: 'c1', name: 'weather', delta: '{"city":' });
+        applyChunk(m, { type: 'tool-call', id: 'c1', name: 'weather', input: { city: 'Oslo' } });
+        expect(m.parts).toEqual([
+            { type: 'text', text: 'Checking ' },
+            { type: 'tool', id: 'c1', name: 'weather', input: { city: 'Oslo' }, state: 'pending' }
+        ]);
+        // The raw text is gone, not merely emptied.
+        expect('inputText' in (m.parts[1] as object)).toBe(false);
+        applyChunk(m, { type: 'tool-result', id: 'c1', output: { tempC: 3 } });
+        expect(m.parts[1]).toMatchObject({ state: 'done', output: { tempC: 3 } });
+        expect(m.parts).toHaveLength(2);
+    });
+
+    it('keeps two streaming calls apart, and ignores a stale delta for a call that already landed', () => {
+        const m = createMessage('assistant');
+        applyChunk(m, { type: 'tool-input', id: 'a', name: 't1', delta: '{"x":1' });
+        applyChunk(m, { type: 'tool-input', id: 'b', name: 't2', delta: '{"y":2' });
+        applyChunk(m, { type: 'tool-input', id: 'a', name: 't1', delta: '}' });
+        expect(m.parts).toEqual([
+            { type: 'tool', id: 'a', name: 't1', input: { x: 1 }, state: 'streaming', inputText: '{"x":1}' },
+            { type: 'tool', id: 'b', name: 't2', input: { y: 2 }, state: 'streaming', inputText: '{"y":2' }
+        ]);
+        applyChunk(m, { type: 'tool-call', id: 'a', name: 't1', input: { x: 1 } });
+        applyChunk(m, { type: 'tool-input', id: 'a', name: 't1', delta: 'STALE' });
+        expect(m.parts[0]).toEqual({ type: 'tool', id: 'a', name: 't1', input: { x: 1 }, state: 'pending' });
+    });
+
     it('a same-id start is a no-op, so a resumed turn lands on the existing message', () => {
         const m = createMessage('assistant', [{ type: 'text', text: 'kept' }], 'a1');
         expect(applyChunk(m, { type: 'start', messageId: 'a1' })).toBe(false);

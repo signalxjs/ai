@@ -38,6 +38,19 @@ All notable changes to `@sigx/ai` are documented here. The format follows
   `useChat` exposes `status: 'awaiting'`, `approvals`, `approve(id)` and
   `deny(id, reason?)`. A client's approval is re-checked by `onToolApproval`
   (`ctx.approvedByClient`), so a server handler can veto it.
+- Progressive tool-argument display. A provider's `tool-input-delta` (now
+  carrying the call's `name` as well as its `id`) is forwarded by the engine
+  as the `tool-input` UI chunk instead of being dropped. `UIToolState` gains
+  `streaming` and `UIToolPart` gains `inputText`, the raw argument JSON so
+  far; `applyChunk` grows it, re-reads `input` through `parsePartialJson` on
+  every delta, and settles the part IN PLACE when `tool-call` arrives — one
+  part per call, never two. `ChatInput` accepts a `streaming` part (an
+  aborted turn leaves one in the transcript the client posts next) and
+  `toModelMessages` drops it: a half-typed call was never made. `mockModel`
+  scripts the deltas with `toolCalls[].inputDeltas`. `inputText` stops
+  growing at 100 000 characters, so a faulty or hostile stream cannot make a
+  transcript grow without bound. `UIToolPart.input` is optional: it is absent
+  only while `streaming`, when nothing parses yet.
 - Structured output inside the tool loop. `streamText({ output: { schema,
   jsonSchema?, name? } })` asks every model round for the JSON format (tools
   still run) and validates the final answer onto `finish.output`; a final

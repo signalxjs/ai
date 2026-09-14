@@ -29,7 +29,12 @@ export interface Usage {
 /**
  * One chunk of a streaming assistant turn. A turn is:
  *
- *   start → (text | reasoning | reasoning-end | tool-call | tool-approval-request | tool-result)* → finish
+ *   start → (text | reasoning | reasoning-end | tool-input | tool-call | tool-approval-request | tool-result)* → finish
+ *
+ * `tool-input` is a call's arguments arriving as raw JSON text before the
+ * assembled `tool-call`, which carries the same `id` and `name` and settles
+ * the part in place. A provider that reports no argument deltas simply never
+ * sends one, so a turn may go straight to `tool-call`.
  *
  * `error` may appear anywhere and ends the turn. `finish` carries the
  * reason and, when the provider reports it, the usage for the whole turn
@@ -47,6 +52,7 @@ export type UIChunk =
     | { readonly type: 'text'; readonly delta: string }
     | { readonly type: 'reasoning'; readonly delta: string }
     | { readonly type: 'reasoning-end'; readonly providerData?: unknown }
+    | { readonly type: 'tool-input'; readonly id: string; readonly name: string; readonly delta: string }
     | { readonly type: 'tool-call'; readonly id: string; readonly name: string; readonly input: unknown }
     | { readonly type: 'tool-approval-request'; readonly id: string }
     | { readonly type: 'tool-result'; readonly id: string; readonly output: unknown; readonly isError?: boolean; readonly denied?: true }

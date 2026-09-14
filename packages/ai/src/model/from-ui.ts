@@ -11,7 +11,8 @@ export const DENIED_MESSAGE = 'The user denied this tool call.';
  * `tool-call` and a following `tool` message carrying the results, which is
  * the shape every provider wants (results in ONE message per turn). A
  * `denied` call is an error result carrying the reason; an undecided one
- * (`pending`, `awaiting`, `approved`) has no result yet. A user message that
+ * (`pending`, `awaiting`, `approved`) has no result yet; a `streaming` one
+ * never became a call and is dropped. A user message that
  * is all text stays a string; one with an image or file keeps its parts, in
  * order.
  */
@@ -35,6 +36,11 @@ export function toModelMessages(messages: readonly UIMessage[]): ModelMessage[] 
             } else if (p.type === 'reasoning') {
                 content.push({ type: 'reasoning', text: p.text, ...(p.providerData !== undefined ? { providerData: p.providerData } : {}) });
             } else if (p.type === 'tool') {
+                // A call whose arguments were still arriving when the turn was
+                // interrupted never became a call — the model was never asked
+                // to run it and has no matching block to answer, so it is not
+                // mentioned at all.
+                if (p.state === 'streaming') continue;
                 content.push({ type: 'tool-call', id: p.id, name: p.name, input: p.input });
                 if (p.state === 'done' || p.state === 'error' || p.state === 'denied') {
                     results.push({

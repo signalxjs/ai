@@ -178,8 +178,10 @@ async function* runRound(
                     break;
                 }
                 case 'tool-input-delta':
-                    // Progressive argument display is a later UI feature; the
-                    // engine waits for the assembled call.
+                    // Progressive argument display: forwarded to the UI as it
+                    // arrives. Nothing is pushed onto `parts` — the model side
+                    // only ever learns about the assembled call.
+                    yield { type: 'tool-input', id: ev.id, name: ev.name, delta: ev.delta };
                     break;
                 case 'tool-call':
                     parts.push({ type: 'tool-call', id: ev.id, name: ev.name, input: ev.input });
