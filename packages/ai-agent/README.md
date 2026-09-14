@@ -259,6 +259,19 @@ answered through the host's `respond()`, `cancel({ agentId })` stops it, and
 `ctx.signal` cancels it too. A delegate that delegates in turn shows up one
 level deeper in `agentTree(transcript)`.
 
+**Ids are namespaced at the seam.** A call id, request id, message id or part
+id is unique only within the session that minted it, and sequential ids are
+normal (`call_1` from two different models, a harness numbering its items per
+session). Every id on a forwarded event is therefore rewritten
+`<delegate session id>/<the delegate's own id>` before it enters the host's
+turn — `callId`, `parentCallId` below the delegate, `agentId`, `requestId`,
+`messageId`, `partId` — and mapped back when `respond()` or
+`cancel({ agentId })` is routed into the delegate. The one id that stays as it
+is, is the delegate's own `agentId` on the `agent-start` bound to the call: it
+is the delegate session id, already host-space. Nesting composes, so a
+grandchild's id carries one prefix per level it travelled up. Read ids off the
+events, never construct them.
+
 ## Rendering a transcript
 
 Fold events into a transcript with `reduceAgentEvent` (in place, deterministic:
