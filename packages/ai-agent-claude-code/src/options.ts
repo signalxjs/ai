@@ -1,6 +1,7 @@
 /** Construction and session options for the Claude Code adapter. */
 
 import type { PermissionMode, SDKSessionInfo, SettingSource, SpawnOptions, SpawnedProcess, ThinkingConfig, query } from '@anthropic-ai/claude-agent-sdk';
+import type { ConfigValue } from '@sigx/ai-agent';
 import type { CodingSessionOptions } from '@sigx/ai-agent/coding';
 import type { listenMcp } from '@sigx/ai-agent-node';
 
@@ -27,6 +28,13 @@ export interface ClaudeCodeOptions {
     /** Default `'default'` — every non-trivial tool asks. Never `bypassPermissions` unless `allowDangerouslySkipPermissions` is set too. */
     readonly permissionMode?: PermissionMode;
     readonly allowDangerouslySkipPermissions?: boolean;
+    /**
+     * The models the `model` config option offers. Default
+     * `CLAUDE_CODE_MODELS`; replace it for a gateway, for Bedrock / Vertex
+     * ids, or to offer a model the default list leaves out. The session's
+     * current model is always offered as well.
+     */
+    readonly models?: readonly ConfigValue[];
     /** Extra environment for the CLI, on top of the allowlist (`ANTHROPIC_*`, `CLAUDE_CONFIG_DIR` pass through by default). */
     readonly env?: Readonly<Record<string, string | undefined>>;
     /** The MCP server name client tools are served under. Default `'sigx-tools'`. */

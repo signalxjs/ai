@@ -5,7 +5,7 @@
 
 import type { AgentDefinition as SdkAgentDefinition, Options, OutputFormat, SDKUserMessage, ThinkingConfig } from '@anthropic-ai/claude-agent-sdk';
 import { jsonSchemaOf, type JsonSchema, type StandardSchemaV1 } from '@sigx/ai';
-import { AgentError, type AgentDefinition, type ConfigOption, type PromptPart, type ToolAnnotations } from '@sigx/ai-agent';
+import { AgentError, type AgentDefinition, type ConfigOption, type ConfigValue, type PromptPart, type ToolAnnotations } from '@sigx/ai-agent';
 import { categoryOf } from '@sigx/ai-agent/coding';
 import type { OutputSpec } from '@sigx/ai-agent';
 import { DEFAULT_ENV_ALLOWLIST, buildChildEnv } from '@sigx/ai-agent-node';
@@ -16,6 +16,28 @@ const READ_ONLY = new Set(['Read', 'Glob', 'Grep', 'LS', 'NotebookRead']);
 
 /** Every permission mode the CLI knows — what a `config` event advertises. */
 export const PERMISSION_MODES = ['default', 'acceptEdits', 'plan', 'dontAsk', 'auto', 'bypassPermissions'] as const;
+
+/**
+ * The models the `model` config option offers by default.
+ *
+ * The SDK has no model-listing call (Codex's `model/list` has no counterpart
+ * here), so this is a constant, like `PERMISSION_MODES`. It carries both the
+ * aliases the CLI resolves for itself and the current full ids — the SDK's own
+ * docstring gives the alias vocabulary. `claudeCode({ models })` replaces it
+ * for a gateway, for Bedrock / Vertex ids, or for `fable`, which is left out
+ * here because it is not generally available.
+ *
+ * A session's CURRENT model is always offered too, whether or not it is in
+ * this list — see `configOptions`.
+ */
+export const CLAUDE_CODE_MODELS: readonly ConfigValue[] = [
+    { id: 'opus', label: 'Opus (latest)', description: 'The alias — Claude Code resolves it to the current Opus.' },
+    { id: 'sonnet', label: 'Sonnet (latest)', description: 'The alias — Claude Code resolves it to the current Sonnet.' },
+    { id: 'haiku', label: 'Haiku (latest)', description: 'The alias — Claude Code resolves it to the current Haiku.' },
+    { id: 'claude-opus-5', label: 'Claude Opus 5' },
+    { id: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
+    { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' }
+];
 
 /** How much of Claude's thinking reaches the client — what the `thinkingDisplay` config option advertises. */
 export const THINKING_DISPLAYS = ['summarized', 'omitted'] as const;
@@ -77,6 +99,8 @@ export interface ConfigState {
  */
 export interface ConfigTracker {
     current(): ConfigState;
+    /** What to advertise right now: the state, over the model list this session offers. */
+    options(): ConfigOption[];
     /**
      * Merge. A key the patch does not set keeps its value — and since every
      * field is optional, a key set to `undefined` counts as not set rather
@@ -86,10 +110,11 @@ export interface ConfigTracker {
     update(patch: ConfigState): ConfigState;
 }
 
-export function createConfigState(initial: ConfigState = {}): ConfigTracker {
+export function createConfigState(initial: ConfigState = {}, models?: readonly ConfigValue[]): ConfigTracker {
     let state: ConfigState = initial;
     return {
         current: () => state,
+        options: () => configOptions(state, models),
         update(patch) {
             const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
             state = { ...state, ...defined };
@@ -99,13 +124,24 @@ export function createConfigState(initial: ConfigState = {}): ConfigTracker {
 }
 
 /**
+ * The model values to advertise. The session's current model goes first when
+ * the list does not already name it — `system/init` reports whatever the CLI
+ * resolved (a full id behind an alias, a Bedrock / Vertex / gateway id), and
+ * `ConfigOption.current` has to be one of `values` for a client to render it
+ * as the selected entry at all.
+ */
+function modelValues(current: string, models: readonly ConfigValue[]): ConfigValue[] {
+    return models.some((m) => m.id === current) ? [...models] : [{ id: current }, ...models];
+}
+
+/**
  * What a `config` event advertises — one entry per setting we know the
  * current value of, so a client can both show it and switch it through
  * `configure()`.
  */
-export function configOptions(current: ConfigState): ConfigOption[] {
+export function configOptions(current: ConfigState, models: readonly ConfigValue[] = CLAUDE_CODE_MODELS): ConfigOption[] {
     return [
-        ...(current.model !== undefined ? [{ id: 'model', label: 'Model', values: [{ id: current.model }], current: current.model }] : []),
+        ...(current.model !== undefined ? [{ id: 'model', label: 'Model', values: modelValues(current.model, models), current: current.model }] : []),
         ...(current.permissionMode !== undefined ? [{ id: 'permissionMode', label: 'Permission mode', values: PERMISSION_MODES.map((id) => ({ id })), current: current.permissionMode }] : []),
         ...(current.thinkingDisplay !== undefined
             ? [

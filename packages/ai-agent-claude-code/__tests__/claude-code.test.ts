@@ -27,6 +27,7 @@ import {
     bearerToken,
     sameToken,
     PERMISSION_MODES,
+    CLAUDE_CODE_MODELS,
     configOptions,
     createConfigState,
     ASK_USER_QUESTION,
@@ -1112,6 +1113,57 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
         expect(() => toUserMessage([{ type: 'file', mediaType: 'application/pdf', data: 'x' }])).toThrow(/not supported/);
         expect(() => toUserMessage([{ type: 'image', mediaType: 'image/png' }])).toThrow(/needs data or url/);
         expect(toUserMessage([{ type: 'image', mediaType: 'image/png', url: 'https://x/y.png' }]).message.content).toEqual([{ type: 'image', source: { type: 'url', url: 'https://x/y.png' } }]);
+    });
+
+    it('advertises a model list to switch between, and offers the CLI’s own model when the list omits it', async () => {
+        const modelOption = async (agent: ReturnType<typeof claudeCode>) => {
+            const session = await agent.session({ cwd, interactive: false });
+            const { events } = await drain(session.prompt('x'));
+            const config = events.find((e) => e.type === 'config') as Extract<AgentEvent, { type: 'config' }>;
+            await agent.dispose();
+            return config.options.find((o) => o.id === 'model')!;
+        };
+
+        const known = await modelOption(claudeCode({ query: fakeQuery(() => [messageStart(), ...textBlocks('hi'), ...messageStop(), RESULT()]).query, listen: fakeListen }));
+        expect(known.values.map((v) => v.id)).toEqual([...CLAUDE_CODE_MODELS.map((m) => m.id)]);
+        expect(known.values.length).toBeGreaterThan(1); // a dropdown with something to pick
+        expect(known.current).toBe('claude-opus-5');
+
+        // A gateway / Bedrock / Vertex id the fixed list cannot know: it still
+        // has to be offered, or `current` names a value that is not there.
+        const gateway = await modelOption(
+            claudeCode({
+                query: fakeQuery(() => [messageStart(), ...textBlocks('hi'), ...messageStop(), RESULT()], { init: (c) => INIT(c, 'bedrock/anthropic.claude-opus-5') }).query,
+                listen: fakeListen
+            })
+        );
+        expect(gateway.current).toBe('bedrock/anthropic.claude-opus-5');
+        expect(gateway.values[0]).toEqual({ id: 'bedrock/anthropic.claude-opus-5' });
+        expect(gateway.values).toHaveLength(CLAUDE_CODE_MODELS.length + 1);
+    });
+
+    it('a system/init with no model advertises none, rather than an empty one', async () => {
+        // `String(m.model ?? '')` used to make this `current: ''` — a blank
+        // selected entry in the dropdown, and a value invented from nothing.
+        const init = (cwd: string) => m({ type: 'system', subtype: 'init', ...base, cwd, permissionMode: 'default', tools: [], mcp_servers: [], apiKeySource: 'none', claude_code_version: '2.1.270', slash_commands: [], output_style: 'default', skills: [], plugins: [], agents: [] });
+        const fake = fakeQuery(() => [messageStart(), ...textBlocks('hi'), ...messageStop(), RESULT()], { init });
+        const agent = claudeCode({ query: fake.query, listen: fakeListen });
+        const session = await agent.session({ cwd, interactive: false });
+        const { events } = await drain(session.prompt('x'));
+        const config = events.find((e) => e.type === 'config') as Extract<AgentEvent, { type: 'config' }>;
+        expect(config.options.map((o) => o.id)).toEqual(['permissionMode', 'thinkingDisplay']);
+        await agent.dispose();
+    });
+
+    it('claudeCode({ models }) replaces the advertised list', async () => {
+        const fake = fakeQuery(() => [messageStart(), ...textBlocks('hi'), ...messageStop(), RESULT()]);
+        const agent = claudeCode({ query: fake.query, listen: fakeListen, models: [{ id: 'claude-fable-5-1', label: 'Fable 5.1' }] });
+        const session = await agent.session({ cwd, interactive: false });
+        const { events } = await drain(session.prompt('x'));
+        const config = events.find((e) => e.type === 'config') as Extract<AgentEvent, { type: 'config' }>;
+        // The session's own model is offered alongside the replacement list.
+        expect(config.options.find((o) => o.id === 'model')!.values.map((v) => v.id)).toEqual(['claude-opus-5', 'claude-fable-5-1']);
+        await agent.dispose();
     });
 
     it('config events advertise every permission mode, bypass included', async () => {

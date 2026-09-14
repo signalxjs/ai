@@ -46,6 +46,13 @@ versions follow [SemVer](https://semver.org/).
 - `createAgentTracker`, `taskKind` and `toAgentDefinitions` are exported.
 - `createConfigState` and the `ConfigState` / `ConfigTracker` types are
   exported — the session's one source of truth for what it advertises.
+- The `model` config option advertises a list to switch between instead of
+  only the model the session is on: `CLAUDE_CODE_MODELS` (the `opus` /
+  `sonnet` / `haiku` aliases the CLI resolves itself, plus the current full
+  ids), exported, and replaceable per agent with `claudeCode({ models })` for
+  a gateway, Bedrock / Vertex ids, or a model the default list leaves out. A
+  session's own model is always offered too — `system/init` reports whatever
+  the CLI resolved, and `ConfigOption.current` has to be one of `values`.
 
 ### Fixed
 
