@@ -33,7 +33,7 @@ Full guides, API reference and live examples → **<https://sigx.dev/ai/>**
 Examples:
 
 - [`examples/chat`](./examples/chat) — an SSR sigx app streaming a chat over `serverStream`, assistant text rendered as markdown by `RichTextView` from `@sigx/richtext/dom`, provider switched by env, a scripted mock when no key is set.
-- [`examples/agent`](./examples/agent) — an SSR sigx app around ONE agent session: `serveSession` on the server, `connectSession` + `useAgentSession` in the browser, tool cards, permission prompts, cancel and usage — and a second tab that replays the same session and follows it live. Every harness adapter is selectable by env (`SIGX_AI_AGENT=claude-code | codex | acp:<preset>`); runs with no key and no installed harness by default.
+- [`examples/agent`](./examples/agent) — the **`@sigx/ai-agent` playground**: open a session against any agent (`sigx`, `mock`, Claude Code, Codex, any ACP preset), on any model, in any mode — from the page, not from `.env`. Several at once, side by side on the same prompt. Switch a running session into plan mode or onto another model from its Settings panel, which is one `<select>` per `ConfigOption` and knows no adapter's vocabulary. Tool cards, permission prompts, sub-agent cards, cancel and usage; a second tab joins every live session and replays it. Runs with no key and no installed harness.
 
 ## Install
 

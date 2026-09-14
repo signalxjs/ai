@@ -3,15 +3,46 @@
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>sigx ai — agent</title>
+        <title>sigx ai — agent playground</title>
         <style>
             :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
             body { margin: 0; background: Canvas; color: CanvasText; }
-            main { max-width: 46rem; margin: 0 auto; padding: 1rem; display: flex; flex-direction: column; min-height: 100vh; box-sizing: border-box; }
+            /* Sidebar + panes. The sidebar is the session list; the pane is
+               what the single-session version used to be, N times over. */
+            main.layout { display: grid; grid-template-columns: 15rem minmax(0, 1fr); gap: 1rem; padding: 1rem; min-height: 100vh; box-sizing: border-box; align-items: start; }
+            @media (max-width: 52rem) { main.layout { grid-template-columns: 1fr; } }
+            .sidebar { position: sticky; top: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+            .sidebar h1 { font-size: 1rem; margin: 0 0 0.3rem; }
+            .panes { display: flex; flex-direction: column; min-height: 100vh; }
+            /* Side by side: every pane at once, for comparing two agents on
+               the same prompt. */
+            main.compare .panes { display: grid; grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr)); gap: 1rem; align-items: start; }
+            .pane { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 100vh; }
+            main.compare .pane { min-height: 0; border: 1px solid color-mix(in srgb, CanvasText 15%, Canvas); border-radius: 0.6rem; padding: 0 0.8rem; }
+            .session-row { display: flex; align-items: stretch; gap: 0.2rem; border: 1px solid color-mix(in srgb, CanvasText 15%, Canvas); border-radius: 0.5rem; overflow: hidden; }
+            .session-row.selected { border-color: Highlight; }
+            .session-row.running, .session-row.awaiting { border-left: 3px solid Highlight; }
+            .session-row.error { border-left: 3px solid crimson; }
+            .session-pick { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 0.1rem; border: 0; border-radius: 0; background: none; padding: 0.4rem 0.6rem; text-align: left; }
+            .session-name { font-size: 0.88em; }
+            .session-meta { font-size: 0.72em; opacity: 0.65; overflow-wrap: anywhere; }
+            .session-close { border: 0; border-radius: 0; background: none; padding: 0 0.5rem; opacity: 0.5; }
+            .session-close:hover { opacity: 1; color: crimson; }
+            .compare-toggle { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8em; opacity: 0.8; }
+            .new-session { display: flex; flex-direction: column; gap: 0.4rem; padding: 0.6rem; border: 1px dashed GrayText; border-radius: 0.5rem; margin-top: 0.3rem; }
+            .new-session label, .config label { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.78em; }
+            .new-session select, .new-session input, .config select { font: inherit; font-size: 0.95em; padding: 0.25rem 0.35rem; border-radius: 0.35rem; border: 1px solid GrayText; background: Field; color: FieldText; max-width: 100%; }
+            .new-session button { padding: 0.35rem 0.7rem; font-size: 0.85em; }
+            /* The settings a session advertises — whatever it calls them. */
+            .settings { font-size: 0.85em; margin: 0.2rem 0; }
+            .settings > summary { cursor: pointer; opacity: 0.7; }
+            .config { display: flex; flex-wrap: wrap; gap: 0.6rem; padding: 0.5rem 0 0; }
+            .config-note { font-size: 0.78em; opacity: 0.6; margin: 0.4rem 0 0; flex-basis: 100%; }
+            header small .model { opacity: 0.7; font-weight: normal; }
             header { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
             header h1 { font-size: 1.1rem; margin: 0; }
             header small { opacity: 0.7; font-variant-numeric: tabular-nums; }
-            .thread { flex: 1; display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem 0; }
+            .thread { flex: 1 1 auto; display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem 0; }
             .hint { opacity: 0.6; }
             .msg { padding: 0.6rem 0.9rem; border-radius: 0.75rem; max-width: 90%; white-space: pre-wrap; line-height: 1.45; }
             .msg.user { align-self: flex-end; background: Highlight; color: HighlightText; }

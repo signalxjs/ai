@@ -1,367 +1,91 @@
 /**
- * The agent endpoint — ONE session, served to every tab.
+ * The playground's endpoints — five of them, and nothing else.
  *
- * This module is server-only: the agent, the provider SDKs, the API key, the
- * tool implementations and the policy live here and never ship. The client
- * build swaps it for typed stubs, which is all `connectSession` needs: a
- * `serverFn` that carries commands in, and a `serverStream` that carries
- * event frames out.
+ * This module is server-only: the agents, the provider SDKs, the keys, the
+ * tool implementations and the policy live behind it (`agents.server.ts`,
+ * `registry.server.ts`) and never ship. The client build swaps it for typed
+ * stubs, which is all the browser needs.
  *
- * The agent is picked by env — `SIGX_AI_AGENT` names our engine or any of
- * the harness adapters (see `AGENTS` below), and within `sigx` the model is
- * `SIGX_AI_PROVIDER=anthropic|openai|mock` — so `pnpm dev` runs with no key
- * and no installed executable. The names are namespaced on purpose: a bare
- * `AI_AGENT` is common enough that the tooling around the example (Claude
- * Code itself, for one) already defines it.
+ * **`sessionId` rides the transport envelope, never the wire command.** The
+ * wire protocol deliberately has no create/list/destroy verb — topology is an
+ * app's business — and `SessionTransport` is just `{ send, events }`, so
+ * routing by id outside the envelope is exactly the seam it leaves open. A
+ * real app routes on `rq.principal` in the same place.
  *
- * **Deliberately one process-wide session**: that is what makes the second
- * tab a LATE JOINER instead of a new conversation. A real app opens a
- * session per user (or per thread), keyed off `rq.principal`, and persists
- * `session.ref`.
+ * There is no close endpoint on purpose: the wire's own `close` command
+ * already reaches `session.close()`, which fans a `state: 'closed'` out to
+ * every connected tab and lets the registry reap the session. One path, and
+ * it also covers the ones an endpoint could not — a harness that dies on its
+ * own, an adapter that closes itself.
  */
 import { serverFn, serverStream } from '@sigx/server';
-import { defineTool, type LanguageModel } from '@sigx/ai';
-import { mockModel } from '@sigx/ai/testing';
-import { anthropic } from '@sigx/ai-anthropic';
-import { openai } from '@sigx/ai-openai';
-import { agentTool, modelAgent, allowReadOnly, memoryEventLog, type Agent, type AgentSession } from '@sigx/ai-agent';
-import type { CodingSessionOptions } from '@sigx/ai-agent/coding';
-import { serveSession, isWireCommand, WIRE_PROTOCOL_VERSION, type Cursor, type WireCommand, type WireFrame, type WireReply } from '@sigx/ai-agent/wire';
-import { ExecutableNotFoundError } from '@sigx/ai-agent-node';
+import { isWireCommand, WIRE_PROTOCOL_VERSION, type Cursor, type WireCommand, type WireFrame, type WireReply } from '@sigx/ai-agent/wire';
 import { z } from 'zod';
-
-const SYSTEM =
-    'You are an operations agent in a SignalX demo. Use the tools when they help. ' +
-    'Reading is free; anything that changes the world needs the operator to approve it.';
-
-// ── Tools ───────────────────────────────────────────────────────────────────
-
-const ListInput = z.object({ service: z.string().optional().describe('Only incidents for this service') });
-
-/**
- * `readOnly: true` is not decoration: the session's policy is `allowReadOnly`,
- * which reads exactly this annotation and lets the call through without
- * asking. Everything else reaches the operator as a `request` event.
- */
-const listIncidents = defineTool({
-    name: 'list_incidents',
-    description: 'Open incidents (demo data).',
-    input: ListInput,
-    jsonSchema: z.toJSONSchema(ListInput),
-    annotations: { readOnly: true },
-    execute: async ({ service }) => {
-        await new Promise((r) => setTimeout(r, 200)); // a "network" hop, so `in_progress` is visible
-        const all = [
-            { id: 'INC-41', service: 'checkout', severity: 'high', summary: 'Latency over 2s on /pay' },
-            { id: 'INC-42', service: 'search', severity: 'low', summary: 'Stale index in eu-north-1' }
-        ];
-        return service ? all.filter((i) => i.service === service) : all;
-    }
-});
-
-const RestartInput = z.object({ service: z.string().describe('Service to restart, e.g. "checkout"') });
-
-/** No `readOnly`: `allowReadOnly` has no opinion, so the turn stops and asks. */
-const restartService = defineTool({
-    name: 'restart_service',
-    description: 'Restart a service (demo: nothing is restarted).',
-    input: RestartInput,
-    jsonSchema: z.toJSONSchema(RestartInput),
-    annotations: { destructive: true },
-    execute: async ({ service }) => ({ service, restarted: true, at: new Date().toISOString() })
-});
-
-const TOOLS = [listIncidents, restartService];
-
-// ── The agent ───────────────────────────────────────────────────────────────
-
-/** A tool result for a sentence: text as it is, anything else as JSON (never `[object Object]`). */
-function describeOutput(output: unknown): string {
-    return typeof output === 'string' ? output : JSON.stringify(output);
-}
-
-/**
- * The scripted host model — no key needed: hand the reading to the `triage`
- * sub-agent, restart what it found (which stops and asks), then answer.
- */
-function demoModel(): LanguageModel {
-    return mockModel({
-        respond: (request) => {
-            const last = request.messages[request.messages.length - 1];
-            if (last?.role === 'tool') {
-                const result = last.content[0];
-                if (result?.toolName === 'triage' || result?.toolName === 'list_incidents') {
-                    // A cancelled (or failed) sub-agent comes back as a tool error: the turn goes on without it.
-                    if (result.isError) return { text: `Triage did not finish — ${describeOutput(result.output)}. Nothing was restarted.`, delayMs: 30 };
-                    return { toolCalls: [{ name: 'restart_service', input: { service: 'checkout' } }], delayMs: 30 };
-                }
-                if (result?.toolName === 'restart_service') {
-                    return {
-                        text: result.isError
-                            ? `Left checkout alone — ${describeOutput(result.output)}. Set ANTHROPIC_API_KEY or OPENAI_API_KEY for a real model.`
-                            : 'Restarted checkout. INC-41 should recover within a minute.',
-                        delayMs: 30
-                    };
-                }
-                return { text: 'Done.', delayMs: 30 };
-            }
-            const asked = last?.role === 'user' && typeof last.content === 'string' ? last.content : '';
-            if (/incident|restart|deploy|outage|check/i.test(asked)) {
-                // Reasoning the harness EXPOSES, so the transcript shows the
-                // other half of the story: a harness running with thinking
-                // display `omitted` gives the view nothing but a live
-                // indicator (#77/#78/#121).
-                return {
-                    reasoning: 'The operator wants the incidents looked at. Reading them is work for the `triage` sub-agent: it only reads, so the policy lets it start unasked. Anything that restarts a service has to stop and ask.',
-                    toolCalls: [{ name: 'triage', input: { task: 'List the open incidents and say which one to act on first.' } }],
-                    delayMs: 30
-                };
-            }
-            return {
-                text: 'Hello from the scripted mock model. Ask about the incidents to see a sub-agent triage them, and a destructive tool stop for your approval — or set ANTHROPIC_API_KEY / OPENAI_API_KEY for a real model.',
-                delayMs: 30
-            };
-        }
-    });
-}
-
-/**
- * The sub-agent's own script: read the incidents, then report. The pause
- * before its tool call is deliberate — long enough to watch its card run, and
- * to press its Cancel.
- */
-function triageModel(): LanguageModel {
-    // Its call ids may repeat the host's — both mocks number from `call_1`.
-    // `agentTool` namespaces what it forwards, so the two spaces stay apart.
-    return mockModel({
-        respond: (request) => {
-            const last = request.messages[request.messages.length - 1];
-            if (last?.role === 'tool') {
-                return { text: 'INC-41 first: checkout latency is over 2s on /pay, the only high-severity incident. INC-42, a stale search index, can wait.', delayMs: 30 };
-            }
-            return { toolCalls: [{ name: 'list_incidents', input: {} }], delayMs: 1500 };
-        }
-    });
-}
-
-const TriageInput = z.object({ task: z.string().describe('What the triage sub-agent should find out') });
-
-/**
- * A SUB-AGENT as a tool. `agentTool` opens a session on a second
- * `modelAgent` for each call; because the host is `modelAgent` too, the
- * delegate is a sub-agent of the host turn — an `agent-start` bound to this
- * call, its own messages nested under it, `agent-update`s, exactly one
- * terminal status — and `cancelAgent` stops it while the turn goes on.
- *
- * It only reads, so it is annotated read-only and the host's `allowReadOnly`
- * starts it unasked; inside, the same policy judges its own tool calls.
- * Our engine only: a harness has its own sub-agents, reported the same way.
- */
-function triage(model: LanguageModel) {
-    const delegate = modelAgent({
-        model,
-        system: 'You triage incidents for an operations agent. Read, never change anything, and report in two sentences.',
-        tools: [listIncidents],
-        maxSteps: 4
-    });
-    return agentTool(delegate, {
-        name: 'triage',
-        title: 'Triage',
-        description: 'A sub-agent that reads the open incidents and reports which one to act on first.',
-        input: TriageInput,
-        jsonSchema: z.toJSONSchema(TriageInput),
-        annotations: { readOnly: true },
-        prompt: ({ task }) => task,
-        sessionOptions: { policy: allowReadOnly, interactive: true, requestTimeoutMs: 5 * 60_000 }
-    });
-}
-
-/**
- * One env var, VALIDATED against the values we actually understand: an
- * unrecognised one warns and falls back, so a typo — or a variable the
- * surrounding tooling happens to set — is visible instead of silently
- * ignored while the banner echoes it back.
- */
-function pick<T extends string>(name: string, allowed: readonly T[], fallback: T): T {
-    const value = process.env[name];
-    if (!value) return fallback;
-    if ((allowed as readonly string[]).includes(value)) return value as T;
-    console.warn(`[agent] ${name}=${value} is not one of ${allowed.join(' | ')} — using ${fallback}.`);
-    return fallback;
-}
-
-/** The host's model and the sub-agent's: a real provider plays both parts; the mock gets a script for each. */
-function modelsFor(): { host: LanguageModel; triage: LanguageModel } {
-    const wanted = pick('SIGX_AI_PROVIDER', ['anthropic', 'openai', 'mock'] as const, process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.OPENAI_API_KEY ? 'openai' : 'mock');
-    switch (wanted) {
-        case 'anthropic': {
-            const model = anthropic().model(process.env.SIGX_AI_MODEL ?? 'claude-opus-5');
-            return { host: model, triage: model };
-        }
-        case 'openai': {
-            const model = openai().model(process.env.SIGX_AI_MODEL ?? 'gpt-5');
-            return { host: model, triage: model };
-        }
-        default:
-            return { host: demoModel(), triage: triageModel() };
-    }
-}
-
-/**
- * The options every agent gets, whichever one it is. `allowReadOnly` answers
- * the read-only calls and says `'ask'` for the rest; `interactive: true`
- * turns an `'ask'` into a `request` event the UI answers with `respond()`.
- * `requestTimeoutMs` is the safety net: an operator who closes the tab must
- * not leave a turn waiting for ever.
- */
-const SESSION_OPTIONS = {
-    policy: allowReadOnly,
-    interactive: true,
-    requestTimeoutMs: 5 * 60_000,
-    tools: TOOLS
-} as const;
-
-/**
- * Every agent the example can run. `sigx` is our own engine (`modelAgent`);
- * the rest are the harness adapters, each on the operator's own login. The
- * `dev-server.mjs` banner mirrors this list — plain Node runs before Vite,
- * so it cannot import this module.
- */
-const AGENTS = ['sigx', 'claude-code', 'codex', 'acp:gemini', 'acp:cursor', 'acp:claude-code', 'acp:codex'] as const;
-type AgentChoice = (typeof AGENTS)[number];
-type HarnessChoice = Exclude<AgentChoice, 'sigx'>;
-
-/** How to get the CLI a selection needs — printed when it is not on PATH. */
-const INSTALL: Record<HarnessChoice, string> = {
-    'claude-code': 'npm i -g @anthropic-ai/claude-code',
-    codex: 'npm i -g @openai/codex',
-    'acp:gemini': 'npm i -g @google/gemini-cli',
-    'acp:cursor': 'the Cursor CLI (`agent`), see https://cursor.com/cli',
-    'acp:claude-code': 'npm i -g @agentclientprotocol/claude-agent-acp',
-    'acp:codex': 'npm i -g @agentclientprotocol/codex-acp'
-};
-
-/**
- * The adapter for a selection. Every import is dynamic so a missing SDK is
- * a printed reason, not a crash at module load. `SIGX_AI_AGENT_COMMAND`
- * points at a specific executable (a locally built CLI, a shim outside PATH).
- * Every harness is a coding agent — its session options carry a `cwd`.
- */
-/** An env var that is set to nothing (`SIGX_AI_CWD=` in a `.env`) counts as unset. */
-function env(name: string): string | undefined {
-    return process.env[name] || undefined;
-}
-
-async function harness(choice: HarnessChoice): Promise<Agent<CodingSessionOptions>> {
-    const command = env('SIGX_AI_AGENT_COMMAND');
-    switch (choice) {
-        case 'claude-code': {
-            const { claudeCode } = await import('@sigx/ai-agent-claude-code');
-            // The SDK bundles its own binary, so the override is an option on the adapter, not a PATH lookup.
-            return claudeCode(command ? { pathToClaudeCodeExecutable: command } : {});
-        }
-        case 'codex': {
-            const { codex } = await import('@sigx/ai-agent-codex');
-            return codex(command ? { command } : {});
-        }
-        default: {
-            const { acp, gemini, cursor, claudeCodeAcp, codexAcp } = await import('@sigx/ai-agent-acp');
-            const presets = { 'acp:gemini': gemini, 'acp:cursor': cursor, 'acp:claude-code': claudeCodeAcp, 'acp:codex': codexAcp } as const;
-            return acp({ ...presets[choice](), ...(command ? { command } : {}) });
-        }
-    }
-}
-
-/** Why a harness could not start, in one line an operator can act on. */
-function unavailable(choice: HarnessChoice, error: unknown): string {
-    if (error instanceof ExecutableNotFoundError) {
-        const override = env('SIGX_AI_AGENT_COMMAND');
-        // The resolver throws the same error for a name looked up on PATH and
-        // for an explicit path that does not exist — say which one it was.
-        if (override) {
-            return `[agent] SIGX_AI_AGENT=${choice}: SIGX_AI_AGENT_COMMAND="${override}" was not found (${error.message}); falling back to the sigx engine.`;
-        }
-        return `[agent] SIGX_AI_AGENT=${choice} needs the "${error.executable}" CLI on PATH — install it (${INSTALL[choice]}) or point SIGX_AI_AGENT_COMMAND at it; falling back to the sigx engine.`;
-    }
-    return `[agent] SIGX_AI_AGENT=${choice} is unavailable (${error instanceof Error ? error.message : String(error)}); falling back to the sigx engine.`;
-}
-
-/**
- * `SIGX_AI_AGENT=<harness>` drives a real harness through its adapter.
- * Optional on purpose: any failure (SDK missing, CLI not installed, not
- * signed in) falls back to our own engine with the reason printed, so the
- * example always runs. Swapping harnesses is the point of the contract —
- * nothing below this function changes.
- */
-async function openSession(): Promise<{ agent: Agent; session: AgentSession }> {
-    const choice = pick('SIGX_AI_AGENT', AGENTS, 'sigx');
-    if (choice !== 'sigx') {
-        let agent: Agent<CodingSessionOptions> | undefined;
-        try {
-            agent = await harness(choice);
-            // A harness works in a directory (`SIGX_AI_CWD`, default: where the
-            // server was started); our own engine does not care.
-            const session = await agent.session({ ...SESSION_OPTIONS, cwd: env('SIGX_AI_CWD') ?? process.cwd() });
-            return { agent, session };
-        } catch (e) {
-            // A half-started harness may own a child process — never leave it behind.
-            await agent?.dispose().catch(() => {});
-            console.warn(unavailable(choice, e));
-        }
-    }
-    const models = modelsFor();
-    // The tools go in ONCE, through the session: `modelAgent` adds a session's
-    // tools to its own, so naming them on both would offer every tool twice —
-    // and a real provider rejects duplicate tool names.
-    const agent = modelAgent({ model: models.host, system: SYSTEM, maxSteps: 6 });
-    return { agent, session: await agent.session({ ...SESSION_OPTIONS, tools: [...TOOLS, triage(models.triage)] }) };
-}
-
-const { agent, session } = await openSession();
-
-/**
- * `serveSession` is the whole server side of the wire: idempotent commands,
- * replay from any `(epoch, seq)`, a `hello` frame that carries the agent's
- * capabilities. The `memoryEventLog` lets a tab that has been away longer
- * than the session's in-memory buffer still replay instead of getting a
- * `gap` (a real app uses a durable `EventLogStore`).
- */
-const served = serveSession(session, {
-    agentId: agent.id,
-    capabilities: agent.capabilities,
-    eventLog: memoryEventLog(),
-    // One frame per run of text deltas instead of one per token: the same
-    // transcript, a fraction of the messages.
-    coalesce: { maxDelayMs: 40 }
-});
-
-console.log(`[agent] agent: ${agent.id}  session: ${session.id}`);
-
-// ── The endpoints ───────────────────────────────────────────────────────────
-
-/** The wire envelope is validated by the library (`isWireCommand`); this only proves it is an object. */
-const CommandInput = z.object({ command: z.looseObject({}) });
+import { AGENTS, type AgentCatalog, type OpenResult, type SessionInfo } from './catalog.js';
+import { catalog, list, open, served } from './registry.server.js';
 
 const CursorInput = z.object({ epoch: z.number().int().nonnegative(), seq: z.number().int().nonnegative() });
-const EventsInput = z.object({ from: CursorInput.optional() });
+const SessionInput = z.object({ sessionId: z.string().min(1) });
+/** The wire envelope is validated by the library (`isWireCommand`); this only proves it is an object. */
+const CommandInput = SessionInput.extend({ command: z.looseObject({}) });
+const EventsInput = SessionInput.extend({ from: CursorInput.optional() });
+/** `z.enum` rejects an unknown agent here, so the registry only ever sees one it can build. */
+const OpenInput = z.object({ agent: z.enum(AGENTS), model: z.string().max(200).optional(), cwd: z.string().max(4096).optional() });
+
+/** What the New-session form offers: the agents, their models, and why any of them last failed. */
+export const agentCatalog = serverFn({
+    input: z.object({}),
+    // Deliberate: the demo has no sign-in. See vite.config.ts.
+    allowAnonymous: true,
+    handler: (): AgentCatalog => catalog()
+});
 
 /**
- * Commands in. `handleCommand` is idempotent by `commandId`, so a retried
- * POST never prompts twice or runs a turn twice.
+ * The live sessions. Deliberately PURE — it opens nothing. A second tab reads
+ * it to find the sessions the first tab opened and joins them as an observer,
+ * and the smoke test reads it to prove that importing this module opens no
+ * session at all.
+ */
+export const agentSessions = serverFn({
+    input: z.object({}),
+    allowAnonymous: true,
+    handler: (): SessionInfo[] => list()
+});
+
+/**
+ * Open one. Answers `{ ok: false, reason }` rather than throwing, so a missing
+ * CLI renders as an install hint next to the form. An explicit choice never
+ * falls back to another agent — that would be a lie in a tool for comparing
+ * them.
+ */
+export const agentOpenSession = serverFn({
+    input: OpenInput,
+    allowAnonymous: true,
+    handler: (_rq, input): Promise<OpenResult> => open(input)
+});
+
+/**
+ * Commands in. `handleCommand` is idempotent by `commandId`, so a retried POST
+ * never prompts twice or runs a turn twice.
  */
 export const agentCommand = serverFn({
     input: CommandInput,
-    // Deliberate: the demo has no sign-in. See vite.config.ts.
     allowAnonymous: true,
     handler: async (_rq, input): Promise<WireReply> => {
         const command = input.command as unknown;
         if (!isWireCommand(command)) {
             return { v: WIRE_PROTOCOL_VERSION, kind: 'error', commandId: '', code: 'invalid', message: 'not a wire command' };
         }
+        const target = served(input.sessionId);
+        // A client holding a stale id gets a typed wire error it can branch on
+        // (`connectSession` surfaces it as `remote: 'closed'`), not a throw.
+        if (!target) {
+            return { v: WIRE_PROTOCOL_VERSION, kind: 'error', commandId: command.commandId, code: 'closed', message: `no session "${input.sessionId}"` };
+        }
         // A real app passes `rq.principal` as the second argument and gives
         // `serveSession` an `authorize` — that is where "who may cancel whose
         // turn" is decided.
-        return served.handleCommand(command as WireCommand);
+        return target.handleCommand(command as WireCommand);
     }
 });
 
@@ -374,8 +98,13 @@ export const agentEvents = serverStream({
     input: EventsInput,
     allowAnonymous: true,
     handler: async function* (rq, input): AsyncGenerator<WireFrame> {
+        const target = served(input.sessionId);
+        // Throw rather than yield nothing: an empty stream makes
+        // `connectSession` retry its way to "the event stream ended before a
+        // hello frame", which tells an operator nothing about what went wrong.
+        if (!target) throw new Error(`no session "${input.sessionId}"`);
         const from: Cursor | undefined = input.from;
         // A closed tab ends the subscription; the session keeps running.
-        yield* served.events(from, { signal: rq.abortSignal });
+        yield* target.events(from, { signal: rq.abortSignal });
     }
 });

@@ -11,17 +11,15 @@
  * of `''`, a summary of `'   '`, an error with no message — each of them used
  * to open a box around nothing.
  */
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { component, jsx, defineApp } from 'sigx';
-import { createTranscript, type AgentState, type AgentPart, type AgentTranscript, type ToolPartState } from '@sigx/ai-agent';
+import { createTranscript, type AgentState, type AgentPart, type AgentTranscript, type ConfigOption, type ToolPartState } from '@sigx/ai-agent';
 
-// `agent.server` opens a REAL agent session at module load (a top-level
-// `await openSession()`), and the client build replaces it with typed stubs
-// anyway — the view only ever hands them to `connectSession`, which nothing
-// here reaches.
-vi.mock('../src/agent.server', () => ({ agentCommand: () => Promise.resolve(), agentEvents: () => Promise.resolve() }));
-
-const { Part } = await import('../src/App');
+// No `vi.mock` and no dynamic import: `Thread.tsx` imports nothing from the
+// server module, and the server module no longer opens a session at import
+// either. Both used to be necessary.
+import { ConfigPanel } from '../src/Session';
+import { Part } from '../src/Thread';
 
 const closers: (() => void)[] = [];
 afterEach(() => {
@@ -149,5 +147,71 @@ describe('reasoning', () => {
     it('still renders real thinking', () => {
         const dom = render({ type: 'reasoning', id: 'r1', text: 'weighing INC-41', done: true });
         expect(dom.querySelector('details.reasoning')?.textContent).toContain('weighing INC-41');
+    });
+});
+
+/**
+ * The settings panel. It is the whole payoff of the `config` event — plan mode
+ * on Claude Code, `mode` on an ACP agent, sandbox on Codex and the model
+ * everywhere, all out of one loop with no per-adapter branching — so what it
+ * does with an empty, an unsupported and a single-valued option is the part
+ * worth pinning.
+ */
+describe('config panel', () => {
+    function panel(options: ConfigOption[], supported = true, onChange: (id: string, value: string) => void = () => {}): HTMLDivElement {
+        const One = component(() => () => <ConfigPanel options={options} supported={supported} onChange={onChange} />, { name: 'One' });
+        const container = document.createElement('div');
+        document.body.appendChild(container);
+        const app = defineApp(jsx(One, {})).mount(container);
+        closers.push(() => {
+            app.unmount();
+            container.remove();
+        });
+        return container;
+    }
+
+    const mode: ConfigOption = {
+        id: 'permissionMode',
+        label: 'Permission mode',
+        values: [{ id: 'default' }, { id: 'plan', label: 'Plan' }, { id: 'acceptEdits' }],
+        current: 'plan'
+    };
+
+    it('renders one select per option, with the current value selected', () => {
+        const dom = panel([mode, { id: 'model', label: 'Model', values: [{ id: 'a' }, { id: 'b' }], current: 'b' }]);
+        const selects = [...dom.querySelectorAll('select')];
+        expect(selects).toHaveLength(2);
+        expect([...selects[0]!.options].map((o) => o.value)).toEqual(['default', 'plan', 'acceptEdits']);
+        expect(selects[0]!.value).toBe('plan');
+        expect(selects[1]!.value).toBe('b');
+    });
+
+    it('reports a change as (id, value) — the patch `configure()` takes', () => {
+        const seen: [string, string][] = [];
+        const dom = panel([mode], true, (id, value) => seen.push([id, value]));
+        const select = dom.querySelector('select')!;
+        select.value = 'default';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        expect(seen).toEqual([['permissionMode', 'default']]);
+    });
+
+    it('an option with one value is shown, not offered — a dropdown of one is a lie', () => {
+        const dom = panel([{ id: 'model', label: 'Model', values: [{ id: 'claude-opus-5' }], current: 'claude-opus-5' }]);
+        const select = dom.querySelector('select')!;
+        expect(select.disabled).toBe(true);
+        expect(select.value).toBe('claude-opus-5');
+    });
+
+    it('says the settings are coming rather than drawing an empty panel', () => {
+        const dom = panel([], true);
+        expect(dom.querySelector('select')).toBeNull();
+        expect(dom.querySelector('.config')).toBeNull();
+        expect(dom.textContent).toContain('after its first message');
+    });
+
+    it('an agent with no config capability gets no panel at all', () => {
+        const dom = panel([], false);
+        expect(dom.querySelector('select')).toBeNull();
+        expect(dom.textContent).toContain('no live settings');
     });
 });

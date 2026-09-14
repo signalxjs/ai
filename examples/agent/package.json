@@ -2,7 +2,7 @@
     "name": "agent-example",
     "private": true,
     "type": "module",
-    "description": "An @sigx/ai-agent session in a real SignalX app — serveSession on the server, connectSession + useAgentSession in the browser, permission prompts, cancel, usage, and a second tab that joins the same session",
+    "description": "The @sigx/ai-agent playground — open sessions against any agent, model and mode from the UI, several at once, with live config (plan mode) and a second tab that joins them all",
     "scripts": {
         "dev": "node --env-file-if-exists=.env dev-server.mjs",
         "build": "vite build --app",
