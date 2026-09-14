@@ -8,6 +8,21 @@ versions follow [SemVer](https://semver.org/).
 
 ### Added
 
+- Session option `thinking` (the SDK's `ThinkingConfig`), passed to
+  `query()`, defaulting to `{ type: 'adaptive', display: 'summarized' }`. The
+  adapter previously sent none, so every session ran on the SDK's default
+  display (`omitted`) and every reasoning part came out empty. `null` sends no
+  `thinking` at all and inherits Claude Code's own `thinking.display` /
+  `--thinking-display` setting. Summaries are free — measured against the real
+  CLI, `output_tokens` tracks `output_tokens_details.thinking_tokens`
+  identically under both displays — and `adaptive` degrades gracefully on
+  models that predate it (verified on Sonnet 4.5 and Haiku 4.5).
+- A `thinkingDisplay` option on the `config` event (`summarized` / `omitted`,
+  advertised whenever the session knows its display), switchable with
+  `configure({ thinkingDisplay })` → `Query.setMaxThinkingTokens`, which
+  carries the session's own thinking mode along so only the display changes.
+- `configOptions`, `resolveThinking`, `thinkingDisplayOf`, `thinkingBudgetOf`,
+  `THINKING_DISPLAYS` and `DEFAULT_THINKING` are exported.
 - Sub-agents. Claude Code's task frames (`system/task_started`,
   `task_progress`, `task_updated`, `task_notification`) and the Task tool's
   `tool_use_result` become `agent-start` / `agent-update`: one start per agent

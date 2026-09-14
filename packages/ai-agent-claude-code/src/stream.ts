@@ -11,7 +11,7 @@ import type { SDKMessage, SDKResultMessage } from '@anthropic-ai/claude-agent-sd
 import { parsePartialJson, type Usage } from '@sigx/ai';
 import type { AgentErrorCode, StopReason, TurnDriver, UnstampedEvent } from '@sigx/ai-agent';
 import { codingEvent, type CodingPlanEntry } from '@sigx/ai-agent/coding';
-import { categoryFor, PERMISSION_MODES, splitToolName, toolAnnotations } from './request.js';
+import { categoryFor, configOptions, splitToolName, toolAnnotations, type ThinkingDisplay } from './request.js';
 import { toUsage, type AgentTracker } from './tasks.js';
 
 export const CLAUDE_CODE_NS = 'claude-code';
@@ -30,6 +30,8 @@ export interface TurnMapperOptions {
     readonly interrupted: () => boolean;
     /** The cumulative cost the previous result reported, to make `turn-end.costUsd` a delta. */
     readonly previousCostUsd: () => number;
+    /** The session's thinking display, for the `config` event `system/init` becomes; `undefined` when we cannot know. */
+    readonly thinkingDisplay?: () => ThinkingDisplay | undefined;
 }
 
 interface OpenBlock {
@@ -267,10 +269,10 @@ export function createTurnMapper(options: TurnMapperOptions): TurnMapper {
                     break;
                 }
                 case 'system':
-                    if (!tracker.handleTask(message, emit, (id) => calls.has(id))) mapSessionMessage(message, emit);
+                    if (!tracker.handleTask(message, emit, (id) => calls.has(id))) mapSessionMessage(message, emit, options.thinkingDisplay?.());
                     break;
                 default:
-                    mapSessionMessage(message, emit);
+                    mapSessionMessage(message, emit, options.thinkingDisplay?.());
             }
         }
     };
@@ -380,7 +382,7 @@ function sessionUsage(result: SDKResultMessage): Usage {
 }
 
 /** Frames that are not about a turn: config, state, rate limits, auth — or an `ext`. */
-export function mapSessionMessage(message: SDKMessage, emit: Emit): void {
+export function mapSessionMessage(message: SDKMessage, emit: Emit, thinkingDisplay?: ThinkingDisplay | undefined): void {
     const strip = (m: object) => {
         const { uuid: _u, session_id: _s, ...rest } = m as Record<string, unknown>;
         return rest;
@@ -389,14 +391,13 @@ export function mapSessionMessage(message: SDKMessage, emit: Emit): void {
         case 'system': {
             const m = message as { subtype: string } & Record<string, unknown>;
             if (m.subtype === 'init') {
-                const model = String(m.model ?? '');
-                const mode = String(m.permissionMode ?? 'default');
+                // `init` says nothing about thinking — the display is ours,
+                // from the session options (or the last `configure()`), and
+                // is left out when we cannot know it (thinking disabled, or
+                // inherited from the CLI's own settings).
                 emit({
                     type: 'config',
-                    options: [
-                        { id: 'model', label: 'Model', values: [{ id: model }], current: model },
-                        { id: 'permissionMode', label: 'Permission mode', values: PERMISSION_MODES.map((id) => ({ id })), current: mode }
-                    ]
+                    options: configOptions({ model: String(m.model ?? ''), permissionMode: String(m.permissionMode ?? 'default'), ...(thinkingDisplay !== undefined ? { thinkingDisplay } : {}) })
                 });
             } else if (m.subtype === 'session_state_changed') {
                 if (m.state === 'requires_action') emit({ type: 'state', value: 'awaiting' });

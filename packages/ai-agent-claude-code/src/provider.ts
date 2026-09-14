@@ -21,7 +21,7 @@ import type { Agent, AgentCapabilities, AgentSession, CancelTarget, PromptInput,
 import { listenMcp, resolveExecutable, spawnAgentProcess, type AgentProcess } from '@sigx/ai-agent-node';
 import type { ClaudeCodeOptions, ClaudeCodeSessionOptions } from './options.js';
 import { createCanUseTool, type PermissionTarget } from './permissions.js';
-import { PERMISSION_MODES, toOutputFormat, toQueryOptions, toUserMessage } from './request.js';
+import { THINKING_DISPLAYS, configOptions, thinkingBudgetOf, thinkingDisplayOf, toOutputFormat, toQueryOptions, toUserMessage, type ThinkingDisplay } from './request.js';
 import { createTurnMapper, mapSessionMessage, type TurnMapper } from './stream.js';
 import { createAgentTracker } from './tasks.js';
 import { startToolServer, type ToolServer } from './tools.js';
@@ -198,6 +198,8 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
         let stderrTail = '';
         let interrupted = false;
         let lastCost = 0;
+        // What the session shows of Claude's thinking — from the options, then from `configure()`.
+        let thinkingDisplay: ThinkingDisplay | undefined = thinkingDisplayOf(sessionOptions.thinking);
         let current: { driver: TurnDriver; ctx: TurnContext; mapper: TurnMapper; done: (r: SDKResultMessage | undefined, error?: Error) => void } | undefined;
         // The first query resumes (or forks) the ref's session; later ones resume the live id.
         let firstQuery = true;
@@ -210,7 +212,7 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
         const emitSession = (m: SDKMessage) => {
             if (m.type === 'system' && (m as { subtype: string }).subtype === 'init') claudeSessionId = (m as { session_id: string }).session_id;
             if (current) current.mapper.handle(m);
-            else if (!tracker.handleTask(m, emitSessionEvent)) mapSessionMessage(m, emitSessionEvent);
+            else if (!tracker.handleTask(m, emitSessionEvent)) mapSessionMessage(m, emitSessionEvent, thinkingDisplay);
         };
 
         const startQuery = (format: OutputFormat | undefined) => {
@@ -292,7 +294,8 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
                         tracker,
                         onResult: (r) => current?.done(r),
                         interrupted: () => interrupted,
-                        previousCostUsd: () => lastCost
+                        previousCostUsd: () => lastCost,
+                        thinkingDisplay: () => thinkingDisplay
                     });
                     const finished = new Promise<void>((resolve) => {
                         current = {
@@ -350,12 +353,21 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
                     if (patch.permissionMode === 'bypassPermissions' && !options.allowDangerouslySkipPermissions) throw new AgentError('protocol_error', '[sigx ai-agent-claude-code] bypassPermissions needs allowDangerouslySkipPermissions');
                     await q.setPermissionMode(patch.permissionMode as never);
                 }
+                if (patch.thinkingDisplay !== undefined) {
+                    const next = patch.thinkingDisplay as ThinkingDisplay;
+                    if (!THINKING_DISPLAYS.includes(next)) throw new AgentError('protocol_error', `[sigx ai-agent-claude-code] thinkingDisplay must be one of ${THINKING_DISPLAYS.join(', ')}, not "${patch.thinkingDisplay}"`);
+                    // The display is the only thing that changes: the budget
+                    // argument carries the session's own thinking mode back in.
+                    await q.setMaxThinkingTokens(thinkingBudgetOf(sessionOptions.thinking), next);
+                    thinkingDisplay = next;
+                }
                 core.emit({
                     type: 'config',
-                    options: [
-                        ...(patch.model !== undefined ? [{ id: 'model', label: 'Model', values: [{ id: patch.model }], current: patch.model }] : []),
-                        ...(patch.permissionMode !== undefined ? [{ id: 'permissionMode', label: 'Permission mode', values: PERMISSION_MODES.map((v) => ({ id: v })), current: patch.permissionMode }] : [])
-                    ]
+                    options: configOptions({
+                        ...(patch.model !== undefined ? { model: patch.model } : {}),
+                        ...(patch.permissionMode !== undefined ? { permissionMode: patch.permissionMode } : {}),
+                        ...(patch.thinkingDisplay !== undefined ? { thinkingDisplay: patch.thinkingDisplay as ThinkingDisplay } : {})
+                    })
                 });
             },
             subscribe: (from) => core.subscribe(from),
