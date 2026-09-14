@@ -204,10 +204,13 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
         // display is ours alone — `init` never mentions it — and stays absent
         // when we cannot know it (thinking disabled, or inherited from the
         // CLI's own settings), which is what makes it unconfigurable below.
-        const config = createConfigState((() => {
-            const display = thinkingDisplayOf(sessionOptions.thinking);
-            return display !== undefined ? { thinkingDisplay: display } : {};
-        })());
+        const config = createConfigState(
+            (() => {
+                const display = thinkingDisplayOf(sessionOptions.thinking);
+                return display !== undefined ? { thinkingDisplay: display } : {};
+            })(),
+            options.models
+        );
         let current: { driver: TurnDriver; ctx: TurnContext; mapper: TurnMapper; done: (r: SDKResultMessage | undefined, error?: Error) => void } | undefined;
         // The first query resumes (or forks) the ref's session; later ones resume the live id.
         let firstQuery = true;
@@ -385,7 +388,7 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
                 }
                 // The WHOLE list, not just what moved: a `config` event is the
                 // options, and the reducer replaces the list with it (#137).
-                core.emit({ type: 'config', options: configOptions(config.current()) });
+                core.emit({ type: 'config', options: config.options() });
             },
             subscribe: (from) => core.subscribe(from),
             async close() {

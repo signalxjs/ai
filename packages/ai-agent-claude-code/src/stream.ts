@@ -398,7 +398,12 @@ export function mapSessionMessage(message: SDKMessage, emit: Emit, config?: Conf
                 // out when we cannot know it (thinking disabled, or
                 // inherited from the CLI's own settings).
                 const next = { model: String(m.model ?? ''), permissionMode: String(m.permissionMode ?? 'default') };
-                emit({ type: 'config', options: configOptions(config ? config.update(next) : next) });
+                if (config) {
+                    config.update(next);
+                    emit({ type: 'config', options: config.options() });
+                } else {
+                    emit({ type: 'config', options: configOptions(next) });
+                }
             } else if (m.subtype === 'session_state_changed') {
                 if (m.state === 'requires_action') emit({ type: 'state', value: 'awaiting' });
             } else if (m.subtype === 'permission_denied') {

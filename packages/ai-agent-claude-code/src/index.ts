@@ -20,6 +20,7 @@ export {
     thinkingDisplayOf,
     thinkingBudgetOf,
     PERMISSION_MODES,
+    CLAUDE_CODE_MODELS,
     THINKING_DISPLAYS,
     DEFAULT_THINKING
 } from './request.js';
