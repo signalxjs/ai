@@ -86,6 +86,9 @@ importers:
       '@sigx/ai-agent-codex':
         specifier: workspace:*
         version: link:../../packages/ai-agent-codex
+      '@sigx/ai-agent-copilot':
+        specifier: workspace:*
+        version: link:../../packages/ai-agent-copilot
       '@sigx/ai-agent-node':
         specifier: workspace:*
         version: link:../../packages/ai-agent-node

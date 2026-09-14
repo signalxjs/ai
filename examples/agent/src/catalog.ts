@@ -15,7 +15,7 @@ import type { AgentCapabilities, ConfigOption, SessionState } from '@sigx/ai-age
  * `mock` the scripted one from `@sigx/ai-agent/testing` — both run with no key
  * and nothing installed. The rest are harness adapters on your own login.
  */
-export const AGENTS = ['sigx', 'mock', 'claude-code', 'codex', 'acp:gemini', 'acp:cursor', 'acp:claude-code', 'acp:codex'] as const;
+export const AGENTS = ['sigx', 'mock', 'claude-code', 'codex', 'copilot', 'acp:gemini', 'acp:cursor', 'acp:claude-code', 'acp:codex', 'acp:copilot'] as const;
 export type AgentChoice = (typeof AGENTS)[number];
 export type HarnessChoice = Exclude<AgentChoice, 'sigx' | 'mock'>;
 
@@ -23,10 +23,12 @@ export type HarnessChoice = Exclude<AgentChoice, 'sigx' | 'mock'>;
 export const INSTALL: Record<HarnessChoice, string> = {
     'claude-code': 'npm i -g @anthropic-ai/claude-code',
     codex: 'npm i -g @openai/codex',
+    copilot: 'the SDK bundles the Copilot CLI runtime; sign in with copilot login (npm i -g @github/copilot)',
     'acp:gemini': 'npm i -g @google/gemini-cli',
     'acp:cursor': 'the Cursor CLI (`agent`), see https://cursor.com/cli',
     'acp:claude-code': 'npm i -g @agentclientprotocol/claude-agent-acp',
-    'acp:codex': 'npm i -g @agentclientprotocol/codex-acp'
+    'acp:codex': 'npm i -g @agentclientprotocol/codex-acp',
+    'acp:copilot': 'npm i -g @github/copilot'
 };
 
 /**

@@ -14,7 +14,7 @@ import { openai } from '@sigx/ai-openai';
 import { agentTool, modelAgent, allowReadOnly, type Agent, type SessionOptions } from '@sigx/ai-agent';
 import { mockAgent } from '@sigx/ai-agent/testing';
 import type { CodingSessionOptions } from '@sigx/ai-agent/coding';
-import { ExecutableNotFoundError } from '@sigx/ai-agent-node';
+import { DEFAULT_ENV_ALLOWLIST, ExecutableNotFoundError, buildChildEnv } from '@sigx/ai-agent-node';
 import { z } from 'zod';
 import { AGENTS, INSTALL, type AgentChoice, type CatalogEntry, type HarnessChoice, type ModelChoice, type OpenRequest } from './catalog.js';
 
@@ -200,9 +200,17 @@ async function harness(choice: HarnessChoice): Promise<Agent<CodingSessionOption
             const { codex } = await import('@sigx/ai-agent-codex');
             return codex(command ? { command } : {});
         }
+        case 'copilot': {
+            const { copilot } = await import('@sigx/ai-agent-copilot');
+            // The SDK spawns its bundled runtime itself, with `process.env` unless told
+            // otherwise — so it is told: the same allowlist every other harness child gets,
+            // plus the variables Copilot reads. The override is a path, not a PATH lookup.
+            const env = buildChildEnv({ allow: [...DEFAULT_ENV_ALLOWLIST, 'COPILOT_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'COPILOT_HOME'] });
+            return copilot({ env, ...(command ? { cliPath: command } : {}) });
+        }
         default: {
-            const { acp, gemini, cursor, claudeCodeAcp, codexAcp } = await import('@sigx/ai-agent-acp');
-            const presets = { 'acp:gemini': gemini, 'acp:cursor': cursor, 'acp:claude-code': claudeCodeAcp, 'acp:codex': codexAcp } as const;
+            const { acp, gemini, cursor, claudeCodeAcp, codexAcp, copilotAcp } = await import('@sigx/ai-agent-acp');
+            const presets = { 'acp:gemini': gemini, 'acp:cursor': cursor, 'acp:claude-code': claudeCodeAcp, 'acp:codex': codexAcp, 'acp:copilot': copilotAcp } as const;
             return acp({ ...presets[choice](), ...(command ? { command } : {}) });
         }
     }
@@ -368,10 +376,12 @@ const LABELS: Record<AgentChoice, string> = {
     mock: 'mock (scripted)',
     'claude-code': 'Claude Code',
     codex: 'Codex',
+    copilot: 'GitHub Copilot CLI',
     'acp:gemini': 'Gemini CLI (ACP)',
     'acp:cursor': 'Cursor CLI (ACP)',
     'acp:claude-code': 'Claude Code (ACP bridge)',
-    'acp:codex': 'Codex (ACP bridge)'
+    'acp:codex': 'Codex (ACP bridge)',
+    'acp:copilot': 'GitHub Copilot CLI (ACP)'
 };
 
 /**
