@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { defineTool, type JsonSchema, type StandardSchemaV1 } from '@sigx/ai';
 import { allowAll, denyAll, AgentError, createReducer, createTranscript, type AgentEvent } from '@sigx/ai-agent';
 import { codingState, codingExtension } from '@sigx/ai-agent/coding';
-import { acp, gemini, cursor, claudeCodeAcp, codexAcp, ACP_BASE_CAPABILITIES } from '@sigx/ai-agent-acp';
+import { acp, gemini, cursor, claudeCodeAcp, codexAcp, copilotAcp, ACP_BASE_CAPABILITIES } from '@sigx/ai-agent-acp';
 import { fakeAcpAgent, FULL_CAPABILITIES, type FakeAcp } from './fake-acp-agent';
 import { isInsideRoots } from '../src/client-methods';
 
@@ -72,6 +72,7 @@ describe('acp(): initialize and capabilities', () => {
         expect(cursor({ command: '/opt/cursor/agent' })).toMatchObject({ id: 'acp:cursor', command: '/opt/cursor/agent', args: ['acp'] });
         expect(claudeCodeAcp().command).toBe('claude-agent-acp');
         expect(codexAcp().command).toBe('codex-acp');
+        expect(copilotAcp()).toMatchObject({ id: 'acp:copilot', command: 'copilot', args: ['--acp'], passEnv: ['COPILOT_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'COPILOT_HOME'] });
         expect(acp(gemini()).id).toBe('acp:gemini');
     });
 });

@@ -219,7 +219,7 @@ on every OS in the matrix).
   Client Protocol adapter (Node-only; depends on `@sigx/ai-agent-node` for the
   stdio path): `acp({ command, transport?, fs?, terminal? })` → an `Agent` with
   `connect()`; vendors are data-only presets (`gemini()`, `cursor()`,
-  `claudeCodeAcp()`, `codexAcp()`). Layout `schema ← options ← client-methods
+  `claudeCodeAcp()`, `codexAcp()`, `copilotAcp()`). Layout `schema ← options ← client-methods
   ← stream ← session ← provider ← presets ← index`; `schema.ts` is our own
   protocol subset (the reference SDK is a devDependency for an assignability
   test only). Tests run against an in-memory fake agent over
@@ -246,6 +246,19 @@ on every OS in the matrix).
   (a thread), `provider.ts` (`codex()`), `index.ts`. `pnpm --filter
   @sigx/ai-agent-codex codex:generate` regenerates the full types with an
   installed Codex CLI.
+- `packages/ai-agent-copilot` → `@sigx/ai-agent-copilot` — **experimental**,
+  GitHub Copilot CLI as an `Agent` on the official `@github/copilot-sdk`
+  (peer, literal range; the SDK spawns its bundled runtime itself, so no
+  `@sigx/ai-agent-node`). Layout `options ← request ← permissions ← tools ←
+  stream ← session ← provider ← index`: one `CopilotClient` per agent, one
+  Copilot session per session created with OUR session id and its `onEvent` /
+  `onPermissionRequest` / `onUserInputRequest` / `tools` wired before
+  creation, `send()` … `session.idle` as a turn, in-process client tools
+  (`tools: 'native'`), `listModels()` + `session.start` → a switchable
+  `model` config option, `setModel` on `configure()`. Tests script the SDK
+  boundary through `copilot({ client })` (`__tests__/fake-client.ts`);
+  `__tests__/sdk.test-d.ts` checks the real `CopilotClient` / `CopilotSession`
+  against that seam; a live smoke is gated on `SIGX_LIVE_COPILOT=1`.
 - `packages/ai-anthropic` → `@sigx/ai-anthropic` — Claude on the official
   `@anthropic-ai/sdk` (a peer dependency, literal range): `anthropic()` →
   `.model(id)`. Streams `client.messages.stream`, maps text / thinking /

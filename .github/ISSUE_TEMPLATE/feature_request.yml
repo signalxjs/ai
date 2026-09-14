@@ -46,6 +46,7 @@ body:
         - "@sigx/ai-agent-acp"
         - "@sigx/ai-agent-claude-code"
         - "@sigx/ai-agent-codex"
+        - "@sigx/ai-agent-copilot"
         - "@sigx/ai-anthropic"
         - "@sigx/ai-openai"
         - Not sure
