@@ -15,11 +15,16 @@ function pair(options: { framing?: 'ndjson' | 'message'; cancelMethod?: string |
 }
 
 /** A raw byte writer into a peer, for malformed input. */
-function rawPeer() {
+function rawPeer(options: { requireVersion?: boolean } = {}) {
     const inbound = new TransformStream<Uint8Array, Uint8Array>();
     const outbound = new TransformStream<Uint8Array, Uint8Array>();
     const errors: JsonRpcProtocolError[] = [];
-    const peer = createJsonRpcPeer({ readable: inbound.readable, writable: outbound.writable, onProtocolError: (e) => errors.push(e) });
+    const peer = createJsonRpcPeer({
+        readable: inbound.readable,
+        writable: outbound.writable,
+        onProtocolError: (e) => errors.push(e),
+        ...(options.requireVersion !== undefined ? { requireVersion: options.requireVersion } : {})
+    });
     const writer = inbound.writable.getWriter();
     const outLines: string[] = [];
     void (async () => {
@@ -182,7 +187,7 @@ describe('createJsonRpcPeer', () => {
         await a.close();
     });
 
-    it('a message without jsonrpc 2.0 is answered -32600 when request-shaped, reported otherwise', async () => {
+    it('a message without jsonrpc 2.0 is answered -32600 when it carries an id, reported otherwise', async () => {
         const raw = rawPeer();
         raw.peer.onRequest('echo', (p) => p);
         await raw.write('{"id":5,"method":"echo"}\n');
@@ -196,15 +201,65 @@ describe('createJsonRpcPeer', () => {
         expect(raw.outLines.map((l) => JSON.parse(l))).toEqual([
             { jsonrpc: '2.0', id: 5, error: { code: JSON_RPC.INVALID_REQUEST, message: 'Not a JSON-RPC 2.0 message' } },
             { jsonrpc: '2.0', id: null, error: { code: JSON_RPC.INVALID_REQUEST, message: 'Not a JSON-RPC 2.0 message' } },
-            // Request-shaped without any id is still answered (id null) — the sender may be waiting.
-            { jsonrpc: '2.0', id: null, error: { code: JSON_RPC.INVALID_REQUEST, message: 'Not a JSON-RPC 2.0 message' } },
+            // No reply to a message without an id: it is notification-shaped, so nobody waits for one.
             { jsonrpc: '2.0', id: 7, result: 1 },
             { jsonrpc: '2.0', id: null, error: { code: JSON_RPC.INVALID_REQUEST, message: 'Invalid request id' } },
             { jsonrpc: '2.0', id: null, error: { code: JSON_RPC.INVALID_REQUEST, message: 'Invalid request id' } }
         ]);
-        // Only the response-shaped 1.0 message has nobody to answer: it is reported.
-        expect(raw.errors.map((e) => e.code)).toEqual([JSON_RPC.INVALID_REQUEST]);
+        // The id-less message and the response-shaped 1.0 message have nobody to answer: both are reported.
+        expect(raw.errors.map((e) => e.code)).toEqual([JSON_RPC.INVALID_REQUEST, JSON_RPC.INVALID_REQUEST]);
         await raw.close();
+    });
+
+    it('strict mode drops a response without jsonrpc and never answers a notification without it (#126)', async () => {
+        // The handshake codex app-server 0.154 sends: no jsonrpc member on anything.
+        const raw = rawPeer();
+        let settled = false;
+        const pending = raw.peer.request('initialize', {}).then(
+            () => (settled = true),
+            () => (settled = true)
+        );
+        await tick();
+        await raw.write('{"id":1,"result":{"userAgent":"codex"}}\n');
+        await raw.write('{"method":"remoteControl/status/changed","params":{"status":"disabled"}}\n');
+        await tick(5);
+        expect(settled).toBe(false);
+        expect(raw.outLines.map((l) => JSON.parse(l))).toEqual([{ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }]);
+        expect(raw.errors.map((e) => e.code)).toEqual([JSON_RPC.INVALID_REQUEST, JSON_RPC.INVALID_REQUEST]);
+        await raw.close();
+        await raw.peer.close();
+        await pending;
+    });
+
+    it('requireVersion: false handles responses, notifications and requests without jsonrpc, and still sends it (#126)', async () => {
+        const raw = rawPeer({ requireVersion: false });
+        const pings: unknown[] = [];
+        const other: unknown[] = [];
+        raw.peer.onNotification('ping', (p) => pings.push(p));
+        raw.peer.onUnhandled((m) => other.push(m));
+        raw.peer.onRequest('echo', (p) => p);
+        const pending = raw.peer.request('initialize', { clientInfo: { name: 'sigx' } });
+        await tick();
+        await raw.write('{"id":1,"result":{"userAgent":"codex"}}\n');
+        expect(await pending).toEqual({ userAgent: 'codex' });
+        await raw.write('{"method":"ping","params":{"n":1}}\n');
+        await raw.write('{"method":"mystery","params":{"n":2}}\n');
+        await raw.write('{"id":9,"method":"echo","params":2}\n');
+        await raw.write('{"id":10,"error":{"code":-32000,"message":"late"}}\n');
+        // A present but wrong version is still refused.
+        await raw.write('{"jsonrpc":"1.0","id":11,"method":"echo"}\n');
+        await tick(5);
+        expect(pings).toEqual([{ n: 1 }]);
+        expect(other).toEqual([{ method: 'mystery', params: { n: 2 } }]);
+        expect(raw.outLines.map((l) => JSON.parse(l))).toEqual([
+            { jsonrpc: '2.0', id: 1, method: 'initialize', params: { clientInfo: { name: 'sigx' } } },
+            { jsonrpc: '2.0', id: 9, result: 2 },
+            { jsonrpc: '2.0', id: 11, error: { code: JSON_RPC.INVALID_REQUEST, message: 'Not a JSON-RPC 2.0 message' } }
+        ]);
+        // Only the response for an id nobody asked about is reported.
+        expect(raw.errors.map((e) => e.message)).toEqual(['Response for unknown request id 10']);
+        await raw.close();
+        await raw.peer.close();
     });
 
     it('timeoutMs rejects with REQUEST_CANCELLED and cancels the peer request', async () => {

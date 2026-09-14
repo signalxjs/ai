@@ -8,6 +8,9 @@ follow [SemVer](https://semver.org/).
 
 ### Added
 
+- `createJsonRpcPeer({ requireVersion: false })` accepts incoming messages without the
+  `"jsonrpc": "2.0"` member, for peers that speak JSON-RPC without it (`codex app-server`).
+  A member other than `"2.0"` is still refused, and outgoing messages always carry it.
 - `useAgentSession` shows and controls sub-agents: `view.agents` (the
   transcript's agents in start order), `view.agentTree` (the same as a tree)
   and `view.cancelAgent(agentId)` (fails into `error` without
@@ -191,6 +194,10 @@ follow [SemVer](https://semver.org/).
 
 ### Changed
 
+- `createJsonRpcPeer` no longer replies to an id-less message that lacks `"jsonrpc": "2.0"`.
+  Such a message is notification-shaped, so nobody waits for a reply, and the old `id: null`
+  error was a line the sender could not parse. It is reported through `onProtocolError`; a
+  message that carries an id is still answered with -32600.
 - `coalesceFrames` merges a sub-agent's nested `part-delta` frames too — within
   one part and nesting level, never across; before, nested deltas always
   passed through one by one. A remote turn handle's `id` is now a getter: it
