@@ -5,13 +5,14 @@
  */
 import { describe, it, expect } from 'vitest';
 import { resolveExecutable } from '@sigx/ai-agent-node';
-import { acp, gemini, cursor, claudeCodeAcp, codexAcp, type AcpPreset } from '@sigx/ai-agent-acp';
+import { acp, gemini, cursor, claudeCodeAcp, codexAcp, copilotAcp, type AcpPreset } from '@sigx/ai-agent-acp';
 
 const presets: { name: string; flag: string; preset: AcpPreset }[] = [
     { name: 'gemini', flag: 'SIGX_LIVE_ACP_GEMINI', preset: gemini() },
     { name: 'cursor', flag: 'SIGX_LIVE_ACP_CURSOR', preset: cursor() },
     { name: 'claude-agent-acp', flag: 'SIGX_LIVE_ACP_CLAUDE_CODE', preset: claudeCodeAcp() },
-    { name: 'codex-acp', flag: 'SIGX_LIVE_ACP_CODEX', preset: codexAcp() }
+    { name: 'codex-acp', flag: 'SIGX_LIVE_ACP_CODEX', preset: codexAcp() },
+    { name: 'copilot', flag: 'SIGX_LIVE_ACP_COPILOT', preset: copilotAcp() }
 ];
 
 for (const { name, flag, preset } of presets) {

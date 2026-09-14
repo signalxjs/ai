@@ -3,7 +3,7 @@
 export type { AcpOptions, AcpPreset, AcpSessionOptions, AcpTransportStreams } from './options.js';
 export type { AcpAgent } from './provider.js';
 export { acp, ACP_BASE_CAPABILITIES, capabilitiesFrom } from './provider.js';
-export { gemini, cursor, claudeCodeAcp, codexAcp } from './presets.js';
+export { gemini, cursor, claudeCodeAcp, codexAcp, copilotAcp } from './presets.js';
 export { ACP_PROTOCOL_VERSION, ACP_METHODS, ACP_AUTH_REQUIRED } from './schema.js';
 export type {
     AcpInitializeRequest,
