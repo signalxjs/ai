@@ -240,3 +240,25 @@ describe('the playground view, hydrated', () => {
         expect([...container.querySelectorAll<HTMLElement>('.pane')].map((p) => p.hidden)).toEqual([true, false]);
     });
 });
+
+/**
+ * The shell's CSS, read as text.
+ *
+ * Not pedantry: `hidden` is what switches panes, and the UA stylesheet's
+ * `[hidden] { display: none }` is the LOWEST-priority rule there is. Any
+ * `display` on `.pane` beats it, and the pane stays on screen — every session
+ * stacking down the page, with the first one always the one you see. No DOM
+ * test can catch that, because happy-dom runs no cascade: `el.hidden` is
+ * perfectly `true` while a real browser shows the element.
+ */
+describe('the shell stylesheet', () => {
+    it('neutralises display on a hidden pane', async () => {
+        const { readFile } = await import('node:fs/promises');
+        // A path, not `import.meta.url`: under happy-dom that is an http URL.
+        const html = await readFile('examples/agent/index.html', 'utf8');
+        const setsDisplay = /\.pane\s*\{[^}]*\bdisplay\s*:/.test(html);
+        if (setsDisplay) {
+            expect(html).toMatch(/\.pane\[hidden\]\s*\{[^}]*display\s*:\s*none/);
+        }
+    });
+});

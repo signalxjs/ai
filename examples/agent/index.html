@@ -18,6 +18,12 @@
                the same prompt. */
             main.compare .panes { display: grid; grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr)); gap: 1rem; align-items: start; }
             .pane { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 100vh; }
+            /* `display` on .pane overrides the UA stylesheet's
+               `[hidden] { display: none }`, so a hidden pane would render
+               anyway and every session would stack down the page. Any rule
+               that sets `display` on an element you also toggle with `hidden`
+               needs this. */
+            .pane[hidden] { display: none; }
             main.compare .pane { min-height: 0; border: 1px solid color-mix(in srgb, CanvasText 15%, Canvas); border-radius: 0.6rem; padding: 0 0.8rem; }
             .session-row { display: flex; align-items: stretch; gap: 0.2rem; border: 1px solid color-mix(in srgb, CanvasText 15%, Canvas); border-radius: 0.5rem; overflow: hidden; }
             .session-row.selected { border-color: Highlight; }
