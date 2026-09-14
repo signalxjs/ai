@@ -23,7 +23,7 @@ export type HarnessChoice = Exclude<AgentChoice, 'sigx' | 'mock'>;
 export const INSTALL: Record<HarnessChoice, string> = {
     'claude-code': 'npm i -g @anthropic-ai/claude-code',
     codex: 'npm i -g @openai/codex',
-    copilot: 'the SDK bundles the Copilot CLI runtime — sign in with `copilot login` (npm i -g @github/copilot)',
+    copilot: 'the SDK bundles the Copilot CLI runtime; sign in with copilot login (npm i -g @github/copilot)',
     'acp:gemini': 'npm i -g @google/gemini-cli',
     'acp:cursor': 'the Cursor CLI (`agent`), see https://cursor.com/cli',
     'acp:claude-code': 'npm i -g @agentclientprotocol/claude-agent-acp',
