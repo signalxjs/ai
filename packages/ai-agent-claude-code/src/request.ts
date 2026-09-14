@@ -77,7 +77,12 @@ export interface ConfigState {
  */
 export interface ConfigTracker {
     current(): ConfigState;
-    /** Merge — keys absent from `patch` keep their value. */
+    /**
+     * Merge. A key the patch does not set keeps its value — and since every
+     * field is optional, a key set to `undefined` counts as not set rather
+     * than as "clear this", so building a patch out of `string | undefined`
+     * values cannot silently unadvertise a setting.
+     */
     update(patch: ConfigState): ConfigState;
 }
 
@@ -86,7 +91,8 @@ export function createConfigState(initial: ConfigState = {}): ConfigTracker {
     return {
         current: () => state,
         update(patch) {
-            state = { ...state, ...patch };
+            const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+            state = { ...state, ...defined };
             return state;
         }
     };

@@ -27,6 +27,8 @@ import {
     bearerToken,
     sameToken,
     PERMISSION_MODES,
+    configOptions,
+    createConfigState,
     ASK_USER_QUESTION,
     questionId,
     parseQuestions,
@@ -1124,6 +1126,15 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
         await session.close();
         const configs = (await all).filter((e): e is Extract<AgentEvent, { type: 'config' }> => e.type === 'config');
         expect(configs.at(-1)!.options.find((o) => o.id === 'permissionMode')).toMatchObject({ current: 'bypassPermissions', values: expect.arrayContaining([{ id: 'bypassPermissions' }]) });
+    });
+
+    it('the config state merges, and an undefined value means "not set" rather than "clear it"', () => {
+        const config = createConfigState({ model: 'claude-opus-5', thinkingDisplay: 'summarized' });
+        expect(config.update({ permissionMode: 'plan' })).toEqual({ model: 'claude-opus-5', thinkingDisplay: 'summarized', permissionMode: 'plan' });
+        // A patch built out of `string | undefined` values must not unadvertise
+        // a setting just by carrying the key.
+        expect(config.update({ model: undefined })).toEqual({ model: 'claude-opus-5', thinkingDisplay: 'summarized', permissionMode: 'plan' });
+        expect(configOptions(config.current()).map((o) => o.id)).toEqual(['model', 'permissionMode', 'thinkingDisplay']);
     });
 
     it('configure() re-announces the WHOLE config, not just the keys it changed', async () => {
