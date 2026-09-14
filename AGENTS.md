@@ -138,7 +138,7 @@ agents the issue-first flow below is required.)
 ```bash
 pnpm install
 pnpm build       # every published package, dependency order (core first)
-pnpm test        # vitest run (unit tests across packages)
+pnpm test        # vitest run (unit tests across packages, plus any examples/*/__tests__)
 pnpm test <path>                   # single test file/dir (substring match)
 pnpm test -t "name of test"        # single test by name (vitest -t)
                                    # NB: no `--` — vitest discards operands
@@ -266,7 +266,9 @@ on every OS in the matrix).
   endpoint plus a `serverStream` frame stream; `src/App.tsx` is
   `connectSession` + `useAgentSession` with tool cards, permission prompts,
   cancel and usage. A second tab joins the SAME session as a late observer.
-  `smoke.mjs` is the whole thing without a browser. Not published.
+  `smoke.mjs` is the whole thing without a browser. `__tests__/app.test.tsx`
+  mounts the exported `Part` and asserts the DOM — render decisions live only
+  here, so the packages cannot cover them. Not published.
 
 Path aliases: `tsconfig.json` and `vitest.config.ts` map `@sigx/ai` (and
 its subpaths) and the provider packages to `packages/*/src`, so tests and

@@ -39,6 +39,9 @@
                <pre> here is that a shell listing keeps its newlines. */
             .tool-output, .tool-input > pre { margin: 0.4rem 0 0; padding: 0.4rem 0.6rem; border-radius: 0.3rem; background: color-mix(in srgb, CanvasText 8%, Canvas); font-family: ui-monospace, monospace; font-size: 0.78em; white-space: pre-wrap; overflow-wrap: anywhere; }
             .tool-input > pre { font-size: 1em; }
+            /* A call that returned NOTHING: one dim word, inline — an empty
+               <pre> would be a padded grey rectangle saying nothing (#128). */
+            .tool-empty { font-size: 0.78em; font-style: italic; opacity: 0.55; }
             .tool-error { color: crimson; font-size: 0.82em; }
             /* A SUB-AGENT card, under the tool card whose call spawned it: its
                status, and its own messages — open while it works, folded once
