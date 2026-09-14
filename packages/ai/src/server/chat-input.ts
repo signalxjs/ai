@@ -160,12 +160,15 @@ function checkPart(p: unknown, role: unknown, path: (string | number)[], issues:
                 issues.push(issue([...path, 'state'], `must be ${TOOL_STATES.slice(0, -1).join(', ')} or ${TOOL_STATES[TOOL_STATES.length - 1]}`));
                 return undefined;
             }
-            // A call whose arguments are still arriving has no input yet — an
-            // aborted turn genuinely leaves such a part in the transcript the
-            // client posts next, so it is accepted as it stands. For every
-            // other state `input` is present (JSON has no undefined). A result
-            // exists only once the call has settled — an undecided part's
-            // `output` would be a caller-injected "result", so it is dropped.
+            // A call whose arguments are still arriving may have no input yet
+            // (nothing parses out of `{"ci`), and an aborted turn genuinely
+            // leaves such a part in the transcript the client posts next — so
+            // for `streaming`, and only there, a missing `input` is kept
+            // missing. Every other state describes a call that was actually
+            // made, so a missing `input` is normalized to `null` rather than
+            // refused. A result exists only once the call has settled — an
+            // undecided part's `output` would be a caller-injected "result",
+            // so it is dropped.
             // Both are arbitrary JSON from the wire, so they are size-capped
             // (and, as a consequence of measuring them, proven serializable).
             const streaming = state === 'streaming';
