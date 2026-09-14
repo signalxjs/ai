@@ -47,7 +47,10 @@ All notable changes to `@sigx/ai` are documented here. The format follows
   part per call, never two. `ChatInput` accepts a `streaming` part (an
   aborted turn leaves one in the transcript the client posts next) and
   `toModelMessages` drops it: a half-typed call was never made. `mockModel`
-  scripts the deltas with `toolCalls[].inputDeltas`.
+  scripts the deltas with `toolCalls[].inputDeltas`. `inputText` stops
+  growing at 100 000 characters, so a faulty or hostile stream cannot make a
+  transcript grow without bound. `UIToolPart.input` is optional: it is absent
+  only while `streaming`, when nothing parses yet.
 - Structured output inside the tool loop. `streamText({ output: { schema,
   jsonSchema?, name? } })` asks every model round for the JSON format (tools
   still run) and validates the final answer onto `finish.output`; a final

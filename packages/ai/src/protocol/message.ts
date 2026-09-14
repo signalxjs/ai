@@ -77,7 +77,12 @@ export interface UIToolPart {
     readonly type: 'tool';
     readonly id: string;
     readonly name: string;
-    input: unknown;
+    /**
+     * The call's arguments. While `state` is `streaming` this is the best
+     * partial read of `inputText` so far and may be absent — nothing is
+     * parseable from `{"city` — and it is never absent in any other state.
+     */
+    input?: unknown;
     state: UIToolState;
     output?: unknown;
     /**

@@ -10,6 +10,18 @@ import { createMessage, type UIMessage, type UIToolPart } from './message.js';
 import type { UIChunk } from './chunk.js';
 
 /**
+ * How much raw argument text a `streaming` tool part accumulates before it
+ * stops growing. The reducer folds a stream it does not control — a faulty
+ * or hostile server can send deltas for ever — and every delta re-reads the
+ * whole text, so an uncapped part is both unbounded memory and quadratic
+ * work. Past the cap the part keeps what it has and the deltas are dropped:
+ * a *display* of arguments degrades, and the assembled `tool-call` settles
+ * the part with the real input regardless. Matches `ChatInput`'s cap on tool
+ * JSON, which is what a client may post such a part back under.
+ */
+const MAX_STREAMING_INPUT_TEXT = 100_000;
+
+/**
  * The last tool part carrying `id`, or `undefined` — a call is opened,
  * settled and finished wherever it was announced. (Not the exported
  * `findTool`, which looks a *tool* up by name.)
@@ -60,12 +72,16 @@ export function applyChunk(message: UIMessage, chunk: UIChunk): boolean {
             // on every delta, so a UI bound to it sees the object fill in.
             const open = toolPart(message, chunk.id);
             if (!open) {
-                parts.push({ type: 'tool', id: chunk.id, name: chunk.name, input: parsePartialJson(chunk.delta), state: 'streaming', inputText: chunk.delta });
+                const text = chunk.delta.slice(0, MAX_STREAMING_INPUT_TEXT);
+                parts.push({ type: 'tool', id: chunk.id, name: chunk.name, input: parsePartialJson(text), state: 'streaming', inputText: text });
                 return false;
             }
             // A delta for a call that already landed is stale — never reopen it.
             if (open.state !== 'streaming') return false;
-            open.inputText = (open.inputText ?? '') + chunk.delta;
+            const soFar = open.inputText ?? '';
+            // At the cap the part stops growing, and stops being re-read.
+            if (soFar.length >= MAX_STREAMING_INPUT_TEXT) return false;
+            open.inputText = (soFar + chunk.delta).slice(0, MAX_STREAMING_INPUT_TEXT);
             open.input = parsePartialJson(open.inputText);
             return false;
         }

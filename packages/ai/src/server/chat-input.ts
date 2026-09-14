@@ -201,7 +201,18 @@ function checkPart(p: unknown, role: unknown, path: (string | number)[], issues:
                 issues.push(issue([...path, 'output'], JSON_CAP_MESSAGE));
                 return undefined;
             }
-            return { type: 'tool', id: part.id, name: part.name, input, state, ...(settled ? { output } : {}), ...(inputText !== undefined ? { inputText } : {}) };
+            return {
+                type: 'tool',
+                id: part.id,
+                name: part.name,
+                // Absent stays absent on a half-streamed call: an `input` key
+                // holding `undefined` still reads as present to `in` and to
+                // anything walking the object's keys.
+                ...(input !== undefined ? { input } : {}),
+                state,
+                ...(settled ? { output } : {}),
+                ...(inputText !== undefined ? { inputText } : {})
+            };
         }
         default:
             issues.push(issue([...path, 'type'], 'unknown part type'));

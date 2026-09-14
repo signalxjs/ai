@@ -86,6 +86,22 @@ describe('applyChunk / assembleMessage', () => {
         expect(m.parts[0]).toMatchObject({ input: { city: 'Oslo' }, inputText: '{"city": "Oslo"}' });
     });
 
+    it('stops growing a streaming part at the 100k cap, and the assembled call still settles it', () => {
+        const m = createMessage('assistant');
+        applyChunk(m, { type: 'tool-input', id: 'c1', name: 't', delta: '{"a":"' + 'x'.repeat(99_000) });
+        // One oversized delta is truncated rather than stored whole.
+        applyChunk(m, { type: 'tool-input', id: 'c1', name: 't', delta: 'y'.repeat(50_000) });
+        const part = m.parts[0] as { inputText: string; input: unknown };
+        expect(part.inputText).toHaveLength(100_000);
+        expect(part.input).toEqual({ a: 'x'.repeat(99_000) + 'y'.repeat(994) });
+        // At the cap further deltas are dropped outright.
+        applyChunk(m, { type: 'tool-input', id: 'c1', name: 't', delta: 'z' });
+        expect(part.inputText).toHaveLength(100_000);
+        expect(part.inputText.endsWith('z')).toBe(false);
+        applyChunk(m, { type: 'tool-call', id: 'c1', name: 't', input: { a: 'real' } });
+        expect(m.parts).toEqual([{ type: 'tool', id: 'c1', name: 't', input: { a: 'real' }, state: 'pending' }]);
+    });
+
     it('tool-call settles the streaming part in place rather than adding a second one', () => {
         const m = createMessage('assistant');
         applyChunk(m, { type: 'text', delta: 'Checking ' });

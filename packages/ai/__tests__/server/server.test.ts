@@ -118,8 +118,9 @@ describe('ChatInput', () => {
             { type: 'tool', id: 'c1', name: 'weather', state: 'streaming', inputText: '{"city":' },
             { type: 'tool', id: 'c2', name: 'weather', input: { city: 'Os' }, state: 'streaming', inputText: '{"city": "Os' }
         ]);
-        // Absent stays absent — it is not a call with a null argument.
-        expect(((r.value as ChatInputType).messages[0]!.parts[0] as { input: unknown }).input).toBeUndefined();
+        // Absent stays ABSENT — not a key holding undefined, and not a call
+        // with a null argument.
+        expect('input' in (r.value as ChatInputType).messages[0]!.parts[0]!).toBe(false);
         const path = ['messages', 0, 'parts', 0];
         const part = (p: Record<string, unknown>) => validate({ messages: [{ id: 'm', role: 'assistant', parts: [p] }] }).issues;
         expect(part({ type: 'tool', id: 'c', name: 't', state: 'streaming', inputText: 7 })).toEqual([{ message: 'must be a string', path: [...path, 'inputText'] }]);

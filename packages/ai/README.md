@@ -65,6 +65,11 @@ if (part.type === 'tool' && part.state === 'streaming') {
 `state` becomes `pending`, `inputText` is dropped. The UI keeps one chip
 throughout; there is never a second part for the same call.
 
+`inputText` stops growing at 100 000 characters — the reducer folds a stream
+it does not control, and every delta re-reads the whole text. Past the cap the
+deltas are dropped and the part keeps what it has; the assembled `tool-call`
+settles it with the real input either way.
+
 A provider that reports no argument deltas simply never sends one, so a turn
 may go straight to `tool-call`. A `streaming` part is display-only: an
 interrupted turn can leave one in the transcript, `ChatInput` accepts it (its
