@@ -5,13 +5,15 @@
  * implementations live here and never ship. The client build swaps it for a
  * typed stub; `useChat` calls `chat(input)` and reads the NDJSON stream.
  *
- * The provider is picked by env: `SIGX_AI_PROVIDER=anthropic|openai|mock`, or
- * whichever key is set, or the scripted mock — so `pnpm dev` works with no
- * key at all.
+ * The provider and model come with each REQUEST — the picker in the page
+ * sends them — and are checked against the catalogue's allowlist before a
+ * model is built. The env vars only choose what the picker starts on, so
+ * `pnpm dev` still works with no key at all.
  */
-import { serverStream } from '@sigx/server';
-import { defineTool, type LanguageModel } from '@sigx/ai';
+import { serverFn, serverStream } from '@sigx/server';
+import { defineTool, type LanguageModel, type StandardSchemaV1 } from '@sigx/ai';
 import { chatStream, ChatInput } from '@sigx/ai/server';
+import { CATALOG, PROVIDERS, isKnown, type ChatCatalog, type ProviderChoice, type Selection } from './catalog.js';
 import { mockModel } from '@sigx/ai/testing';
 import { anthropic } from '@sigx/ai-anthropic';
 import { openai } from '@sigx/ai-openai';
@@ -78,64 +80,112 @@ function pick<T extends string>(name: string, allowed: readonly T[], fallback: T
     return fallback;
 }
 
+/** A provider is offered only when the key its SDK reads is actually set. */
+function configured(provider: ProviderChoice): boolean {
+    return provider.keyEnv === undefined || Boolean(process.env[provider.keyEnv]);
+}
+
+/**
+ * The clients are built ONCE and lazily: constructing one without its key
+ * throws, so a provider nobody picked must not be constructed at all.
+ */
+const clients: { anthropic?: ReturnType<typeof anthropic>; openai?: ReturnType<typeof openai> } = {};
+
 /**
  * A model per REQUEST. The real providers are one shared client (stateless
  * per call); the mock records every request it sees, so sharing one across
  * users would grow without bound and answer from process history — a fresh
  * one per turn keeps it deterministic.
  */
-function modelFactory(): () => LanguageModel {
-    const wanted = pick('SIGX_AI_PROVIDER', ['anthropic', 'openai', 'mock'] as const, process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.OPENAI_API_KEY ? 'openai' : 'mock');
-    switch (wanted) {
-        case 'anthropic': {
-            const model = anthropic().model(process.env.SIGX_AI_MODEL ?? 'claude-opus-5');
-            return () => model;
-        }
-        case 'openai': {
-            const model = openai().model(process.env.SIGX_AI_MODEL ?? 'gpt-5');
-            return () => model;
-        }
+function modelFor(selection: Selection): LanguageModel {
+    switch (selection.provider) {
+        case 'anthropic':
+            clients.anthropic ??= anthropic();
+            return clients.anthropic.model(selection.model);
+        case 'openai':
+            clients.openai ??= openai();
+            return clients.openai.model(selection.model);
         default:
-            return () =>
-                mockModel({
-                    respond: (req) => {
-                        // Decided from the conversation, never from call history.
-                        const last = req.messages[req.messages.length - 1];
-                        if (last?.role === 'tool') {
-                            const result = last.content[0];
-                            if (result?.toolName === 'send_email') {
-                                return { text: result.isError ? `The mock says: not sent — ${String(result.output)}` : 'The mock says: email sent (well, pretended).', delayMs: 40 };
-                            }
-                            return { text: 'The mock says: Oslo looks fine today. (Set ANTHROPIC_API_KEY or OPENAI_API_KEY for a real model.)', delayMs: 40 };
+            return mockModel({
+                respond: (req) => {
+                    // Decided from the conversation, never from call history.
+                    const last = req.messages[req.messages.length - 1];
+                    if (last?.role === 'tool') {
+                        const result = last.content[0];
+                        if (result?.toolName === 'send_email') {
+                            return { text: result.isError ? `The mock says: not sent — ${String(result.output)}` : 'The mock says: email sent (well, pretended).', delayMs: 40 };
                         }
-                        const asks = last?.role === 'user' && typeof last.content === 'string' ? last.content : '';
-                        if (/weather/i.test(asks)) return { toolCalls: [{ name: 'get_weather', input: { city: 'Oslo' } }], delayMs: 40 };
-                        if (/email/i.test(asks)) return { toolCalls: [{ name: 'send_email', input: { to: 'someone@example.com', body: asks } }], delayMs: 40 };
-                        return { text: 'Hello from the scripted mock model. Ask about the weather to see a tool call, say "email" to see one that asks for approval, or set ANTHROPIC_API_KEY / OPENAI_API_KEY for a real model.', delayMs: 40 };
+                        return { text: 'The mock says: Oslo looks fine today. (Pick a real model above, once a key is set.)', delayMs: 40 };
                     }
-                });
+                    const asks = last?.role === 'user' && typeof last.content === 'string' ? last.content : '';
+                    if (/weather/i.test(asks)) return { toolCalls: [{ name: 'get_weather', input: { city: 'Oslo' }, inputDeltas: ['{"city":', ' "Os', 'lo"}'] }], delayMs: 40 };
+                    if (/email/i.test(asks)) return { toolCalls: [{ name: 'send_email', input: { to: 'someone@example.com', body: asks } }], delayMs: 40 };
+                    return { text: 'Hello from the scripted mock model. Ask about the weather to see a tool call, say "email" to see one that asks for approval, or pick a real model above once a key is set.', delayMs: 40 };
+                }
+            });
     }
 }
 
-const modelFor = modelFactory();
-{
-    const m = modelFor();
-    console.log(`[chat] model: ${m.provider}/${m.modelId}`);
+/** What the picker starts on: the env vars still choose, they just no longer decide for the process. */
+function defaultSelection(): Selection {
+    const provider = pick('SIGX_AI_PROVIDER', PROVIDERS, process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.OPENAI_API_KEY ? 'openai' : 'mock');
+    const entry = CATALOG.find((p) => p.id === provider)!;
+    const wanted = process.env.SIGX_AI_MODEL;
+    // An env model that is not in the catalogue would be refused by the very
+    // allowlist the picker renders from, so fall back rather than offer it.
+    const model = wanted && entry.models.some((m) => m.id === wanted) ? wanted : entry.models[0]!.id;
+    if (wanted && model !== wanted) console.warn(`[chat] SIGX_AI_MODEL=${wanted} is not one of ${entry.label}'s models — using ${model}.`);
+    return { provider, model };
 }
+
+/** The providers the browser may pick from, and what to start on. Never a key — only names. */
+export const catalog = serverFn({
+    input: z.object({}),
+    allowAnonymous: true,
+    handler: (): ChatCatalog => ({ providers: CATALOG.filter(configured), selected: defaultSelection() })
+});
+
+/**
+ * The endpoint's input: `messages` through `ChatInput` UNCHANGED — it already
+ * does the careful work — plus the selection, checked against the catalogue.
+ *
+ * The selection is attacker-controlled like the transcript is. Validating it
+ * against the same table the picker renders from is what stops a request
+ * naming an arbitrary model, and keeps the two from drifting apart.
+ */
+interface ChatRequest extends ChatInput {
+    readonly selection: Selection;
+}
+
+const ChatRequest: StandardSchemaV1<ChatRequest, ChatRequest> = {
+    '~standard': {
+        version: 1,
+        vendor: 'chat-example',
+        validate(value: unknown) {
+            const messages = ChatInput['~standard'].validate(value);
+            if ('issues' in messages && messages.issues) return { issues: [...messages.issues] };
+            const selection = (value as { selection?: unknown }).selection as Selection | undefined;
+            if (!selection || typeof selection !== 'object') return { issues: [{ message: 'a provider and model are required', path: ['selection'] }] };
+            if (!isKnown(selection)) return { issues: [{ message: `"${String(selection.provider)}" / "${String(selection.model)}" is not a model this server offers`, path: ['selection'] }] };
+            return { value: { messages: (messages as { value: ChatInput }).value.messages, selection } };
+        }
+    }
+};
 
 // ── The endpoint ────────────────────────────────────────────────────────────
 
 export const chat = serverStream({
-    // The wire transcript is attacker-controlled: `ChatInput` checks its shape
-    // (roles, part types, sizes, a message cap) before the model sees it.
-    input: ChatInput,
+    // The wire transcript AND the model choice are attacker-controlled:
+    // `ChatRequest` checks the shape of one and the allowlist for the other
+    // before a model is built.
+    input: ChatRequest,
     // Deliberate: the demo has no sign-in. See vite.config.ts.
     allowAnonymous: true,
     // `@sigx/server` 0.15: `handler(rq, input)`. Core main's 1.0 form is
     // `handler({ input, rq })` — one destructuring to flip when it ships.
     handler: async function* (rq, input) {
         yield* chatStream({
-            model: modelFor(),
+            model: modelFor(input.selection),
             system: SYSTEM,
             tools: [weather, time, sendEmail],
             messages: input.messages,

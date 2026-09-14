@@ -5,11 +5,12 @@
  * inside its own render, so only the markdown block still being written
  * re-renders; finalized blocks keep their DOM. Watch it in devtools.
  */
-import { component, useHead } from 'sigx';
+import { component, useHead, onMounted, signal } from 'sigx';
 import { useChat, type UIMessage, type UIPart } from '@sigx/ai/app';
 import { RichTextView } from '@sigx/richtext/dom';
 import { markdownFormat } from '@sigx/richtext-markdown';
-import { chat } from './ai.server';
+import { catalog, chat } from './ai.server';
+import type { ChatCatalog, ProviderId, Selection } from './catalog';
 
 const Part = component<{ part: UIPart; role: UIMessage['role']; live: boolean }>((ctx) => {
     return () => {
@@ -56,12 +57,88 @@ const Message = component<{ message: UIMessage; live: boolean }>((ctx) => {
     };
 });
 
+
+/**
+ * Provider and model, per conversation. Exported so a test can mount it: what
+ * it puts on the wire is the contract, and it lives nowhere else.
+ *
+ * Only providers whose key is actually set are offered — the server filters
+ * the catalogue it serves, so an unusable provider is never a choice that
+ * fails at request time.
+ */
+export const ModelPicker = component<{
+    catalog: ChatCatalog | undefined;
+    selection: Selection;
+    disabled: boolean;
+    onChange: (selection: Selection) => void;
+}>((ctx) => {
+    const providerOf = (id: ProviderId) => ctx.props.catalog?.providers.find((p) => p.id === id);
+    return () => {
+        const cat = ctx.props.catalog;
+        if (!cat) return <small class="picker-loading">loading models…</small>;
+        const current = providerOf(ctx.props.selection.provider);
+        return (
+            <div class="picker">
+                <select
+                    aria-label="Provider"
+                    disabled={ctx.props.disabled}
+                    onChange={(e) => {
+                        const provider = (e.currentTarget as HTMLSelectElement).value as ProviderId;
+                        // A provider change has to carry a model that provider
+                        // owns, or the server's allowlist refuses the pair.
+                        const first = providerOf(provider)?.models[0]?.id;
+                        if (first) ctx.props.onChange({ provider, model: first });
+                    }}
+                >
+                    {cat.providers.map((p) => (
+                        <option value={p.id} selected={p.id === ctx.props.selection.provider}>
+                            {p.label}
+                        </option>
+                    ))}
+                </select>
+                <select
+                    aria-label="Model"
+                    disabled={ctx.props.disabled}
+                    onChange={(e) => ctx.props.onChange({ provider: ctx.props.selection.provider, model: (e.currentTarget as HTMLSelectElement).value })}
+                >
+                    {(current?.models ?? []).map((m) => (
+                        <option value={m.id} selected={m.id === ctx.props.selection.model}>
+                            {m.label}
+                        </option>
+                    ))}
+                </select>
+            </div>
+        );
+    };
+});
+
 export const App = component(() => {
     useHead({ title: 'sigx ai — chat' });
 
+    // `useChat` hands its `stream` only `{ messages }`, so the selection is
+    // closed over here rather than threaded through the package.
+    const state = signal<{ catalog: ChatCatalog | undefined; selection: Selection }>({
+        catalog: undefined,
+        // Replaced by the server's default the moment the catalogue lands; the
+        // mock is the one choice that is always available until then.
+        selection: { provider: 'mock', model: 'mock-1' }
+    });
+
     const thread = useChat({
-        stream: (input) => chat(input),
+        stream: (input) => chat({ ...input, selection: state.selection }),
         onError: (e) => console.error('[chat]', e)
+    });
+
+    // On MOUNT: a server render must not fetch, and the picker has a usable
+    // default until it does.
+    onMounted(() => {
+        void catalog({}).then(
+            (cat) => {
+                state.catalog = cat;
+                state.selection = cat.selected;
+            },
+            (e: unknown) => console.error('[chat]', e)
+        );
     });
 
     let draft = '';
@@ -87,6 +164,14 @@ export const App = component(() => {
         <main>
             <header>
                 <h1>sigx ai</h1>
+                <ModelPicker
+                    catalog={state.catalog}
+                    selection={state.selection}
+                    /* Mid-turn is the one time it must not move: the reply
+                       arriving belongs to the model that started it. */
+                    disabled={thread.status === 'streaming'}
+                    onChange={(selection) => (state.selection = selection)}
+                />
                 <small>status: {thread.status}</small>
             </header>
             <section class="thread">

@@ -2,7 +2,7 @@
     "name": "chat-example",
     "private": true,
     "type": "module",
-    "description": "AI chat in a real SignalX app — a serverStream endpoint streaming UIChunks to useChat, tools, a provider picked by env, the scripted mock when no key is set",
+    "description": "The @sigx/ai playground — an SSR sigx app streaming a chat over serverStream, with the provider and model picked in the UI per conversation",
     "scripts": {
         "dev": "node --env-file-if-exists=.env dev-server.mjs",
         "build": "vite build --app",
@@ -31,6 +31,7 @@
         "@types/node": "^26.5.1",
         "cross-env": "^10.1.0",
         "typescript": "^7.0.2",
-        "vite": "^8.0.3"
+        "vite": "^8.0.3",
+        "vitest": "^4.1.5"
     }
 }
