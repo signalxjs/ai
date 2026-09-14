@@ -139,8 +139,8 @@ describe('@sigx/ai-anthropic', () => {
             { type: 'reasoning-end', providerData: { type: 'thinking', thinking: 'Need the weather.', signature: 'SIG' } },
             { type: 'text-delta', delta: 'Checking ' },
             { type: 'text-delta', delta: 'Oslo.' },
-            { type: 'tool-input-delta', id: 'toolu_1', delta: '{"city":' },
-            { type: 'tool-input-delta', id: 'toolu_1', delta: ' "Oslo"}' },
+            { type: 'tool-input-delta', id: 'toolu_1', name: 'weather', delta: '{"city":' },
+            { type: 'tool-input-delta', id: 'toolu_1', name: 'weather', delta: ' "Oslo"}' },
             { type: 'tool-call', id: 'toolu_1', name: 'weather', input: { city: 'Oslo' } },
             { type: 'finish', reason: 'tool', usage: { inputTokens: 10, cacheReadInputTokens: 3, outputTokens: 42, reasoningTokens: 7 } }
         ]);

@@ -62,13 +62,15 @@ export interface UIReasoningPart {
 }
 
 /**
- * Where a tool call stands. `pending`: called, running or not yet decided.
+ * Where a tool call stands. `streaming`: the arguments are still arriving —
+ * `input` is the best partial read of `inputText` so far, and the call has
+ * not been made. `pending`: called, running or not yet decided.
  * `awaiting`: needs approval, undecided. `approved`: the client said run it —
  * only ever seen in a transcript sent back to the server, which runs the
  * call and settles it. `done` / `error`: ran. `denied`: refused; `output`
  * is the reason the model is told.
  */
-export type UIToolState = 'pending' | 'awaiting' | 'approved' | 'done' | 'error' | 'denied';
+export type UIToolState = 'streaming' | 'pending' | 'awaiting' | 'approved' | 'done' | 'error' | 'denied';
 
 /** One tool call and, once it has run, its result — a single part, in place. */
 export interface UIToolPart {
@@ -78,6 +80,12 @@ export interface UIToolPart {
     input: unknown;
     state: UIToolState;
     output?: unknown;
+    /**
+     * The raw argument JSON as it arrives, while `state` is `streaming` — so a
+     * UI can show the text even before it parses. Dropped once `tool-call`
+     * lands with the assembled `input`.
+     */
+    inputText?: string;
 }
 
 // ── Ids ─────────────────────────────────────────────────────────────────────

@@ -105,8 +105,8 @@ describe('@sigx/ai-openai', () => {
             { type: 'reasoning-end', providerData: { id: 'rs_1', type: 'reasoning', summary: [{ type: 'summary_text', text: 'Need weather.' }], encrypted_content: 'ENC' } },
             { type: 'text-delta', delta: 'Checking ' },
             { type: 'text-delta', delta: 'Oslo.' },
-            { type: 'tool-input-delta', id: 'call_1', delta: '{"city":' },
-            { type: 'tool-input-delta', id: 'call_1', delta: ' "Oslo"}' },
+            { type: 'tool-input-delta', id: 'call_1', name: 'weather', delta: '{"city":' },
+            { type: 'tool-input-delta', id: 'call_1', name: 'weather', delta: ' "Oslo"}' },
             { type: 'tool-call', id: 'call_1', name: 'weather', input: { city: 'Oslo' } },
             { type: 'finish', reason: 'tool', usage: { inputTokens: 10, outputTokens: 42, cacheReadInputTokens: 3, reasoningTokens: 7 } }
         ]);

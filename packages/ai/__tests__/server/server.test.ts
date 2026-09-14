@@ -33,7 +33,7 @@ describe('ChatInput', () => {
             { message: 'unknown part type', path: ['messages', 0, 'parts', 0, 'type'] }
         ]);
         expect(validate({ messages: [{ id: 'a', role: 'user', parts: [{ type: 'tool', id: 'c', name: 't', state: 'weird' }] }] }).issues).toEqual([
-            { message: 'must be pending, awaiting, approved, done, error or denied', path: ['messages', 0, 'parts', 0, 'state'] }
+            { message: 'must be streaming, pending, awaiting, approved, done, error or denied', path: ['messages', 0, 'parts', 0, 'state'] }
         ]);
     });
 
@@ -96,6 +96,39 @@ describe('ChatInput', () => {
             { type: 'tool', id: 'c2', name: 't', input: { a: 1 }, state: 'done', output: 'real' }
         ]);
         expect('output' in (r.value as ChatInputType).messages[0]!.parts[0]!).toBe(false);
+    });
+
+    it('accepts a half-streamed tool part: input may be absent, inputText survives', () => {
+        // An aborted turn genuinely leaves one behind in the transcript the
+        // client posts next, so rejecting it would break a real flow.
+        const r = validate({
+            messages: [
+                {
+                    id: 'a1',
+                    role: 'assistant',
+                    parts: [
+                        { type: 'tool', id: 'c1', name: 'weather', state: 'streaming', inputText: '{"city":' },
+                        { type: 'tool', id: 'c2', name: 'weather', input: { city: 'Os' }, state: 'streaming', inputText: '{"city": "Os', output: 'injected' }
+                    ]
+                }
+            ]
+        });
+        expect(r.issues).toBeUndefined();
+        expect((r.value as ChatInputType).messages[0]!.parts).toEqual([
+            { type: 'tool', id: 'c1', name: 'weather', state: 'streaming', inputText: '{"city":' },
+            { type: 'tool', id: 'c2', name: 'weather', input: { city: 'Os' }, state: 'streaming', inputText: '{"city": "Os' }
+        ]);
+        // Absent stays absent — it is not a call with a null argument.
+        expect(((r.value as ChatInputType).messages[0]!.parts[0] as { input: unknown }).input).toBeUndefined();
+        const path = ['messages', 0, 'parts', 0];
+        const part = (p: Record<string, unknown>) => validate({ messages: [{ id: 'm', role: 'assistant', parts: [p] }] }).issues;
+        expect(part({ type: 'tool', id: 'c', name: 't', state: 'streaming', inputText: 7 })).toEqual([{ message: 'must be a string', path: [...path, 'inputText'] }]);
+        expect(part({ type: 'tool', id: 'c', name: 't', state: 'streaming', inputText: 'x'.repeat(100_001) })).toEqual([{ message: 'longer than 100000 characters', path: [...path, 'inputText'] }]);
+        // Only a streaming part carries it; on any other state it is noise.
+        expect(part({ type: 'tool', id: 'c', name: 't', input: {}, state: 'pending', inputText: 'x' })).toBeUndefined();
+        expect(validate({ messages: [{ id: 'm', role: 'assistant', parts: [{ type: 'tool', id: 'c', name: 't', input: {}, state: 'pending', inputText: 'x' }] }] }).value).toEqual({
+            messages: [{ id: 'm', role: 'assistant', parts: [{ type: 'tool', id: 'c', name: 't', input: {}, state: 'pending' }] }]
+        });
     });
 
     it('accepts the approval states and drops output on undecided calls', () => {

@@ -101,6 +101,33 @@ describe('useChat', () => {
         expect(textRuns).toBeGreaterThan(2);
     });
 
+    it('shows tool arguments while they stream, then settles the same part', async () => {
+        let release!: () => void;
+        const gate = new Promise<void>((r) => { release = r; });
+        const stream = async function* (): AsyncGenerator<UIChunk> {
+            yield { type: 'start', messageId: 'm1' };
+            yield { type: 'tool-input', id: 'c1', name: 'weather', delta: '{"city":' };
+            yield { type: 'tool-input', id: 'c1', name: 'weather', delta: ' "Os' };
+            await gate;
+            yield { type: 'tool-input', id: 'c1', name: 'weather', delta: 'lo"}' };
+            yield { type: 'tool-call', id: 'c1', name: 'weather', input: { city: 'Oslo' } };
+            yield { type: 'tool-result', id: 'c1', output: { tempC: 3 } };
+            yield { type: 'finish', reason: 'stop' };
+        };
+        const { chat, container } = mountChat(stream);
+        const done = chat.send('weather?');
+        await tick();
+        // Mid-turn: the chip is labelled and the half-typed arguments are readable.
+        const part = chat.messages[1]!.parts[0]!;
+        expect(part).toEqual({ type: 'tool', id: 'c1', name: 'weather', input: { city: 'Os' }, state: 'streaming', inputText: '{"city": "Os' });
+        expect(container.querySelector('.tool')?.textContent).toBe('weather:streaming');
+        release();
+        await done;
+        expect(chat.messages[1]!.parts).toEqual([{ type: 'tool', id: 'c1', name: 'weather', input: { city: 'Oslo' }, state: 'done', output: { tempC: 3 } }]);
+        expect(container.querySelectorAll('.tool')).toHaveLength(1);
+        expect(container.querySelector('.tool')?.textContent).toBe('weather:done');
+    });
+
     it('stop() returns the iterator (aborting a serverStream) and keeps the partial', async () => {
         let returned = false;
         const stream = (): AsyncIterable<UIChunk> => ({

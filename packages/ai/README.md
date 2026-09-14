@@ -44,6 +44,33 @@ by itself: a resumed `approved` call goes through `onToolApproval` again with
 `ctx.approvedByClient` set, so a server-side handler (a policy, a role
 check) can veto it — and bare `streamText` with no handler denies it.
 
+## Tool arguments as they arrive
+
+A long tool input — a search query, a code edit — is the slowest visible part
+of a turn. Providers stream it as raw JSON before the call is assembled, and
+the engine forwards that as the `tool-input` chunk, so the transcript carries
+the call from its first character:
+
+```ts
+if (part.type === 'tool' && part.state === 'streaming') {
+    part.inputText; // '{"city": "Os'  — the raw JSON so far
+    part.input;     // { city: 'Os' }  — re-read on every delta
+}
+```
+
+`applyChunk` opens the tool part on the first `tool-input` in state
+`streaming`, appends to `inputText` and re-reads `input` through
+`parsePartialJson` on each one. The assembled `tool-call` — same `id`, same
+`name` — settles that part **in place**: `input` becomes the real arguments,
+`state` becomes `pending`, `inputText` is dropped. The UI keeps one chip
+throughout; there is never a second part for the same call.
+
+A provider that reports no argument deltas simply never sends one, so a turn
+may go straight to `tool-call`. A `streaming` part is display-only: an
+interrupted turn can leave one in the transcript, `ChatInput` accepts it (its
+`input` may be absent), and `toModelMessages` drops it — a half-typed call was
+never made, so the model is not told about it.
+
 ## Steering a running turn
 
 `streamText({ steer })` injects user input into a turn that is already

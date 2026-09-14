@@ -105,6 +105,12 @@ export function createChunkMapper(driver: TurnDriver, options: ChunkMapperOption
                     }
                     break;
                 }
+                case 'tool-input':
+                    // A call's arguments arriving progressively. The agent
+                    // protocol has no event for it yet (`part-start.kind` is
+                    // text or reasoning only), so the call is announced once
+                    // it is assembled. Tracked as its own change.
+                    break;
                 case 'tool-call': {
                     closePart();
                     const tool = byName.get(chunk.name);

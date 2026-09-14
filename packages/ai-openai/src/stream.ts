@@ -45,7 +45,7 @@ export async function* streamOpenAI(
                     const c = calls.get(event.item_id);
                     if (c) {
                         c.args += event.delta;
-                        yield { type: 'tool-input-delta', id: c.callId, delta: event.delta };
+                        yield { type: 'tool-input-delta', id: c.callId, name: c.name, delta: event.delta };
                     }
                     break;
                 }

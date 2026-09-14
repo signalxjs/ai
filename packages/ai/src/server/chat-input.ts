@@ -14,7 +14,7 @@ export interface ChatInput {
     readonly messages: UIMessage[];
 }
 
-const TOOL_STATES: readonly UIToolState[] = ['pending', 'awaiting', 'approved', 'done', 'error', 'denied'];
+const TOOL_STATES: readonly UIToolState[] = ['streaming', 'pending', 'awaiting', 'approved', 'done', 'error', 'denied'];
 const isToolState = (v: unknown): v is UIToolState => TOOL_STATES.includes(v as UIToolState);
 
 const MAX_MESSAGES = 500;
@@ -160,15 +160,33 @@ function checkPart(p: unknown, role: unknown, path: (string | number)[], issues:
                 issues.push(issue([...path, 'state'], `must be ${TOOL_STATES.slice(0, -1).join(', ')} or ${TOOL_STATES[TOOL_STATES.length - 1]}`));
                 return undefined;
             }
-            // `input` is always present (JSON has no undefined), and a result
+            // A call whose arguments are still arriving has no input yet — an
+            // aborted turn genuinely leaves such a part in the transcript the
+            // client posts next, so it is accepted as it stands. For every
+            // other state `input` is present (JSON has no undefined). A result
             // exists only once the call has settled — an undecided part's
             // `output` would be a caller-injected "result", so it is dropped.
             // Both are arbitrary JSON from the wire, so they are size-capped
             // (and, as a consequence of measuring them, proven serializable).
-            const input = part.input === undefined ? null : part.input;
-            if (!withinJsonCap(input)) {
+            const streaming = state === 'streaming';
+            const input = part.input === undefined && !streaming ? null : part.input;
+            if (input !== undefined && !withinJsonCap(input)) {
                 issues.push(issue([...path, 'input'], JSON_CAP_MESSAGE));
                 return undefined;
+            }
+            // The raw argument text so far — display-only, and capped like any
+            // other string from the wire.
+            let inputText: string | undefined;
+            if (streaming && part.inputText !== undefined) {
+                if (typeof part.inputText !== 'string') {
+                    issues.push(issue([...path, 'inputText'], 'must be a string'));
+                    return undefined;
+                }
+                if (part.inputText.length > MAX_TOOL_JSON) {
+                    issues.push(issue([...path, 'inputText'], `longer than ${MAX_TOOL_JSON} characters`));
+                    return undefined;
+                }
+                inputText = part.inputText;
             }
             // A settled call always has an output on the wire (the engine
             // normalizes `undefined` to `null`); a denial the client gave no
@@ -183,7 +201,7 @@ function checkPart(p: unknown, role: unknown, path: (string | number)[], issues:
                 issues.push(issue([...path, 'output'], JSON_CAP_MESSAGE));
                 return undefined;
             }
-            return { type: 'tool', id: part.id, name: part.name, input, state, ...(settled ? { output } : {}) };
+            return { type: 'tool', id: part.id, name: part.name, input, state, ...(settled ? { output } : {}), ...(inputText !== undefined ? { inputText } : {}) };
         }
         default:
             issues.push(issue([...path, 'type'], 'unknown part type'));

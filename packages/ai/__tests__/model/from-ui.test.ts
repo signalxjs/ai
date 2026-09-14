@@ -70,6 +70,20 @@ describe('toModelMessages', () => {
         ]);
         expect(out).toEqual([{ role: 'assistant', content: [{ type: 'tool-call', id: 'c', name: 't', input: {} }] }]);
     });
+    it('drops a half-streamed call entirely — it never became a call', () => {
+        const out = toModelMessages([
+            {
+                id: 'a',
+                role: 'assistant',
+                parts: [
+                    { type: 'text', text: 'Checking ' },
+                    { type: 'tool', id: 'c', name: 'weather', input: { city: 'Os' }, state: 'streaming', inputText: '{"city": "Os' }
+                ]
+            }
+        ]);
+        expect(out).toEqual([{ role: 'assistant', content: [{ type: 'text', text: 'Checking ' }] }]);
+    });
+
     it('sends a denied call back as an error result and omits undecided ones', () => {
         const out = toModelMessages([
             {
