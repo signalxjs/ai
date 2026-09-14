@@ -1142,6 +1142,19 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
         expect(gateway.values).toHaveLength(CLAUDE_CODE_MODELS.length + 1);
     });
 
+    it('a system/init with no model advertises none, rather than an empty one', async () => {
+        // `String(m.model ?? '')` used to make this `current: ''` — a blank
+        // selected entry in the dropdown, and a value invented from nothing.
+        const init = (cwd: string) => m({ type: 'system', subtype: 'init', ...base, cwd, permissionMode: 'default', tools: [], mcp_servers: [], apiKeySource: 'none', claude_code_version: '2.1.270', slash_commands: [], output_style: 'default', skills: [], plugins: [], agents: [] });
+        const fake = fakeQuery(() => [messageStart(), ...textBlocks('hi'), ...messageStop(), RESULT()], { init });
+        const agent = claudeCode({ query: fake.query, listen: fakeListen });
+        const session = await agent.session({ cwd, interactive: false });
+        const { events } = await drain(session.prompt('x'));
+        const config = events.find((e) => e.type === 'config') as Extract<AgentEvent, { type: 'config' }>;
+        expect(config.options.map((o) => o.id)).toEqual(['permissionMode', 'thinkingDisplay']);
+        await agent.dispose();
+    });
+
     it('claudeCode({ models }) replaces the advertised list', async () => {
         const fake = fakeQuery(() => [messageStart(), ...textBlocks('hi'), ...messageStop(), RESULT()]);
         const agent = claudeCode({ query: fake.query, listen: fakeListen, models: [{ id: 'claude-fable-5-1', label: 'Fable 5.1' }] });

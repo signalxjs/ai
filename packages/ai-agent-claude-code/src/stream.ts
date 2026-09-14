@@ -11,7 +11,7 @@ import type { SDKMessage, SDKResultMessage } from '@anthropic-ai/claude-agent-sd
 import { parsePartialJson, type Usage } from '@sigx/ai';
 import type { AgentErrorCode, StopReason, TurnDriver, UnstampedEvent } from '@sigx/ai-agent';
 import { codingEvent, type CodingPlanEntry } from '@sigx/ai-agent/coding';
-import { categoryFor, configOptions, splitToolName, toolAnnotations, type ConfigTracker } from './request.js';
+import { categoryFor, configOptions, splitToolName, toolAnnotations, type ConfigState, type ConfigTracker } from './request.js';
 import { toUsage, type AgentTracker } from './tasks.js';
 
 export const CLAUDE_CODE_NS = 'claude-code';
@@ -397,7 +397,13 @@ export function mapSessionMessage(message: SDKMessage, emit: Emit, config?: Conf
                 // session options (or the last `configure()`), and is left
                 // out when we cannot know it (thinking disabled, or
                 // inherited from the CLI's own settings).
-                const next = { model: String(m.model ?? ''), permissionMode: String(m.permissionMode ?? 'default') };
+                // A missing model is left ABSENT, not coerced to `''`: an
+                // empty string is a value `configOptions` would advertise and
+                // a dropdown would show as a blank selected entry. Omitting it
+                // also keeps whatever an earlier `init` did report, since the
+                // tracker merges only defined keys.
+                const model = m.model === undefined || m.model === null ? undefined : String(m.model);
+                const next: ConfigState = { ...(model ? { model } : {}), permissionMode: String(m.permissionMode ?? 'default') };
                 if (config) {
                     config.update(next);
                     emit({ type: 'config', options: config.options() });
