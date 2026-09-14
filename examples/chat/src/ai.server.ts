@@ -13,7 +13,7 @@
 import { serverFn, serverStream } from '@sigx/server';
 import { defineTool, type LanguageModel, type StandardSchemaV1 } from '@sigx/ai';
 import { chatStream, ChatInput } from '@sigx/ai/server';
-import { CATALOG, PROVIDERS, isKnown, type ChatCatalog, type ProviderChoice, type Selection } from './catalog.js';
+import { CATALOG, PROVIDERS, defaultFor, isKnown, type ChatCatalog, type ProviderChoice, type Selection } from './catalog.js';
 import { mockModel } from '@sigx/ai/testing';
 import { anthropic } from '@sigx/ai-anthropic';
 import { openai } from '@sigx/ai-openai';
@@ -126,23 +126,25 @@ function modelFor(selection: Selection): LanguageModel {
     }
 }
 
-/** What the picker starts on: the env vars still choose, they just no longer decide for the process. */
-function defaultSelection(): Selection {
-    const provider = pick('SIGX_AI_PROVIDER', PROVIDERS, process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.OPENAI_API_KEY ? 'openai' : 'mock');
-    const entry = CATALOG.find((p) => p.id === provider)!;
-    const wanted = process.env.SIGX_AI_MODEL;
-    // An env model that is not in the catalogue would be refused by the very
-    // allowlist the picker renders from, so fall back rather than offer it.
-    const model = wanted && entry.models.some((m) => m.id === wanted) ? wanted : entry.models[0]!.id;
-    if (wanted && model !== wanted) console.warn(`[chat] SIGX_AI_MODEL=${wanted} is not one of ${entry.label}'s models — using ${model}.`);
-    return { provider, model };
+/**
+ * What the picker starts on. The env vars still choose — they just no longer
+ * decide for the process, and they cannot choose a provider that has no key:
+ * the default has to be one of the providers the catalogue offers.
+ */
+function defaultSelection(usable: readonly ProviderChoice[]): Selection {
+    const { selection, warning } = defaultFor(usable, pick('SIGX_AI_PROVIDER', PROVIDERS, process.env.ANTHROPIC_API_KEY ? 'anthropic' : process.env.OPENAI_API_KEY ? 'openai' : 'mock'), process.env.SIGX_AI_MODEL);
+    if (warning) console.warn(`[chat] ${warning}`);
+    return selection;
 }
 
 /** The providers the browser may pick from, and what to start on. Never a key — only names. */
 export const catalog = serverFn({
     input: z.object({}),
     allowAnonymous: true,
-    handler: (): ChatCatalog => ({ providers: CATALOG.filter(configured), selected: defaultSelection() })
+    handler: (): ChatCatalog => {
+        const providers = CATALOG.filter(configured);
+        return { providers, selected: defaultSelection(providers) };
+    }
 });
 
 /**

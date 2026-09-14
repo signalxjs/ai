@@ -65,6 +65,28 @@ export function isKnown(selection: Selection): boolean {
     return CATALOG.some((p) => p.id === selection.provider && p.models.some((m) => m.id === selection.model));
 }
 
+/**
+ * What the picker starts on, given the providers that are actually usable.
+ *
+ * Pure, so it can be tested without the environment. The rule it enforces:
+ * **the default must be one of the offered providers.** A requested provider
+ * whose key is missing is not offered, and handing the picker a selection that
+ * is not in its own list would produce a request the server refuses — exactly
+ * what filtering the list was meant to prevent.
+ */
+export function defaultFor(usable: readonly ProviderChoice[], wanted: ProviderId | undefined, wantedModel: string | undefined): { selection: Selection; warning?: string } {
+    const asked = wanted !== undefined ? usable.find((p) => p.id === wanted) : undefined;
+    // `mock` needs no key, so there is always something left to fall back to.
+    const entry = asked ?? usable.find((p) => p.id === 'mock') ?? usable[0];
+    if (!entry) throw new Error('[chat] no provider is available, not even the mock');
+    const model = wantedModel && entry.models.some((m) => m.id === wantedModel) ? wantedModel : entry.models[0]!.id;
+    const warnings = [
+        wanted !== undefined && !asked ? `SIGX_AI_PROVIDER=${wanted} has no key set — starting on ${entry.label}.` : undefined,
+        wantedModel && model !== wantedModel && asked ? `SIGX_AI_MODEL=${wantedModel} is not one of ${entry.label}'s models — using ${model}.` : undefined
+    ].filter(Boolean);
+    return { selection: { provider: entry.id, model }, ...(warnings.length ? { warning: warnings.join(' ') } : {}) };
+}
+
 /** What the catalog endpoint hands the browser: the providers that are actually usable. */
 export interface ChatCatalog {
     readonly providers: readonly ProviderChoice[];

@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { component, jsx, defineApp } from 'sigx';
-import { CATALOG, isKnown, type ChatCatalog, type Selection } from '../src/catalog';
+import { CATALOG, defaultFor, isKnown, type ChatCatalog, type ProviderChoice, type Selection } from '../src/catalog';
 
 // `ai.server` builds provider clients and reads keys; the client build
 // replaces it with stubs anyway, and `useChat` only ever calls what it is
@@ -73,6 +73,40 @@ describe('the catalogue', () => {
         expect(isKnown({ provider: 'openai', model: 'claude-opus-5' })).toBe(false);
         expect(isKnown({ provider: 'anthropic', model: '../../etc/passwd' })).toBe(false);
         expect(isKnown({ provider: 'nope' as never, model: 'gpt-5' })).toBe(false);
+    });
+});
+
+describe('the default selection', () => {
+    const mock = CATALOG.find((p) => p.id === 'mock')!;
+    const anthropic = CATALOG.find((p) => p.id === 'anthropic')!;
+    const usable = (...providers: ProviderChoice[]) => providers;
+
+    it('is always one of the providers on offer — the picker must not start on something it does not list', () => {
+        // SIGX_AI_PROVIDER=anthropic with no ANTHROPIC_API_KEY: anthropic is
+        // filtered out of the catalogue, so starting on it would hand the UI a
+        // selection the server then refuses.
+        const { selection, warning } = defaultFor(usable(mock), 'anthropic', 'claude-opus-5');
+        expect(selection.provider).toBe('mock');
+        expect(usable(mock).some((p) => p.id === selection.provider)).toBe(true);
+        expect(warning).toContain('no key set');
+    });
+
+    it('honours a provider that IS configured, and its model', () => {
+        const { selection, warning } = defaultFor(usable(anthropic, mock), 'anthropic', 'claude-haiku-4-5');
+        expect(selection).toEqual({ provider: 'anthropic', model: 'claude-haiku-4-5' });
+        expect(warning).toBeUndefined();
+    });
+
+    it('falls back to the provider’s first model, and says so, when the named one is not its', () => {
+        const { selection, warning } = defaultFor(usable(anthropic, mock), 'anthropic', 'gpt-5');
+        expect(selection).toEqual({ provider: 'anthropic', model: anthropic.models[0]!.id });
+        expect(warning).toContain('gpt-5');
+    });
+
+    it('always produces a selection the allowlist accepts', () => {
+        for (const wanted of ['anthropic', 'openai', 'mock', undefined] as const) {
+            expect(isKnown(defaultFor(usable(mock), wanted, undefined).selection)).toBe(true);
+        }
     });
 });
 
