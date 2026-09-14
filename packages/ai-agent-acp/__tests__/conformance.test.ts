@@ -81,7 +81,11 @@ describe('agentConformance: acp over a fake ACP agent', () => {
             'conformance: support-agent',
             'conformance: session-grant',
             'conformance: request-timeout',
-            'conformance: portable-resume'
+            'conformance: portable-resume',
+            'conformance: delegate-tree',
+            'conformance: delegate-cancel',
+            'conformance: delegate-request',
+            'conformance: steer'
         ]);
     });
     for (const c of cases) it.skipIf(!!c.skip)(c.name, c.run, 15_000);

@@ -1081,6 +1081,41 @@ function scriptFor(scenario: ConformanceScenario): TurnScript {
             };
         case 'structured-output':
             return () => [messageStart(), ...textBlocks('{"ok":true}'), ...messageStop(), RESULT({ structured_output: { ok: true } })];
+        case 'delegate-tree':
+            // Claude Code spawns natively: a Task call, the task frames, the sub-agent's text under the call, its AgentOutput on the result.
+            return async function* (_u, _t, ctx) {
+                const input = { description: 'delegate', prompt: 'Do the task.', subagent_type: 'Explore' };
+                yield messageStart();
+                yield* toolUseBlocks('task_c', 'Task', input);
+                yield* messageStop();
+                await ctx.ask('Task', input);
+                yield taskStarted('tc', 'task_c');
+                yield messageStart('task_c');
+                yield* textBlocks('Delegate reply.', 'task_c');
+                yield* messageStop('task_c');
+                yield toolResultWith('task_c', 'Delegate reply.', AGENT_OUTPUT('tc', 'Delegate reply.'));
+                yield messageStart();
+                yield* textBlocks('Done.');
+                yield* messageStop();
+                yield RESULT();
+            };
+        case 'delegate-cancel':
+            // The suite stops the running sub-agent by id (stopTask); the CLI reports it stopped and the Task call settles.
+            return async function* (_u, _t, ctx) {
+                const input = { description: 'delegate', prompt: 'Run the slow tool.', subagent_type: 'Explore' };
+                yield messageStart();
+                yield* toolUseBlocks('task_s', 'Task', input);
+                yield* messageStop();
+                await ctx.ask('Task', input);
+                yield taskStarted('ts', 'task_s');
+                const stopped = await ctx.onStop;
+                yield taskNotification(stopped, 'stopped', { summary: 'stopped by the operator' });
+                yield toolResult('task_s', 'Agent stopped.', true);
+                yield messageStart();
+                yield* textBlocks('Moving on.');
+                yield* messageStop();
+                yield RESULT();
+            };
         default:
             return () => [messageStart(), ...textBlocks('Hello!'), ...messageStop(), RESULT()];
     }
@@ -1094,14 +1129,16 @@ describe('agentConformance: claudeCode(fake query)', () => {
         sessionOptions: { cwd },
         skip: (s) => (s.name === 'support-agent' ? 'Claude Code emits no agent.handoff extension (its ext namespace is claude-code)' : undefined)
     });
-    it('skips only what the harness cannot express (the permission scenarios need every-call; Claude Code is harness-filtered; resume is local)', () => {
+    it('skips only what the harness cannot express (the permission scenarios need every-call; Claude Code is harness-filtered; resume is local; no steering)', () => {
         expect(cases.filter((c) => c.skip).map((c) => c.name)).toEqual([
             'conformance: tool-permission',
             'conformance: headless-deny',
             'conformance: support-agent',
             'conformance: session-grant',
             'conformance: request-timeout',
-            'conformance: portable-resume'
+            'conformance: portable-resume',
+            'conformance: delegate-request',
+            'conformance: steer'
         ]);
     });
     for (const c of cases) it.skipIf(!!c.skip)(c.name, c.run, 15_000);

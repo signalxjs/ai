@@ -15,6 +15,22 @@ follow [SemVer](https://semver.org/).
   has `steer`: `turn` stays the running turn, the promise resolves with its
   result, and `onTurnEnd` fires once per turn. The `app` entry re-exports the
   `AgentState` and `AgentNode` types.
+- `agentConformance` gains four scenarios for sub-agents and steering:
+  `delegate-tree` (`subagents: 'observe'` or `'control'` — one `agent-start`
+  bound to an earlier `tool-call`, nested text under it, exactly one terminal
+  `agent-update`, the call completed), `delegate-cancel` (`'control'` + `cancel`
+  — `cancel({ agentId })` on the first `running` update ends that agent
+  `cancelled` once while the turn goes on), `delegate-request` (`'control'` +
+  `permissions: 'every-call'` — a request raised inside the sub-agent is
+  answered through the host and resolved with the same `parentCallId`) and
+  `steer` (`steer: true` — a second `prompt()` while the `delayed` tool runs
+  resolves with the running turn's result under its id, with one `user-message`
+  and an assistant part after it). `busy-session` asserts the same one-turn
+  semantics on a steering agent. `needs: { subagents: 'observe' }` accepts
+  `'control'`, like `resume: 'local'` accepts `'portable'`. `CONFORMANCE_TOOLS`
+  gains `delayed` and the `delegate` / `delegateSlow` / `delegateAsking`
+  sub-agents (`agentTool` over scripted `mockAgent`s; a native-tool harness
+  scripts its own spawn).
 - Steering and sub-agent control over the wire: a `cancel` command carries an
   optional `agentId` (`serveSession` answers `unsupported` for a sub-agent
   target unless the served capabilities say `subagents: 'control'` — the

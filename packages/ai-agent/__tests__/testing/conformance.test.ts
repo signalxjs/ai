@@ -32,6 +32,14 @@ function scriptFor(scenario: ConformanceScenario): MockStep[] {
             return [{ text: '{"ok":true}' }, { output: { ok: true } }];
         case 'support-agent':
             return [{ request: { kind: 'input', message: 'Which plan?' } }, { ext: { ns: 'agent', name: 'handoff', data: { to: 'billing' } } }, { text: 'Handing over.' }, { output: { ok: true } }];
+        case 'delegate-tree':
+            return [{ agent: { name: 'delegate', steps: [{ text: 'Delegate reply.' }] } }, { text: 'Done.' }];
+        case 'delegate-cancel':
+            return [{ agent: { name: 'delegateSlow', steps: [{ tool: { name: 'slow', delayMs: 60_000 } }] } }, { text: 'Moving on.' }];
+        case 'delegate-request':
+            return [{ agent: { name: 'delegateAsking', source: 'client', steps: [{ tool: { name: 'guarded', source: 'client', output: { ok: true } } }, { text: 'Delegate done.' }] } }, { text: 'Done.' }];
+        case 'steer':
+            return [{ tool: { name: 'delayed', input: {}, output: { ok: true }, delayMs: 200, source: 'client' } }, { text: 'Done.' }];
         default:
             return [{ text: 'Hello!' }];
     }
@@ -62,10 +70,36 @@ describe('agentConformance', () => {
                 'conformance: session-grant': 'needs permissions: "every-call" (agent has "none")',
                 'conformance: request-timeout': 'needs permissions: "every-call" (agent has "none")',
                 'conformance: fork': 'needs the resume capability (agent has resume: false)',
-                'conformance: portable-resume': 'needs resume: "portable" (agent has false)'
+                'conformance: portable-resume': 'needs resume: "portable" (agent has false)',
+                'conformance: delegate-cancel': 'needs cancel: true (agent has false)',
+                'conformance: delegate-request': 'needs permissions: "every-call" (agent has "none")'
             });
         });
         for (const c of cases) it.skipIf(!!c.skip)(c.name, c.run, 15_000);
+    });
+
+    describe('mockAgent without sub-agents or steering', () => {
+        const capabilities = { ...MOCK_CAPABILITIES, subagents: 'none' as const, steer: false };
+        const cases = agentConformance((s) => mockAgent({ capabilities, script: [scriptFor(s), scriptFor(s)] }), { capabilities });
+        it('skips the delegate and steer scenarios with reasons', () => {
+            const skipped = Object.fromEntries(cases.filter((c) => c.skip).map((c) => [c.name, c.skip]));
+            expect(skipped).toEqual({
+                'conformance: delegate-tree': 'needs subagents: "observe" or "control" (agent has "none")',
+                'conformance: delegate-cancel': 'needs subagents: "control" (agent has "none")',
+                'conformance: delegate-request': 'needs subagents: "control" (agent has "none")',
+                'conformance: steer': 'needs steer: true (agent has false)'
+            });
+        });
+        // busy-session takes the SessionBusyError path here; the rest is unaffected.
+        for (const c of cases) it.skipIf(!!c.skip)(c.name, c.run, 15_000);
+    });
+
+    it("'subagents: observe' in needs accepts control; control must match exactly", () => {
+        const observe = agentConformance(() => mockAgent(), { capabilities: { ...MOCK_CAPABILITIES, subagents: 'observe' } });
+        expect(observe.find((c) => c.name === 'conformance: delegate-tree')!.skip).toBeUndefined();
+        expect(observe.find((c) => c.name === 'conformance: delegate-cancel')!.skip).toBe('needs subagents: "control" (agent has "observe")');
+        const control = agentConformance(() => mockAgent(), { capabilities: MOCK_CAPABILITIES });
+        expect(control.filter((c) => c.name.startsWith('conformance: delegate') && c.skip)).toEqual([]);
     });
 
     it("'resume: local' in needs accepts portable; other capability values must match exactly", () => {

@@ -17,12 +17,15 @@
 
 import { defineTool, type AnyTool, type JsonSchema, type StandardSchemaV1, type ToolContext } from '@sigx/ai';
 import type { AgentCapabilities, AgentEvent, ConfigOption, StopReason } from '../protocol/index.js';
-import { AgentError, SessionBusyError } from '../protocol/index.js';
+import { AgentError, SessionBusyError, partsText } from '../protocol/index.js';
 import { allowAll, type Policy } from '../policy/index.js';
 import type { Agent, AgentSession, SessionOptions, TurnResult } from '../session/index.js';
-import { createReducer } from '../state/index.js';
+import { agentMessages, createReducer, createTranscript, spawnedAgent } from '../state/index.js';
+import { agentTool } from '../agent-tool/index.js';
+import { sleep } from '../utils/abort.js';
 import { assert, assertEqual } from './assert.js';
 import { checkEventInvariants, checkReplayEquality, checkResultMatchesTurnEnd } from './invariants.js';
+import { mockAgent, type MockStep } from './mock-agent.js';
 
 export interface ConformanceScenario {
     readonly name: string;
@@ -76,8 +79,29 @@ export const CONFORMANCE_TOOLS = {
         throw new Error('the tool failed on purpose');
     }),
     /** Waits until the turn is cancelled. */
-    slow: tool('slow', 'A tool that never finishes on its own.', (_input, ctx) => new Promise<never>((_, reject) => ctx.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })))
+    slow: tool('slow', 'A tool that never finishes on its own.', (_input, ctx) =>
+        ctx.signal.aborted ? Promise.reject(new Error('aborted')) : new Promise<never>((_, reject) => ctx.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }))
+    ),
+    /** Returns `{ ok: true }` after a short pause — long enough for the suite to steer the running turn. */
+    delayed: tool('delayed', 'A tool that returns { ok: true } after a short delay.', (_input, ctx) => sleep(DELAYED_MS, ctx.signal).then(() => ({ ok: true }))),
+    /** A sub-agent that replies with one line of text. */
+    delegate: delegateTool('delegate', 'Delegates a task to a sub-agent that answers in one line.', [{ text: 'Delegate reply.' }]),
+    /** A sub-agent that runs a tool which never finishes — the suite cancels the sub-agent. */
+    delegateSlow: delegateTool('delegateSlow', 'Delegates to a sub-agent whose tool never finishes.', [{ tool: { name: 'slow', delayMs: 60_000 } }], { policy: allowAll }),
+    /** A sub-agent that asks permission for a tool — the suite answers through the host session. */
+    delegateAsking: delegateTool('delegateAsking', 'Delegates to a sub-agent that needs permission for a tool.', [{ tool: { name: 'guarded', source: 'client', output: { ok: true } } }, { text: 'Delegate done.' }], { interactive: true })
 };
+
+const DELAYED_MS = 200;
+
+/**
+ * A delegate: `agentTool` over a scripted `mockAgent`, so a host with in-process
+ * tools (our engine) spawns a real sub-agent. A native-tool harness cannot run
+ * these — it scripts its own spawn for the `delegate-*` scenarios instead.
+ */
+function delegateTool(name: string, description: string, steps: readonly MockStep[], sessionOptions: SessionOptions = {}): AnyTool {
+    return agentTool(mockAgent({ id: name, script: [steps] }), { name, description, input: anySchema, jsonSchema: objectSchema, prompt: () => 'Do the task.', sessionOptions }) as AnyTool;
+}
 
 const OUTPUT_SCHEMA: JsonSchema = { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'], additionalProperties: true };
 
@@ -177,15 +201,62 @@ export const CONFORMANCE_SCENARIOS: readonly ConformanceScenario[] = [
     },
     { name: 'prompt-after-close', description: 'Reply with text (the suite closes the session, then prompts again and closes again).', prompt: 'Say hello.', tools: [], interactive: false, needs: {} },
     { name: 'respond-unknown', description: 'Reply with text (the suite first answers a request that does not exist).', prompt: 'Say hello.', tools: [], interactive: false, needs: {} },
-    { name: 'usage', description: 'Reply with text and report token usage (a `usage` event with input/output or total tokens).', prompt: 'Say hello.', tools: [], interactive: false, needs: {} }
+    { name: 'usage', description: 'Reply with text and report token usage (a `usage` event with input/output or total tokens).', prompt: 'Say hello.', tools: [], interactive: false, needs: {} },
+    {
+        name: 'delegate-tree',
+        description:
+            'Spawn one sub-agent through a tool call (the `delegate` tool, or the harness’s own spawn): `agent-start` bound to that call, the sub-agent’s text nested under it (`parentCallId`), a terminal `agent-update` (completed), the call completed; then end the turn.',
+        prompt: 'Delegate the task.',
+        tools: [CONFORMANCE_TOOLS.delegate],
+        interactive: false,
+        policy: allowAll,
+        needs: { subagents: 'observe' }
+    },
+    {
+        name: 'delegate-cancel',
+        description: 'Spawn a sub-agent whose tool never finishes (the `delegateSlow` tool, or the harness’s own); the suite cancels that sub-agent while it runs and expects the turn to go on and end normally.',
+        prompt: 'Delegate the slow task.',
+        tools: [CONFORMANCE_TOOLS.delegateSlow],
+        interactive: false,
+        policy: allowAll,
+        needs: { subagents: 'control', cancel: true }
+    },
+    {
+        name: 'delegate-request',
+        description:
+            'Spawn a sub-agent that needs permission for a tool (the `delegateAsking` tool, or the harness’s own); the suite allows every permission request it sees, the nested one included, and expects the nested tool and the sub-agent to complete.',
+        prompt: 'Delegate the guarded task.',
+        tools: [CONFORMANCE_TOOLS.delegateAsking],
+        interactive: true,
+        needs: { subagents: 'control', permissions: 'every-call' }
+    },
+    {
+        name: 'steer',
+        description: 'Call the `delayed` tool once; while it runs the suite prompts again (steering), then the reply must follow the steer inside the same turn.',
+        prompt: 'Use the delayed tool.',
+        tools: [CONFORMANCE_TOOLS.delayed],
+        interactive: false,
+        policy: allowAll,
+        needs: { steer: true }
+    }
 ];
 
-/** `resume: 'local'` in `needs` means "any resume" (`portable` satisfies it too); every other value must match exactly. */
+const STEER_TEXT = 'Also say thanks.';
+
+/**
+ * `resume: 'local'` in `needs` means "any resume" (`portable` satisfies it too) and
+ * `subagents: 'observe'` means "any sub-agent visibility" (`control` satisfies it);
+ * every other value must match exactly.
+ */
 function missingCapability(needs: Partial<AgentCapabilities>, caps: AgentCapabilities): string | undefined {
     for (const [key, value] of Object.entries(needs) as [keyof AgentCapabilities, unknown][]) {
         const actual = caps[key];
         if (key === 'resume' && value === 'local') {
             if (!actual) return `needs the resume capability (agent has resume: false)`;
+            continue;
+        }
+        if (key === 'subagents' && value === 'observe') {
+            if (actual === 'none') return `needs subagents: "observe" or "control" (agent has "none")`;
             continue;
         }
         if (actual !== value) return `needs ${key}: ${JSON.stringify(value)} (agent has ${JSON.stringify(actual)})`;
@@ -326,15 +397,99 @@ async function runScenario(scenario: ConformanceScenario, agent: Agent, options:
             case 'busy-session': {
                 const first = session.prompt(scenario.prompt);
                 const second = session.prompt(scenario.prompt);
+                const events: AgentEvent[] = [];
+                for await (const e of first) events.push(e);
+                const result = await first.result;
                 if (agent.capabilities.steer) {
-                    await second.result;
+                    // The second prompt steered the first turn: one turn, one result.
+                    const steered = await second.result;
+                    assertEqual(steered, result, 'a steering prompt resolves with the running turn’s result');
+                    assert(second.id === first.id, `a steering prompt returns the running turn (got "${second.id}", running "${first.id}")`);
+                    assert(events.filter((e) => e.type === 'turn-start').length === 1 && events.filter((e) => e.type === 'turn-end').length === 1, 'a steer starts no second turn');
                 } else {
                     let rejected: unknown;
                     await second.result.catch((e: unknown) => (rejected = e));
                     assert(rejected instanceof SessionBusyError, 'a prompt during a turn must reject with SessionBusyError');
                 }
-                const result = await first.result;
                 assertStop(result, 'end_turn');
+                break;
+            }
+            case 'delegate-tree': {
+                const r = await runTurn(session, scenario);
+                assertStop(r.result, 'end_turn');
+                const start = r.events.find((e): e is Extract<AgentEvent, { type: 'agent-start' }> => e.type === 'agent-start');
+                assert(start, 'expected an agent-start');
+                assert(start.callId !== undefined, 'a sub-agent spawned by a tool call names it (agent-start.callId)');
+                const spawn = r.events.findIndex((e) => e.type === 'tool-call' && e.callId === start.callId);
+                assert(spawn >= 0 && spawn < r.events.indexOf(start), `agent-start.callId "${start.callId}" must name a tool-call emitted before it`);
+                assert(
+                    r.events.some((e) => e.type === 'part-delta' && e.parentCallId === start.callId),
+                    'the sub-agent’s text must be nested under the spawning call (part-delta with parentCallId)'
+                );
+                const terminal = r.events.filter((e): e is Extract<AgentEvent, { type: 'agent-update' }> => e.type === 'agent-update' && e.agentId === start.agentId && e.status !== 'running' && e.status !== 'paused');
+                assert(terminal.length === 1, `expected exactly one terminal agent-update for "${start.agentId}" (saw ${terminal.length})`);
+                assert(terminal[0]!.status === 'completed', `expected the sub-agent to complete (got "${terminal[0]!.status}")`);
+                assert(r.events.some((e) => e.type === 'tool-update' && e.callId === start.callId && e.status === 'completed'), 'the spawning call must complete');
+                const t = reduced(session.id, r.events);
+                assert(t.agents[start.agentId]?.depth === 0, 'a sub-agent spawned by the session sits at depth 0');
+                assert(spawnedAgent(t, start.callId)?.agentId === start.agentId, 'spawnedAgent(transcript, callId) finds the sub-agent');
+                assert(agentMessages(t, start.agentId).length > 0, 'agentMessages(transcript, agentId) holds the nested message');
+                break;
+            }
+            case 'delegate-cancel': {
+                let cancelled: string | undefined;
+                const r = await runTurn(session, scenario, async (e) => {
+                    if (!cancelled && e.type === 'agent-update' && e.status === 'running') {
+                        cancelled = e.agentId;
+                        await session.cancel({ agentId: e.agentId });
+                    }
+                });
+                assert(cancelled, 'the sub-agent never reported running');
+                const start = r.events.find((e): e is Extract<AgentEvent, { type: 'agent-start' }> => e.type === 'agent-start' && e.agentId === cancelled);
+                assert(start, 'expected an agent-start for the cancelled sub-agent');
+                const terminal = r.events.filter((e): e is Extract<AgentEvent, { type: 'agent-update' }> => e.type === 'agent-update' && e.agentId === cancelled && e.status !== 'running' && e.status !== 'paused');
+                assert(terminal.length === 1 && terminal[0]!.status === 'cancelled', `cancel({ agentId }) must end the sub-agent cancelled, once (saw ${JSON.stringify(terminal.map((e) => e.status))})`);
+                if (start.callId !== undefined) {
+                    const settled = r.events.find((e) => e.type === 'tool-update' && e.callId === start.callId && (e.status === 'cancelled' || e.status === 'failed' || e.status === 'completed'));
+                    assert(settled, 'the spawning call must settle after its sub-agent was cancelled');
+                }
+                assertStop(r.result, 'end_turn');
+                break;
+            }
+            case 'delegate-request': {
+                const r = await runTurn(session, scenario, allow('once'));
+                assertStop(r.result, 'end_turn');
+                const nested = r.events.find((e): e is Extract<AgentEvent, { type: 'request' }> => e.type === 'request' && e.parentCallId !== undefined);
+                assert(nested, 'expected a permission request raised inside the sub-agent (request with parentCallId)');
+                const res = r.events.find((e): e is Extract<AgentEvent, { type: 'request-resolved' }> => e.type === 'request-resolved' && e.requestId === nested.requestId);
+                assert(res && res.by === 'client' && res.outcome === 'allow', 'the nested request must be resolved by the client with allow');
+                assert(res.parentCallId === nested.parentCallId, 'the nested resolution carries the same parentCallId as its request');
+                assert(
+                    r.events.some((e) => e.type === 'tool-update' && e.parentCallId === nested.parentCallId && e.status === 'completed'),
+                    'the nested tool must complete once allowed'
+                );
+                const start = r.events.find((e): e is Extract<AgentEvent, { type: 'agent-start' }> => e.type === 'agent-start' && e.callId === nested.parentCallId);
+                assert(start, 'the nested request belongs to a sub-agent bound to that call');
+                assert(r.events.some((e) => e.type === 'agent-update' && e.agentId === start.agentId && e.status === 'completed'), 'the sub-agent must complete');
+                break;
+            }
+            case 'steer': {
+                let second: ReturnType<AgentSession['prompt']> | undefined;
+                const r = await runTurn(session, scenario, (e) => {
+                    if (!second && e.type === 'tool-update' && (e.status === 'in_progress' || e.status === 'pending')) second = session.prompt(STEER_TEXT);
+                });
+                assert(second, 'the delayed tool never started, so nothing could be steered');
+                const steered = await second.result;
+                assertEqual(steered, r.result, 'a steering prompt resolves with the running turn’s result');
+                assert(second.id === r.result.turnId, `a steering prompt returns the running turn (got "${second.id}", running "${r.result.turnId}")`);
+                const users = r.events.filter((e): e is Extract<AgentEvent, { type: 'user-message' }> => e.type === 'user-message' && partsText(e.parts) === STEER_TEXT);
+                assert(users.length === 1, `expected exactly one user-message carrying the steer (saw ${users.length})`);
+                const steer = users[0]!;
+                assert(steer.parentCallId === undefined, 'a steer is addressed to the session, never nested');
+                const call = r.events.find((e) => e.type === 'tool-call');
+                assert(call && call.seq < steer.seq, 'the steer lands after the tool call that held the turn open');
+                assert(r.events.some((e) => e.type === 'part-start' && e.seq > steer.seq), 'an assistant part must follow the steer inside the turn');
+                assertStop(r.result, 'end_turn');
                 break;
             }
             case 'session-grant': {
@@ -530,6 +685,14 @@ async function waitFor<T>(probe: () => T | undefined, ms: number): Promise<T | u
         if (Date.now() >= deadline) return undefined;
         await new Promise((resolve) => setTimeout(resolve, 5));
     }
+}
+
+/** The transcript a turn's events fold into. */
+function reduced(sessionId: string, events: readonly AgentEvent[]) {
+    const t = createTranscript(sessionId);
+    const reduce = createReducer();
+    for (const e of events) reduce(t, e);
+    return t;
 }
 
 function assertStop(result: TurnResult, expected: StopReason): void {
