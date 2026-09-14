@@ -166,7 +166,8 @@ function triage(model: LanguageModel) {
 /**
  * One env var, VALIDATED against the values we actually understand: an
  * unrecognised one warns and falls back, so a typo — or a variable the
- * ignored while the banner echoes it back.
+ * surrounding tooling happens to set — is visible instead of silently
+ * ignored. These only choose what the New-session form starts on.
  */
 function pick<T extends string>(name: string, allowed: readonly T[], fallback: T): T {
     const value = process.env[name];
