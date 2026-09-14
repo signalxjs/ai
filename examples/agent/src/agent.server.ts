@@ -75,6 +75,11 @@ const TOOLS = [listIncidents, restartService];
 
 // ── The agent ───────────────────────────────────────────────────────────────
 
+/** A tool result for a sentence: text as it is, anything else as JSON (never `[object Object]`). */
+function describeOutput(output: unknown): string {
+    return typeof output === 'string' ? output : JSON.stringify(output);
+}
+
 /**
  * The scripted host model — no key needed: hand the reading to the `triage`
  * sub-agent, restart what it found (which stops and asks), then answer.
@@ -87,13 +92,13 @@ function demoModel(): LanguageModel {
                 const result = last.content[0];
                 if (result?.toolName === 'triage' || result?.toolName === 'list_incidents') {
                     // A cancelled (or failed) sub-agent comes back as a tool error: the turn goes on without it.
-                    if (result.isError) return { text: `Triage did not finish — ${String(result.output)}. Nothing was restarted.`, delayMs: 30 };
+                    if (result.isError) return { text: `Triage did not finish — ${describeOutput(result.output)}. Nothing was restarted.`, delayMs: 30 };
                     return { toolCalls: [{ name: 'restart_service', input: { service: 'checkout' } }], delayMs: 30 };
                 }
                 if (result?.toolName === 'restart_service') {
                     return {
                         text: result.isError
-                            ? `Left checkout alone — ${String(result.output)}. Set ANTHROPIC_API_KEY or OPENAI_API_KEY for a real model.`
+                            ? `Left checkout alone — ${describeOutput(result.output)}. Set ANTHROPIC_API_KEY or OPENAI_API_KEY for a real model.`
                             : 'Restarted checkout. INC-41 should recover within a minute.',
                         delayMs: 30
                     };
@@ -307,9 +312,11 @@ async function openSession(): Promise<{ agent: Agent; session: AgentSession }> {
         }
     }
     const models = modelsFor();
-    const tools = [...TOOLS, triage(models.triage)];
-    const agent = modelAgent({ model: models.host, system: SYSTEM, tools, maxSteps: 6 });
-    return { agent, session: await agent.session({ ...SESSION_OPTIONS, tools }) };
+    // The tools go in ONCE, through the session: `modelAgent` adds a session's
+    // tools to its own, so naming them on both would offer every tool twice —
+    // and a real provider rejects duplicate tool names.
+    const agent = modelAgent({ model: models.host, system: SYSTEM, maxSteps: 6 });
+    return { agent, session: await agent.session({ ...SESSION_OPTIONS, tools: [...TOOLS, triage(models.triage)] }) };
 }
 
 const { agent, session } = await openSession();
