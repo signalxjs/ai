@@ -108,8 +108,9 @@ function demoModel(): LanguageModel {
             const asked = last?.role === 'user' && typeof last.content === 'string' ? last.content : '';
             if (/incident|restart|deploy|outage|check/i.test(asked)) {
                 // Reasoning the harness EXPOSES, so the transcript shows the
-                // other half of the story: Claude Code redacts its thinking
-                // and the view renders a live indicator instead (#77/#78).
+                // other half of the story: a harness running with thinking
+                // display `omitted` gives the view nothing but a live
+                // indicator (#77/#78/#121).
                 return {
                     reasoning: 'The operator wants the incidents looked at. Reading them is work for the `triage` sub-agent: it only reads, so the policy lets it start unasked. Anything that restarts a service has to stop and ask.',
                     toolCalls: [{ name: 'triage', input: { task: 'List the open incidents and say which one to act on first.' } }],

@@ -81,6 +81,26 @@ const thinkingBlocks = (): SDKMessage[] => [
     ev({ type: 'content_block_stop', index: 0 })
 ];
 /**
+ * A SUMMARIZED thinking block, captured verbatim from
+ * `@anthropic-ai/claude-agent-sdk` 0.3.270 run with
+ * `thinking: { type: 'adaptive', display: 'summarized' }` (issue #121). Two
+ * things differ from the `omitted` capture below: `thinking_delta.thinking`
+ * carries real text, and `estimated_tokens` on the delta is `null` — the token
+ * progress arrives on its own `system` frames either way, which is why the
+ * "Thinking… N tokens" indicator keeps working while the summary streams.
+ */
+const SUMMARY = ['Set', 'ting up', ' the digit equation:', ' re', 'versing N', ' subtracts 396,', ' giving c-a=4.'];
+const summarizedThinkingBlocks = (): SDKMessage[] => [
+    ev({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '', signature: '' } }),
+    thinkingTokens(1, 1),
+    thinkingTokens(52, 51),
+    ...SUMMARY.map((thinking) => ev({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking, estimated_tokens: null } })),
+    ev({ type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'CAIShQUKpgEIERgC' } }),
+    assistantBlocks([{ type: 'thinking', thinking: SUMMARY.join(''), signature: 'CAIShQUKpgEIERgC' }]),
+    ev({ type: 'content_block_stop', index: 0 })
+];
+
+/**
  * The progress frame Claude Code sends INSTEAD of thinking text — captured
  * from `@anthropic-ai/claude-agent-sdk` 0.3.270 (issue #77): `estimated_tokens`
  * is the running total for the block, `estimated_tokens_delta` this frame's
@@ -173,10 +193,12 @@ interface FakeQuery {
     readonly stops: string[];
     /** User messages the fake received, across queries. */
     readonly users: number;
+    /** `(maxThinkingTokens, thinkingDisplay)` pairs passed to `setMaxThinkingTokens`. */
+    readonly thinking: [number | null, string | null | undefined][];
 }
 
 function fakeQuery(turnScript: TurnScript, options: { init?: (cwd: string) => SDKMessage; exitAfterTurns?: number } = {}): FakeQuery {
-    const state = { calls: [] as Options[], interrupts: 0, closes: 0, models: [] as string[], stops: [] as string[], users: 0 };
+    const state = { calls: [] as Options[], interrupts: 0, closes: 0, models: [] as string[], stops: [] as string[], users: 0, thinking: [] as [number | null, string | null | undefined][] };
     const query: FakeQuery['query'] = ({ prompt, options: opts = {} }) => {
         state.calls.push(opts);
         let interrupted = false;
@@ -231,6 +253,9 @@ function fakeQuery(turnScript: TurnScript, options: { init?: (cwd: string) => SD
             setModel: async (model?: string) => {
                 state.models.push(model ?? '');
             },
+            setMaxThinkingTokens: async (max: number | null, display?: string | null) => {
+                state.thinking.push([max, display]);
+            },
             close: () => {
                 state.closes++;
                 closed = true;
@@ -257,6 +282,9 @@ function fakeQuery(turnScript: TurnScript, options: { init?: (cwd: string) => SD
         },
         get users() {
             return state.users;
+        },
+        get thinking() {
+            return state.thinking;
         }
     };
 }
@@ -287,7 +315,7 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
         const session = await agent.session({ cwd, system: 'be brief', model: 'claude-opus-5', maxTurns: 3, interactive: false });
         const { events, result } = await drain(session.prompt('hi'));
         expect(types(events)).toEqual(['turn-start', 'user-message', 'config', 'part-start', 'part-delta', 'part-end', 'part-start', 'part-delta', 'part-delta', 'part-delta', 'part-end', 'usage', 'usage', 'turn-end']);
-        expect(events[2]).toMatchObject({ type: 'config', options: [{ id: 'model', current: 'claude-opus-5' }, { id: 'permissionMode', current: 'default' }] });
+        expect(events[2]).toMatchObject({ type: 'config', options: [{ id: 'model', current: 'claude-opus-5' }, { id: 'permissionMode', current: 'default' }, { id: 'thinkingDisplay', current: 'summarized' }] });
         expect(events[5]).toMatchObject({ type: 'part-end', providerData: { type: 'thinking', thinking: 'hmm', signature: 'sig==' } });
         expect(textOf(events)).toBe('hmmHello brave world');
         expect(events[11]).toMatchObject({ type: 'usage', scope: 'turn', usage: { inputTokens: 10, outputTokens: 5, cacheReadInputTokens: 2, cacheCreationInputTokens: 0 }, costUsd: 0.01 });
@@ -296,7 +324,7 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
         expect(session.ref).toEqual({ agent: 'claude-code', v: 1, id: SESSION, data: { cwd, epoch: 1 } });
         // The options the SDK saw.
         const opts = fake.calls[0]!;
-        expect(opts).toMatchObject({ cwd, model: 'claude-opus-5', systemPrompt: 'be brief', settingSources: [], permissionMode: 'default', includePartialMessages: true, maxTurns: 3 });
+        expect(opts).toMatchObject({ cwd, model: 'claude-opus-5', systemPrompt: 'be brief', settingSources: [], permissionMode: 'default', includePartialMessages: true, maxTurns: 3, thinking: { type: 'adaptive', display: 'summarized' } });
         expect(opts.mcpServers).toBeUndefined();
         expect(opts.env).toBeDefined();
         expect(opts.env!.NODE_OPTIONS).toBeUndefined();
@@ -310,10 +338,12 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
         expect(fake.closes).toBe(1);
     });
 
-    it('redacted thinking: no empty deltas on the wire, and thinking_tokens streams as neutral reasoning usage', async () => {
-        // The shape a live turn really has (issue #77): the thinking block is
-        // real and its signature survives, but every `thinking_delta` carries
-        // `thinking: ''` and the progress arrives on its own `system` frames.
+    it('display omitted: no empty deltas on the wire, and thinking_tokens streams as neutral reasoning usage', async () => {
+        // The shape a turn with `display: 'omitted'` really has (issue #77 —
+        // and the SDK's own default, which is why #121 changed ours): the
+        // thinking block is real and its signature survives, but every
+        // `thinking_delta` carries `thinking: ''` and the progress arrives on
+        // its own `system` frames.
         const fake = fakeQuery(() => [
             messageStart(),
             ev({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } }),
@@ -335,8 +365,10 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
             })
         ]);
         const agent = claudeCode({ query: fake.query, listen: fakeListen });
-        const session = await agent.session({ cwd, interactive: false });
+        const session = await agent.session({ cwd, interactive: false, thinking: { type: 'adaptive', display: 'omitted' } });
         const { events, result } = await drain(session.prompt('think about it'));
+        expect(fake.calls[0]!.thinking).toEqual({ type: 'adaptive', display: 'omitted' });
+        expect(events.find((e) => e.type === 'config')).toMatchObject({ options: [{ id: 'model' }, { id: 'permissionMode' }, { id: 'thinkingDisplay', current: 'omitted' }] });
 
         // 1. Not one zero-length `part-delta` — the reasoning part is still
         //    opened, signed and closed, it just carries no empty frames.
@@ -393,6 +425,91 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
         for (const e of events.slice(8)) reduce(t, e);
         expect(t.messages.flatMap((msg) => msg.parts).find((p) => p.type === 'reasoning')).toMatchObject({ text: '', done: true });
         expect(t.usage?.reasoningTokens).toBe(1238);
+    });
+
+    it('display summarized (the default): the summary streams into the reasoning part, and the token indicator still runs alongside it', async () => {
+        // Issue #121: the adapter used to send no `thinking` at all, so every
+        // session ran on the SDK's default display (`omitted`) and every
+        // reasoning part came out empty.
+        const fake = fakeQuery(() => [messageStart(), ...summarizedThinkingBlocks(), ...textBlocks('539', null, 1), ...messageStop(), RESULT()]);
+        const agent = claudeCode({ query: fake.query, listen: fakeListen });
+        const session = await agent.session({ cwd, interactive: false });
+        const { events } = await drain(session.prompt('think about it'));
+
+        // 1. The query asked for summaries — nobody had to opt in.
+        expect(fake.calls[0]!.thinking).toEqual({ type: 'adaptive', display: 'summarized' });
+        expect(events.find((e) => e.type === 'config')).toMatchObject({
+            options: [{ id: 'model' }, { id: 'permissionMode' }, { id: 'thinkingDisplay', current: 'summarized', values: [{ id: 'summarized' }, { id: 'omitted' }] }]
+        });
+
+        // 2. Every summary chunk is a `part-delta` on the reasoning part, and
+        //    the finished text rides `part-end` with its signature.
+        const reasoningStart = events.find((e) => e.type === 'part-start' && e.kind === 'reasoning') as Extract<AgentEvent, { type: 'part-start' }>;
+        expect(reasoningStart).toBeDefined();
+        const reasoningDeltas = events.filter((e) => e.type === 'part-delta' && e.partId === reasoningStart.partId);
+        expect(reasoningDeltas).toHaveLength(SUMMARY.length);
+        expect(events.find((e) => e.type === 'part-end' && e.partId === reasoningStart.partId)).toMatchObject({ providerData: { type: 'thinking', thinking: SUMMARY.join(''), signature: 'CAIShQUKpgEIERgC' } });
+        // Still no empty deltas: the suppression is about emptiness, not display mode.
+        expect(events.filter((e) => e.type === 'part-delta' && e.delta === '')).toEqual([]);
+
+        // 3. The `thinking_tokens` indicator keeps working WHILE the summary
+        //    streams — a client can show both.
+        expect(events.filter((e): e is Extract<AgentEvent, { type: 'usage' }> => e.type === 'usage' && e.usage.reasoningTokens !== undefined && e.scope === 'turn').slice(0, 2)).toMatchObject([
+            { usage: { reasoningTokens: 1 } },
+            { usage: { reasoningTokens: 51 } }
+        ]);
+
+        // 4. What a client actually renders: reasoning text, not an empty part.
+        const t = createTranscript(session.id);
+        const reduce = createReducer();
+        for (const e of events) reduce(t, e);
+        expect(t.messages.flatMap((msg) => msg.parts).find((p) => p.type === 'reasoning')).toMatchObject({ type: 'reasoning', text: SUMMARY.join(''), done: true });
+        await agent.dispose();
+    });
+
+    it('thinking: null inherits Claude Code\'s own default, and a disabled or inherited session advertises no thinkingDisplay option', async () => {
+        for (const thinking of [null, { type: 'disabled' } as const]) {
+            const fake = fakeQuery(() => [messageStart(), ...textBlocks('ok'), ...messageStop(), RESULT()]);
+            const agent = claudeCode({ query: fake.query, listen: fakeListen });
+            const session = await agent.session({ cwd, interactive: false, thinking });
+            const { events } = await drain(session.prompt('hi'));
+            expect(fake.calls[0]!.thinking).toEqual(thinking ?? undefined);
+            expect(events.find((e) => e.type === 'config')).toMatchObject({ options: [{ id: 'model' }, { id: 'permissionMode' }] });
+            expect((events.find((e) => e.type === 'config') as Extract<AgentEvent, { type: 'config' }>).options).toHaveLength(2);
+            // An option nobody advertised is not one a client may switch: the
+            // session deferred the display (or has no thinking at all), and
+            // overriding it here would answer a question nobody could ask.
+            await expect(session.configure!({ thinkingDisplay: 'summarized' })).rejects.toThrow(/does not advertise thinkingDisplay/);
+            expect(fake.thinking).toEqual([]);
+            await agent.dispose();
+        }
+    });
+
+    it('a fixed budget passes through, and configure({ thinkingDisplay }) switches the display without losing it', async () => {
+        const fake = fakeQuery(() => [messageStart(), ...textBlocks('ok'), ...messageStop(), RESULT()]);
+        const agent = claudeCode({ query: fake.query, listen: fakeListen });
+        const session = await agent.session({ cwd, interactive: false, thinking: { type: 'enabled', budgetTokens: 4000, display: 'omitted' } });
+        const events: AgentEvent[] = [];
+        const stop = session.subscribe({ epoch: 0, seq: 0 });
+        const collecting = (async () => {
+            for await (const e of stop) events.push(e);
+        })();
+        await drain(session.prompt('hi'));
+        expect(fake.calls[0]!.thinking).toEqual({ type: 'enabled', budgetTokens: 4000, display: 'omitted' });
+
+        await session.configure!({ thinkingDisplay: 'summarized' });
+        // The display is the ONLY thing that changed: the session's own budget rides along.
+        expect(fake.thinking).toEqual([[4000, 'summarized']]);
+        const config = events.filter((e) => e.type === 'config');
+        expect(config.at(-1)).toMatchObject({ options: [{ id: 'thinkingDisplay', current: 'summarized' }] });
+
+        // …and the next `system/init` (a fresh query on the same session) reports the new value.
+        await session.configure!({ model: 'claude-opus-5' });
+        expect(config.at(-1)).toMatchObject({ options: [{ id: 'thinkingDisplay', current: 'summarized' }] });
+
+        await expect(session.configure!({ thinkingDisplay: 'verbose' })).rejects.toThrow(/thinkingDisplay must be one of/);
+        await agent.dispose();
+        await collecting;
     });
 
     it('replays the real CLI frame order verbatim: the assistant message lands between the last delta and content_block_stop, and every delta survives', async () => {

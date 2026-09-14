@@ -1,6 +1,6 @@
 /** Construction and session options for the Claude Code adapter. */
 
-import type { PermissionMode, SDKSessionInfo, SettingSource, SpawnOptions, SpawnedProcess, query } from '@anthropic-ai/claude-agent-sdk';
+import type { PermissionMode, SDKSessionInfo, SettingSource, SpawnOptions, SpawnedProcess, ThinkingConfig, query } from '@anthropic-ai/claude-agent-sdk';
 import type { CodingSessionOptions } from '@sigx/ai-agent/coding';
 import type { listenMcp } from '@sigx/ai-agent-node';
 
@@ -50,4 +50,18 @@ export interface ClaudeCodeSessionOptions extends CodingSessionOptions {
     readonly subagentTranscript?: boolean;
     /** Ask the CLI for model-written progress summaries on `agent-update` (costs extra model calls). Default `false`. */
     readonly agentProgressSummaries?: boolean;
+    /**
+     * Claude's thinking, the way `@sigx/ai-anthropic` takes `thinking` — the
+     * SDK's own `ThinkingConfig`. Default `{ type: 'adaptive', display:
+     * 'summarized' }`: the CLI's default display is `omitted`, which streams
+     * one empty `thinking_delta` per progress tick and leaves every reasoning
+     * part blank. Summaries are free — the raw thinking they describe is
+     * billed either way (measured: `output_tokens` tracks `thinking_tokens`
+     * identically in both modes) — so they are on by default, as they are in
+     * Claude Code itself.
+     *
+     * `null` sends no `thinking` at all, so the session inherits Claude Code's
+     * own default (`thinking.display` in settings / `--thinking-display`).
+     */
+    readonly thinking?: ThinkingConfig | null;
 }

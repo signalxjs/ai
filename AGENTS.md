@@ -231,7 +231,9 @@ on every OS in the matrix).
   prompt, `canUseTool` → `resolveRequest`, client tools over HTTP MCP
   (`createMcpToolHandler` + `listenMcp`), spawning through
   `@sigx/ai-agent-node` (a regular dependency), `system/init` → `config`,
-  `result` → `usage` + `turn-end`. Tests replay recorded SDK messages through
+  `result` → `usage` + `turn-end`. Thinking is `{ type: 'adaptive', display:
+  'summarized' }` by default (the SDK's own default is `omitted`, which leaves
+  reasoning parts empty); `configure({ thinkingDisplay })` switches it live. Tests replay recorded SDK messages through
   a fake `query` injected via `claudeCode({ query })`; a live smoke is gated on
   `SIGX_LIVE_CLAUDE_CODE=1`.
 - `packages/ai-agent-codex` → `@sigx/ai-agent-codex` — **experimental**, Codex as

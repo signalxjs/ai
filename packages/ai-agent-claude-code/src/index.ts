@@ -5,7 +5,24 @@ export { claudeCode, CLAUDE_CODE_CAPABILITIES, DEFAULT_TOOL_SERVER, spawnForSdk 
 export { CLAUDE_CODE_NS, assistantErrorCode } from './stream.js';
 export { createAgentTracker, taskKind } from './tasks.js';
 export type { AgentTracker, TrackedAgent, TaskKind } from './tasks.js';
-export { splitToolName, primaryArg, toolAnnotations, toUserMessage, toOutputFormat, toQueryOptions, toAgentDefinitions, childEnv, PERMISSION_MODES } from './request.js';
+export {
+    splitToolName,
+    primaryArg,
+    toolAnnotations,
+    toUserMessage,
+    toOutputFormat,
+    toQueryOptions,
+    toAgentDefinitions,
+    childEnv,
+    configOptions,
+    resolveThinking,
+    thinkingDisplayOf,
+    thinkingBudgetOf,
+    PERMISSION_MODES,
+    THINKING_DISPLAYS,
+    DEFAULT_THINKING
+} from './request.js';
+export type { ThinkingDisplay } from './request.js';
 export { ASK_USER_QUESTION, questionId, parseQuestions, questionsSchema, questionOptions, questionsMessage, toAskAnswers } from './questions.js';
 export type { AskQuestion } from './questions.js';
 export { startToolServer, bearerToken, sameToken } from './tools.js';
