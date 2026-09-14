@@ -203,8 +203,11 @@ export function codex(options: CodexOptions = {}): CodexAgent {
             adoptChild: (childThreadId) => adopt(childThreadId, session)
         });
         sessions.set(session.threadId, session);
-        // Frames for this thread that raced the session into existence are the session's own, not a child's.
+        // Frames for this thread that raced the session into existence (sent while
+        // thread/start was in flight) are the session's own: deliver them, in order.
+        const early = orphans.get(session.threadId) ?? [];
         orphans.delete(session.threadId);
+        for (const frame of early) session.handleNotification(frame.method, frame.params);
         return session;
     }
 

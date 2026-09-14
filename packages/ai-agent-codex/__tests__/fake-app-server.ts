@@ -60,6 +60,8 @@ export interface FakeAppServerOptions {
     readonly thread?: Partial<Omit<ThreadStartResponse, 'thread'>>;
     /** Replace the `turn/steer` handler (throw to refuse). The default accepts input for the active turn only. */
     readonly steer?: (params: TurnSteerParams) => TurnSteerResponse | Promise<TurnSteerResponse>;
+    /** Runs before `thread/start` / `thread/resume` / `thread/fork` answers — notifications sent here precede the response on the wire. */
+    readonly onThreadStart?: (threadId: string, notify: (method: string, params: unknown) => Promise<void>) => Promise<void>;
 }
 
 export interface FakeAppServer {
@@ -112,10 +114,11 @@ export function fakeAppServer(options: FakeAppServerOptions): FakeAppServer {
         ...options.thread
     });
     for (const method of ['thread/start', 'thread/resume', 'thread/fork']) {
-        peer.onRequest(method, (p: Record<string, unknown>) => {
+        peer.onRequest(method, async (p: Record<string, unknown>) => {
             record(method)(p);
             const id = method === 'thread/resume' ? (p.threadId as string) : method === 'thread/fork' ? `${String(p.threadId)}-fork` : (options.threadId ?? `thread_${++ids}`);
             threads.push({ method, params: p, id });
+            if (options.onThreadStart) await options.onThreadStart(id, (m, params) => peer.notify(m, params));
             return threadResponse(id, p);
         });
     }

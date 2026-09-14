@@ -146,8 +146,11 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
         /** The child's running Codex turn, for `turn/interrupt`. */
         turnId?: string;
         mapper?: TurnMapper;
-        /** `cancel({ agentId })` was asked for: interrupt the child's turn, now or when it starts. */
-        cancelRequested: boolean;
+        /**
+         * A pending `cancel({ agentId })` and the child turn it interrupts (unset until that
+         * turn starts). Spent when that turn ends, however it ends.
+         */
+        cancel?: { turnId?: string };
         /** Codex's nickname or role for it, when the thread announced one. */
         actor?: string;
         turns: number;
@@ -156,7 +159,7 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
     const childOf = (childThreadId: string): ChildThread => {
         let child = children.get(childThreadId);
         if (!child) {
-            child = { cancelRequested: false, turns: 0 };
+            child = { turns: 0 };
             children.set(childThreadId, child);
         }
         return child;
@@ -345,8 +348,9 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
             const agent = agents.get(target.agentId);
             if (!agent || AGENT_TERMINAL.has(agent.status)) throw new AgentError('protocol_error', `[sigx ai-agent-codex] thread "${threadId}" has no running sub-agent "${target.agentId}"`);
             const child = childOf(target.agentId);
-            child.cancelRequested = true;
-            // A child between turns (not started yet, or waiting on the host) is interrupted when its next turn starts.
+            // One cancel targets one turn: the running one, or — for a child between turns
+            // (not started yet, or waiting on the host) — the next one it starts.
+            child.cancel = child.turnId !== undefined ? { turnId: child.turnId } : {};
             if (child.turnId !== undefined) await deps.interrupt(target.agentId, child.turnId);
         },
         async configure(patch) {
@@ -382,7 +386,10 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
                     child.turns++;
                     child.turnId = turnId;
                     child.mapper = childMapper(childThreadId, child, turnId);
-                    if (child.cancelRequested && turnId !== undefined) void deps.interrupt(childThreadId, turnId);
+                    if (child.cancel && child.cancel.turnId === undefined && turnId !== undefined) {
+                        child.cancel.turnId = turnId;
+                        void deps.interrupt(childThreadId, turnId);
+                    }
                     return;
                 }
                 case CODEX_METHODS.tokenUsage: {
@@ -396,9 +403,12 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
                     child.mapper?.notify(method, params);
                     child.mapper = undefined;
                     child.turnId = undefined;
-                    if (p.turn.status === 'interrupted' && child.cancelRequested) {
-                        child.cancelRequested = false;
-                        updateSubAgent(agents, childEmitter(undefined), childThreadId, { status: 'cancelled' });
+                    if (child.cancel?.turnId !== undefined && child.cancel.turnId === p.turn.id) {
+                        const interrupted = p.turn.status === 'interrupted';
+                        child.cancel = undefined;
+                        // The interrupt can lose the race to the turn finishing on its own: the
+                        // cancel is then spent and the agent carries on.
+                        if (interrupted) updateSubAgent(agents, childEmitter(undefined), childThreadId, { status: 'cancelled' });
                     }
                     return;
                 }

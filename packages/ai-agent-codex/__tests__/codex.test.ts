@@ -463,6 +463,62 @@ describe('@sigx/ai-agent-codex', () => {
                 await all.done;
                 checkEventInvariants(all.events);
             });
+
+            it('frames for the session thread that arrive before thread/start answers are delivered to the session, not dropped', async () => {
+                const fake = fakeAppServer({
+                    onTurn: say('ok'),
+                    onThreadStart: async (threadId, notify) => {
+                        await notify('thread/name/updated', { threadId, name: 'Early name' });
+                    }
+                });
+                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                // Everything the session log holds, from its first event.
+                const events: AgentEvent[] = [];
+                const done = (async () => {
+                    for await (const e of session.subscribe({ epoch: 0, seq: 0 })) events.push(e);
+                })();
+                await drain(session.prompt('go'));
+                await session.close();
+                await done;
+                expect(events.find((e) => e.type === 'ext' && e.name === 'thread/name/updated')).toMatchObject({ data: { name: 'Early name' } });
+            });
+
+            it('a cancel that loses the race to the child turn finishing is spent: the next child turn is not interrupted and the agent is not cancelled', async () => {
+                const fake = fakeAppServer({
+                    onTurn: async (ctx) => {
+                        await ctx.item(activity('call_s7', 'started', 'child_7', '/root/race'), 'started');
+                        await ctx.item(activity('call_s7', 'started', 'child_7', '/root/race'), 'completed');
+                        const first = await ctx.child('child_7').startTurn('cturn_7a');
+                        await first.item(message('cmsg_7a', ''), 'started');
+                        // The interrupt arrives, but the turn had already finished.
+                        await first.interrupted;
+                        await first.complete('completed');
+                        const second = await ctx.child('child_7').startTurn('cturn_7b');
+                        await second.item(message('cmsg_7b', ''), 'started');
+                        await second.delta('cmsg_7b', 'done');
+                        await second.item(message('cmsg_7b', 'done'), 'completed');
+                        await second.complete();
+                        await ctx.item(activity('done_7', 'completed', 'child_7', '/root/race'), 'completed');
+                        await say('ok')(ctx);
+                    }
+                });
+                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                const all = observe(session);
+                let cancelled = false;
+                const { events, result } = await drain(session.prompt('go'), async (e) => {
+                    if (!cancelled && e.type === 'part-start' && e.parentCallId === 'call_s7') {
+                        cancelled = true;
+                        await session.cancel({ agentId: 'child_7' });
+                    }
+                });
+                expect(result).toMatchObject({ stopReason: 'end_turn' });
+                expect(fake.requests.filter((r) => r.method === 'turn/interrupt').map((r) => r.params)).toEqual([{ threadId: 'child_7', turnId: 'cturn_7a' }]);
+                const terminal = agentEvents(events, 'child_7').filter((e) => e.type === 'agent-update' && e.status !== 'running');
+                expect(terminal.map((e) => (e.type === 'agent-update' ? e.status : ''))).toEqual(['completed']);
+                await session.close();
+                await all.done;
+                checkEventInvariants(all.events);
+            });
         });
 
         it('an interrupted turn cancels the agents still running; closing the session settles the rest', async () => {
