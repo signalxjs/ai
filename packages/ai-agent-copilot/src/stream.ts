@@ -332,7 +332,7 @@ export function createTurnMapper(driver: EventSink, options: TurnMapperOptions):
                     const text = d.result?.content ?? '';
                     if (terminals.has(d.toolCallId)) emit(codingEvent('terminal-exit', { terminalId: d.toolCallId, exitCode: d.success ? 0 : null }, { parentCallId: d.toolCallId }));
                     if (s === 'completed') status(d.toolCallId, s, { output: d.result?.structuredContent ?? text });
-                    else status(d.toolCallId, s, { error: denied.get(d.toolCallId) ?? d.error?.message ?? text ?? 'The tool call failed.' });
+                    else status(d.toolCallId, s, { error: denied.get(d.toolCallId) ?? d.error?.message ?? (text || 'The tool call failed.') });
                     break;
                 }
                 case 'assistant.usage': {

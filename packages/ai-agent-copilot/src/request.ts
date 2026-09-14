@@ -4,11 +4,30 @@
  * → the contract's codes. No I/O here.
  */
 
-import type { CustomAgentConfig, ModelInfo, SessionConfigBase } from '@github/copilot-sdk';
+import type { CopilotClientOptions, CustomAgentConfig, ModelInfo, SessionConfigBase } from '@github/copilot-sdk';
 import type { AgentDefinition, AgentErrorCode, ConfigOption, ConfigValue, ToolStatus } from '@sigx/ai-agent';
-import type { CopilotSessionOptions, ReasoningEffort } from './options.js';
+import type { CopilotOptions, CopilotSessionOptions, ReasoningEffort } from './options.js';
 
 export const REASONING_EFFORTS: readonly ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+/**
+ * The `CopilotClientOptions` for ours, minus the connection (the provider
+ * builds that from the SDK). A `gitHubToken` turns the stored login OFF
+ * unless `useLoggedInUser` says otherwise — the option's contract, spelled
+ * out rather than left to the SDK's own defaulting.
+ */
+export function toClientOptions(options: CopilotOptions): Omit<CopilotClientOptions, 'connection'> {
+    const useLoggedInUser = options.useLoggedInUser ?? (options.gitHubToken !== undefined ? false : undefined);
+    return {
+        ...(options.env ? { env: { ...options.env } } : {}),
+        ...(options.cwd !== undefined ? { workingDirectory: options.cwd } : {}),
+        ...(options.baseDirectory !== undefined ? { baseDirectory: options.baseDirectory } : {}),
+        ...(options.logLevel !== undefined ? { logLevel: options.logLevel } : {}),
+        ...(options.gitHubToken !== undefined ? { gitHubToken: options.gitHubToken } : {}),
+        ...(useLoggedInUser !== undefined ? { useLoggedInUser } : {}),
+        clientInfo: { integrationName: '@sigx/ai-agent-copilot', applicationVersion: '0.1.0' }
+    };
+}
 
 /** The `SessionConfigBase` fields that come straight from the session options — the callbacks and tools are added by the session. */
 export function toSessionConfig(options: CopilotSessionOptions): SessionConfigBase {

@@ -5,7 +5,7 @@ import { defineTool, type JsonSchema, type StandardSchemaV1 } from '@sigx/ai';
 import { allowAll, denyAll, createTranscript, createReducer, type AgentEvent, type AgentSession, type AgentTurn, type SessionRef } from '@sigx/ai-agent';
 import { codingExtension, codingState } from '@sigx/ai-agent/coding';
 import { checkEventInvariants } from '@sigx/ai-agent/testing';
-import { copilot, COPILOT_CAPABILITIES, COPILOT_NS, configOptions, toErrorCode, toPolicyRequest, toCopilotDecision, answerText, toModelValues, toUsage } from '@sigx/ai-agent-copilot';
+import { copilot, COPILOT_CAPABILITIES, COPILOT_NS, configOptions, toClientOptions, toErrorCode, toPolicyRequest, toCopilotDecision, answerText, toModelValues, toUsage } from '@sigx/ai-agent-copilot';
 import { fakeClient, say, MODELS, type TurnProgram, type FakeClientOptions } from './fake-client';
 
 function schema<T>(check: (v: unknown) => v is T, json: JsonSchema): StandardSchemaV1<T, T> {
@@ -312,6 +312,16 @@ describe('@sigx/ai-agent-copilot', () => {
             expect(codingState(t)!.terminals.b1).toEqual({ output: 'a\nb\n', truncated: false, exitCode: 0 });
             expect(events.find((e): e is Extract<AgentEvent, { type: 'tool-call' }> => e.type === 'tool-call')).toMatchObject({ name: 'bash', category: 'execute', input: { command: 'ls' } });
             expect(events.find((e) => e.type === 'tool-update' && e.status === 'completed')).toMatchObject({ output: 'a\nb\n' });
+        });
+
+        it('a failure with neither an error nor content still reads as a failure', async () => {
+            const { session } = await open(async (ctx) => {
+                ctx.emit('tool.execution_start', { toolCallId: 'e1', toolName: 'view', arguments: {} });
+                ctx.emit('tool.execution_complete', { toolCallId: 'e1', success: false, result: { content: '' } });
+                await ctx.say('Hm.');
+            });
+            const { events } = await drain(session.prompt('go'));
+            expect(events.find((e) => e.type === 'tool-update' && e.status === 'failed')).toMatchObject({ error: 'The tool call failed.' });
         });
 
         it('an MCP tool is named server/tool; a failed one carries the error', async () => {
@@ -642,6 +652,14 @@ describe('@sigx/ai-agent-copilot', () => {
             await settle();
             expect(all.slice(0, events.length + 1).map((e) => e.seq)).toEqual(all.slice(0, events.length + 1).map((_, i) => i + 1));
             await expect(session.prompt('again').result).rejects.toMatchObject({ code: 'protocol_error' });
+        });
+
+        it('a gitHubToken turns the stored login off unless useLoggedInUser says otherwise', () => {
+            expect(toClientOptions({})).toEqual({ clientInfo: { integrationName: '@sigx/ai-agent-copilot', applicationVersion: '0.1.0' } });
+            expect(toClientOptions({ gitHubToken: 'ghp_x' })).toMatchObject({ gitHubToken: 'ghp_x', useLoggedInUser: false });
+            expect(toClientOptions({ gitHubToken: 'ghp_x', useLoggedInUser: true })).toMatchObject({ useLoggedInUser: true });
+            expect(toClientOptions({ env: { A: '1' }, cwd: '/w', baseDirectory: '/home', logLevel: 'error' })).toMatchObject({ env: { A: '1' }, workingDirectory: '/w', baseDirectory: '/home', logLevel: 'error' });
+            expect(toClientOptions({ useLoggedInUser: false })).toMatchObject({ useLoggedInUser: false });
         });
 
         it('requires the SDK when no client is given', async () => {

@@ -15,7 +15,7 @@ import type { AnyTool } from '@sigx/ai';
 import type { Agent, AgentCapabilities, ConfigValue, SessionSummary } from '@sigx/ai-agent';
 import { AgentError, capabilities } from '@sigx/ai-agent';
 import type { CopilotClientLike, CopilotOptions, CopilotSessionOptions } from './options.js';
-import { toModelValues, toSessionConfig } from './request.js';
+import { toClientOptions, toModelValues, toSessionConfig } from './request.js';
 import { createCopilotSession, type CopilotSession } from './session.js';
 
 export const COPILOT_CAPABILITIES: AgentCapabilities = capabilities({
@@ -156,13 +156,7 @@ async function createClient(options: CopilotOptions): Promise<CopilotClientLike>
     }
     const clientOptions: CopilotClientOptions = {
         connection: sdk.RuntimeConnection.forStdio(options.cliPath !== undefined ? { path: options.cliPath } : {}),
-        ...(options.env ? { env: { ...options.env } } : {}),
-        ...(options.cwd !== undefined ? { workingDirectory: options.cwd } : {}),
-        ...(options.baseDirectory !== undefined ? { baseDirectory: options.baseDirectory } : {}),
-        ...(options.logLevel !== undefined ? { logLevel: options.logLevel } : {}),
-        ...(options.gitHubToken !== undefined ? { gitHubToken: options.gitHubToken } : {}),
-        ...(options.useLoggedInUser !== undefined ? { useLoggedInUser: options.useLoggedInUser } : {}),
-        clientInfo: { integrationName: '@sigx/ai-agent-copilot', applicationVersion: '0.1.0' }
+        ...toClientOptions(options)
     };
     return new sdk.CopilotClient(clientOptions);
 }
