@@ -10,6 +10,8 @@ import { checkEventInvariants } from '@sigx/ai-agent/testing';
 import { resolveExecutable } from '@sigx/ai-agent-node';
 import { codex, CODEX_CAPABILITIES, toErrorCode } from '@sigx/ai-agent-codex';
 import { fakeAppServer, say, type TurnProgram } from './fake-app-server';
+import { updateSubAgent, type SubAgents } from '../src/stream';
+import type { UnstampedEvent } from '@sigx/ai-agent';
 
 function schema<T>(check: (v: unknown) => v is T, json: JsonSchema): StandardSchemaV1<T, T> {
     return { '~standard': { version: 1, vendor: 'test', validate: (v) => (check(v) ? { value: v } : { issues: [{ message: 'invalid' }] }), jsonSchema: { input: () => json, output: () => json } } };
@@ -170,6 +172,19 @@ describe('@sigx/ai-agent-codex', () => {
 
         it('declares subagents: control', () => {
             expect(CODEX_CAPABILITIES.subagents).toBe('control');
+        });
+
+        it('updateSubAgent emits a change of output or error even when status and summary repeat; a true repeat stays quiet', () => {
+            const agents: SubAgents = new Map([['a', { status: 'running' }]]);
+            const emitted: UnstampedEvent[] = [];
+            const emit = (e: UnstampedEvent) => emitted.push(e);
+            updateSubAgent(agents, emit, 'a', { status: 'running', output: 'partial' });
+            updateSubAgent(agents, emit, 'a', { status: 'running', error: 'hiccup' });
+            updateSubAgent(agents, emit, 'a', { status: 'running' });
+            expect(emitted.map((e) => (e.type === 'agent-update' ? [e.status, e.output, e.error?.message] : []))).toEqual([
+                ['running', 'partial', undefined],
+                ['running', undefined, 'hiccup']
+            ]);
         });
 
         it('spawnAgent binds the child thread to the collab call; a later wait settles it once with its output', async () => {
@@ -459,6 +474,36 @@ describe('@sigx/ai-agent-codex', () => {
                 expect(nestedText(events, 'collab_s6')).toBe('found it');
                 expect(events.find((e) => e.type === 'part-start' && e.parentCallId === 'collab_s6')).toMatchObject({ actor: 'Scout' });
                 expect(events.find((e) => e.type === 'ext' && e.name === 'thread/started')).toBeUndefined();
+                await session.close();
+                await all.done;
+                checkEventInvariants(all.events);
+            });
+
+            it('a child turn named only by a top-level turnId is still the turn cancel({ agentId }) interrupts', async () => {
+                const fake = fakeAppServer({
+                    onTurn: async (ctx) => {
+                        await ctx.item(activity('call_s8', 'started', 'child_8', '/root/lean'), 'started');
+                        await ctx.item(activity('call_s8', 'started', 'child_8', '/root/lean'), 'completed');
+                        const child = await ctx.child('child_8').startTurn('cturn_8', { announce: 'turnId' });
+                        await child.item(message('cmsg_8', ''), 'started');
+                        await child.interrupted;
+                        await child.complete('interrupted');
+                        await say('stopped')(ctx);
+                    }
+                });
+                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                const all = observe(session);
+                let cancelled = false;
+                const { events, result } = await drain(session.prompt('go'), async (e) => {
+                    if (!cancelled && e.type === 'part-start' && e.parentCallId === 'call_s8') {
+                        cancelled = true;
+                        await session.cancel({ agentId: 'child_8' });
+                    }
+                });
+                expect(result).toMatchObject({ stopReason: 'end_turn' });
+                expect(fake.requests.filter((r) => r.method === 'turn/interrupt').map((r) => r.params)).toEqual([{ threadId: 'child_8', turnId: 'cturn_8' }]);
+                const terminal = agentEvents(events, 'child_8').filter((e) => e.type === 'agent-update' && e.status !== 'running');
+                expect(terminal.map((e) => (e.type === 'agent-update' ? e.status : ''))).toEqual(['cancelled']);
                 await session.close();
                 await all.done;
                 checkEventInvariants(all.events);

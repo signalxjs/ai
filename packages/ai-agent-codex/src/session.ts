@@ -382,7 +382,8 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
                     return;
                 }
                 case CODEX_METHODS.turnStarted: {
-                    const turnId = (params.turn as { id?: string } | undefined)?.id;
+                    // Named like the host path does: a top-level `turnId`, else the `turn` object.
+                    const turnId = params.turnId ?? (params.turn as { id?: string } | undefined)?.id;
                     child.turns++;
                     child.turnId = turnId;
                     child.mapper = childMapper(childThreadId, child, turnId);
@@ -399,12 +400,13 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
                     return;
                 }
                 case CODEX_METHODS.turnCompleted: {
-                    const p = params as unknown as TurnCompletedNotification;
+                    const p = params as unknown as Partial<TurnCompletedNotification>;
+                    const completedId = params.turnId ?? p.turn?.id;
                     child.mapper?.notify(method, params);
                     child.mapper = undefined;
                     child.turnId = undefined;
-                    if (child.cancel?.turnId !== undefined && child.cancel.turnId === p.turn.id) {
-                        const interrupted = p.turn.status === 'interrupted';
+                    if (child.cancel?.turnId !== undefined && child.cancel.turnId === completedId) {
+                        const interrupted = p.turn?.status === 'interrupted';
                         child.cancel = undefined;
                         // The interrupt can lose the race to the turn finishing on its own: the
                         // cancel is then spent and the agent carries on.

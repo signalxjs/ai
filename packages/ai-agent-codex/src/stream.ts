@@ -92,11 +92,12 @@ export interface SubAgentChange {
     readonly usage?: Usage;
 }
 
-/** A state change for a known sub-agent — nothing after its terminal, nothing for a repeat. */
+/** A state change for a known sub-agent — nothing after its terminal, nothing for a repeat (a report carrying usage, output or an error is never a repeat). */
 export function updateSubAgent(agents: SubAgents, emit: (e: UnstampedEvent) => void, agentId: string, next: SubAgentChange): void {
     const agent = agents.get(agentId);
     if (!agent || AGENT_TERMINAL.has(agent.status)) return;
-    if (next.usage === undefined && next.status === agent.status && next.summary === agent.summary) return;
+    const carries = next.usage !== undefined || next.output !== undefined || next.error !== undefined;
+    if (!carries && next.status === agent.status && next.summary === agent.summary) return;
     agent.status = next.status;
     agent.summary = next.summary;
     emit({

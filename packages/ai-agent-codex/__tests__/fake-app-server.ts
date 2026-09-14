@@ -29,8 +29,11 @@ export interface TurnProgramContext {
 
 export interface ChildThread {
     readonly threadId: string;
-    /** `turn/started` on the child thread; the turn answers `turn/interrupt` like a parent turn. */
-    startTurn(turnId?: string): Promise<ChildTurn>;
+    /**
+     * `turn/started` on the child thread; the turn answers `turn/interrupt` like a parent turn.
+     * `announce: 'turnId'` names the turn with a top-level `turnId` only, instead of a `turn` object.
+     */
+    startTurn(turnId?: string, options?: { readonly announce?: 'turn' | 'turnId' }): Promise<ChildTurn>;
 }
 
 export interface ChildTurn {
@@ -133,7 +136,7 @@ export function fakeAppServer(options: FakeAppServerOptions): FakeAppServer {
     });
     const childThread = (childId: string): ChildThread => ({
         threadId: childId,
-        startTurn: async (turnId = `cturn_${++ids}`) => {
+        startTurn: async (turnId = `cturn_${++ids}`, startOptions = {}) => {
             let flag = false;
             let fire!: () => void;
             const interrupted = new Promise<void>((resolve) => {
@@ -143,7 +146,7 @@ export function fakeAppServer(options: FakeAppServerOptions): FakeAppServer {
                 };
             });
             interrupts.set(turnId, fire);
-            await peer.notify('turn/started', { threadId: childId, turn: { id: turnId, status: 'inProgress', error: null } });
+            await peer.notify('turn/started', startOptions.announce === 'turnId' ? { threadId: childId, turnId } : { threadId: childId, turn: { id: turnId, status: 'inProgress', error: null } });
             return {
                 turnId,
                 interrupted,
