@@ -88,9 +88,16 @@ const agent = acp({ ...cursor(), fs: { read: true, write: true }, terminal: true
 | Preset | Command | Install | Passes |
 |---|---|---|---|
 | `gemini()` | `gemini --experimental-acp` | `npm i -g @google/gemini-cli` | `GEMINI_API_KEY`, `GOOGLE_API_KEY` |
-| `cursor()` | `agent acp` | `curl https://cursor.com/install -fsS \| bash` | `CURSOR_API_KEY`, `CURSOR_AUTH_TOKEN` |
+| `cursor()` | `agent acp` | [cursor.com/install](https://cursor.com/install), below | `CURSOR_API_KEY`, `CURSOR_AUTH_TOKEN` |
 | `claudeCodeAcp()` | `claude-agent-acp` | `npm i -g @agentclientprotocol/claude-agent-acp` | `ANTHROPIC_API_KEY`, `CLAUDE_CONFIG_DIR` |
 | `codexAcp()` | `codex-acp` | `npm i -g @agentclientprotocol/codex-acp` | `OPENAI_API_KEY`, `CODEX_HOME` |
+
+The Cursor CLI is the one that does not come from npm — its install line has a
+pipe in it, so it lives here rather than in a table cell:
+
+```sh
+curl https://cursor.com/install -fsS | bash
+```
 
 The two bridges moved out of `@zed-industries`, where both packages are now
 deprecated. The Claude one renamed its command with the move
