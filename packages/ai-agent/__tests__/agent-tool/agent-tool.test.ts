@@ -26,6 +26,8 @@ async function hostTurn(tools: Parameters<typeof modelAgent>[0]['tools'], rounds
     return { model, session, events, result, log, t };
 }
 
+const toolCalls = (events: readonly AgentEvent[]) => events.filter((e): e is Extract<AgentEvent, { type: 'tool-call' }> => e.type === 'tool-call');
+
 function schema<T>(check: (v: unknown) => v is T, json: JsonSchema): StandardSchemaV1<T, T> {
     return { '~standard': { version: 1, vendor: 'test', validate: (v) => (check(v) ? { value: v } : { issues: [{ message: 'invalid' }] }), jsonSchema: { input: () => json, output: () => json } } };
 }
@@ -191,8 +193,63 @@ describe('agentTool', () => {
         expect(tree).toHaveLength(1);
         expect(tree[0]!.agent).toMatchObject({ kind: 'ask', callId: 'host1', depth: 0, status: 'completed' });
         expect(tree[0]!.children).toHaveLength(1);
-        expect(tree[0]!.children[0]!.agent).toMatchObject({ kind: 'leaf', callId: 'mid1', depth: 1, status: 'completed', output: 'leaf says hi', parentAgentId: tree[0]!.agent.agentId });
-        expect(t.messages.find((m) => m.parentCallId === 'mid1')?.parts.find((p) => p.type === 'text')).toMatchObject({ text: 'leaf says hi' });
+        // The ids of the middle session travel up prefixed with it — one prefix per level.
+        const midId = tree[0]!.agent.agentId;
+        const midCall = `${midId}/mid1`;
+        expect(tree[0]!.children[0]!.agent).toMatchObject({ kind: 'leaf', callId: midCall, depth: 1, status: 'completed', output: 'leaf says hi', parentAgentId: midId });
+        expect(tree[0]!.children[0]!.agent.agentId.startsWith(`${midId}/`)).toBe(true);
+        expect(t.messages.find((m) => m.parentCallId === midCall)?.parts.find((p) => p.type === 'text')).toMatchObject({ text: 'leaf says hi' });
+    });
+
+    it('a delegate that reuses the host’s call ids still nests cleanly', async () => {
+        // Both models number their generated calls from `call_1`, so the
+        // delegate's `look` call would be the host's `ask` call verbatim.
+        const look = defineTool({ name: 'look', description: 'x', input: question, execute: () => 'looked' });
+        const delegate = modelAgent({ id: 'delegate', model: mockModel({ respond: (_r, round) => (round === 0 ? { toolCalls: [{ name: 'look', input: { question: 'q' } }] } : { text: 'found it' }) }), tools: [look] });
+        const ask = agentTool(delegate, { name: 'ask', description: 'x', input: question, prompt: (i) => i.question, sessionOptions: { policy: allowAll } });
+        const { events, result, t } = await hostTurn([ask], (round) => (round === 0 ? { toolCalls: [{ name: 'ask', input: { question: 'q' } }] } : { text: 'Summary.' }));
+        expect(result.stopReason).toBe('end_turn');
+        const hostCall = toolCalls(events).find((e) => e.name === 'ask')!;
+        const nestedCall = toolCalls(events).find((e) => e.name === 'look')!;
+        // The raw ids collide; the forwarded one is namespaced, so they don't.
+        expect(hostCall.callId).toBe('call_1');
+        expect(nestedCall.callId).not.toBe(hostCall.callId);
+        expect(nestedCall.parentCallId).toBe(hostCall.callId);
+        // The host's own call settles — before the fix the delegate's
+        // `tool-update`s landed on it and it never did.
+        expect(events.find((e) => e.type === 'tool-update' && e.callId === hostCall.callId && e.status === 'completed')).toMatchObject({ output: 'found it' });
+        const nestedUpdates = events.filter((e) => e.type === 'tool-update' && e.callId === nestedCall.callId);
+        expect(nestedUpdates.at(-1)).toMatchObject({ status: 'completed', output: 'looked', parentCallId: hostCall.callId });
+        // The transcript keeps them apart: one part per call, each under its own message.
+        const parts = t.messages.flatMap((m) => m.parts).filter((p) => p.type === 'tool');
+        expect(parts.map((p) => [p.name, p.callId, p.status])).toEqual([
+            ['ask', hostCall.callId, 'completed'],
+            ['look', nestedCall.callId, 'completed']
+        ]);
+    });
+
+    it('two delegates in one turn keep their ids apart', async () => {
+        const look = defineTool({ name: 'look', description: 'x', input: question, execute: () => 'looked' });
+        const delegate = (name: string) => modelAgent({ id: name, model: mockModel({ respond: (_r, round) => (round === 0 ? { toolCalls: [{ name: 'look', input: { question: 'q' } }] } : { text: `${name} done` }) }), tools: [look] });
+        const tools = ['one', 'two'].map((name) => agentTool(delegate(name), { name, description: 'x', input: question, prompt: (i) => i.question, sessionOptions: { policy: allowAll } }));
+        const { events, result } = await hostTurn(tools, (round) =>
+            round === 0
+                ? {
+                      toolCalls: [
+                          { name: 'one', input: { question: 'q' } },
+                          { name: 'two', input: { question: 'q' } }
+                      ]
+                  }
+                : { text: 'Summary.' }
+        );
+        expect(result.stopReason).toBe('end_turn');
+        // Four calls, four ids: the host's two plus one from each delegate,
+        // both of which minted `call_1` for themselves.
+        const calls = toolCalls(events);
+        expect(calls).toHaveLength(4);
+        expect(new Set(calls.map((e) => e.callId)).size).toBe(4);
+        expect(calls.filter((e) => e.name === 'look').map((e) => e.parentCallId)).toEqual(calls.filter((e) => e.name !== 'look').map((e) => e.callId));
+        for (const host of calls.filter((e) => e.name !== 'look')) expect(events.find((e) => e.type === 'tool-update' && e.callId === host.callId && e.status === 'completed')).toMatchObject({ output: `${host.name} done` });
     });
 
     it('a plain defineTool still works as a host tool alongside agentTool', () => {

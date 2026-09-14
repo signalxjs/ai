@@ -33,9 +33,9 @@
     },
     "devDependencies": {
         "@sigx/vite": "catalog:",
-        "@types/node": "^25.9.1",
+        "@types/node": "^26.5.1",
         "cross-env": "^10.1.0",
-        "typescript": "^6.0.3",
+        "typescript": "^7.0.2",
         "vite": "^8.0.3",
         "vitest": "^4.1.5"
     }
