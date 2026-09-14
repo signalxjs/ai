@@ -17,7 +17,10 @@ export default defineConfig({
     },
     test: {
         environment: 'happy-dom',
-        include: ['packages/**/__tests__/**/*.test.{ts,tsx}'],
+        // The examples are shipped code too, and the agent example's view is
+        // the only place its render decisions live — an empty box under a
+        // tool that returned nothing (#128) is a bug no package test can see.
+        include: ['packages/**/__tests__/**/*.test.{ts,tsx}', 'examples/*/__tests__/**/*.test.{ts,tsx}'],
         exclude: ['**/node_modules/**'],
         globals: true,
         typecheck: {
