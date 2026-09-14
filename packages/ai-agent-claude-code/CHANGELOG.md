@@ -44,6 +44,18 @@ versions follow [SemVer](https://semver.org/).
   parts) and `agentProgressSummaries` (default `false`: model-written
   `summary` on progress updates).
 - `createAgentTracker`, `taskKind` and `toAgentDefinitions` are exported.
+- `createConfigState` and the `ConfigState` / `ConfigTracker` types are
+  exported — the session's one source of truth for what it advertises.
+
+### Fixed
+
+- `configure()` announced only the settings it changed, so a client driving
+  its controls off `transcript.config` lost the others until the next
+  `system/init`: `configure({ permissionMode: 'plan' })` left a single-option
+  list with no `model` and no `thinkingDisplay`. A `config` event is *the*
+  options, not a patch of them — the reducer replaces the list wholesale — so
+  the session now keeps its advertised settings in one place and both
+  `system/init` and `configure()` emit the whole set.
 
 ### Changed
 

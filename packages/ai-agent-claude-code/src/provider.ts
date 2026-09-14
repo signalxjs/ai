@@ -21,7 +21,7 @@ import type { Agent, AgentCapabilities, AgentSession, CancelTarget, PromptInput,
 import { listenMcp, resolveExecutable, spawnAgentProcess, type AgentProcess } from '@sigx/ai-agent-node';
 import type { ClaudeCodeOptions, ClaudeCodeSessionOptions } from './options.js';
 import { createCanUseTool, type PermissionTarget } from './permissions.js';
-import { THINKING_DISPLAYS, configOptions, thinkingBudgetOf, thinkingDisplayOf, toOutputFormat, toQueryOptions, toUserMessage, type ThinkingDisplay } from './request.js';
+import { THINKING_DISPLAYS, configOptions, createConfigState, thinkingBudgetOf, thinkingDisplayOf, toOutputFormat, toQueryOptions, toUserMessage, type ThinkingDisplay } from './request.js';
 import { createTurnMapper, mapSessionMessage, type TurnMapper } from './stream.js';
 import { createAgentTracker } from './tasks.js';
 import { startToolServer, type ToolServer } from './tools.js';
@@ -198,8 +198,16 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
         let stderrTail = '';
         let interrupted = false;
         let lastCost = 0;
-        // What the session shows of Claude's thinking — from the options, then from `configure()`.
-        let thinkingDisplay: ThinkingDisplay | undefined = thinkingDisplayOf(sessionOptions.thinking);
+        // Everything this session advertises, in one place: `system/init`
+        // fills in the model and the mode, `configure()` moves whichever it
+        // was given, and both emit the WHOLE list (#137). The thinking
+        // display is ours alone — `init` never mentions it — and stays absent
+        // when we cannot know it (thinking disabled, or inherited from the
+        // CLI's own settings), which is what makes it unconfigurable below.
+        const config = createConfigState((() => {
+            const display = thinkingDisplayOf(sessionOptions.thinking);
+            return display !== undefined ? { thinkingDisplay: display } : {};
+        })());
         let current: { driver: TurnDriver; ctx: TurnContext; mapper: TurnMapper; done: (r: SDKResultMessage | undefined, error?: Error) => void } | undefined;
         // The first query resumes (or forks) the ref's session; later ones resume the live id.
         let firstQuery = true;
@@ -212,7 +220,7 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
         const emitSession = (m: SDKMessage) => {
             if (m.type === 'system' && (m as { subtype: string }).subtype === 'init') claudeSessionId = (m as { session_id: string }).session_id;
             if (current) current.mapper.handle(m);
-            else if (!tracker.handleTask(m, emitSessionEvent)) mapSessionMessage(m, emitSessionEvent, thinkingDisplay);
+            else if (!tracker.handleTask(m, emitSessionEvent)) mapSessionMessage(m, emitSessionEvent, config);
         };
 
         const startQuery = (format: OutputFormat | undefined) => {
@@ -295,7 +303,7 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
                         onResult: (r) => current?.done(r),
                         interrupted: () => interrupted,
                         previousCostUsd: () => lastCost,
-                        thinkingDisplay: () => thinkingDisplay
+                        config
                     });
                     const finished = new Promise<void>((resolve) => {
                         current = {
@@ -348,10 +356,16 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
             },
             async configure(patch) {
                 if (!q) throw new AgentError('protocol_error', '[sigx ai-agent-claude-code] configure() needs a running session (prompt first)');
-                if (patch.model !== undefined) await q.setModel(patch.model);
+                // Applied one by one, so a patch that fails half way leaves the
+                // advertised state matching what the CLI actually took.
+                if (patch.model !== undefined) {
+                    await q.setModel(patch.model);
+                    config.update({ model: patch.model });
+                }
                 if (patch.permissionMode !== undefined) {
                     if (patch.permissionMode === 'bypassPermissions' && !options.allowDangerouslySkipPermissions) throw new AgentError('protocol_error', '[sigx ai-agent-claude-code] bypassPermissions needs allowDangerouslySkipPermissions');
                     await q.setPermissionMode(patch.permissionMode as never);
+                    config.update({ permissionMode: patch.permissionMode });
                 }
                 if (patch.thinkingDisplay !== undefined) {
                     const next = patch.thinkingDisplay as ThinkingDisplay;
@@ -361,22 +375,17 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
                     // Claude Code's own settings, and one with
                     // `{ type: 'disabled' }` has no thinking to display —
                     // changing either would answer a question nobody could ask.
-                    if (thinkingDisplay === undefined) {
+                    if (config.current().thinkingDisplay === undefined) {
                         throw new AgentError('protocol_error', '[sigx ai-agent-claude-code] this session does not advertise thinkingDisplay — it was opened with thinking disabled, or with `thinking: null` to inherit Claude Code\'s own setting');
                     }
                     // The display is the only thing that changes: the budget
                     // argument carries the session's own thinking mode back in.
                     await q.setMaxThinkingTokens(thinkingBudgetOf(sessionOptions.thinking), next);
-                    thinkingDisplay = next;
+                    config.update({ thinkingDisplay: next });
                 }
-                core.emit({
-                    type: 'config',
-                    options: configOptions({
-                        ...(patch.model !== undefined ? { model: patch.model } : {}),
-                        ...(patch.permissionMode !== undefined ? { permissionMode: patch.permissionMode } : {}),
-                        ...(patch.thinkingDisplay !== undefined ? { thinkingDisplay: patch.thinkingDisplay as ThinkingDisplay } : {})
-                    })
-                });
+                // The WHOLE list, not just what moved: a `config` event is the
+                // options, and the reducer replaces the list with it (#137).
+                core.emit({ type: 'config', options: configOptions(config.current()) });
             },
             subscribe: (from) => core.subscribe(from),
             async close() {

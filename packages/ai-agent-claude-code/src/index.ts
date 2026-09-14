@@ -15,6 +15,7 @@ export {
     toAgentDefinitions,
     childEnv,
     configOptions,
+    createConfigState,
     resolveThinking,
     thinkingDisplayOf,
     thinkingBudgetOf,
@@ -22,7 +23,7 @@ export {
     THINKING_DISPLAYS,
     DEFAULT_THINKING
 } from './request.js';
-export type { ThinkingDisplay } from './request.js';
+export type { ThinkingDisplay, ConfigState, ConfigTracker } from './request.js';
 export { ASK_USER_QUESTION, questionId, parseQuestions, questionsSchema, questionOptions, questionsMessage, toAskAnswers } from './questions.js';
 export type { AskQuestion } from './questions.js';
 export { startToolServer, bearerToken, sameToken } from './tools.js';

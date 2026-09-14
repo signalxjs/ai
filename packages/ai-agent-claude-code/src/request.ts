@@ -57,11 +57,53 @@ export function thinkingBudgetOf(thinking: ThinkingConfig | null | undefined): n
 }
 
 /**
+ * The settings this session advertises. A value we do not know yet is absent
+ * — `configOptions` leaves the option out rather than inventing a current.
+ */
+export interface ConfigState {
+    readonly model?: string;
+    readonly permissionMode?: string;
+    readonly thinkingDisplay?: ThinkingDisplay;
+}
+
+/**
+ * The session's one source of truth for what it advertises.
+ *
+ * A `config` event is THE options, not a patch of them — the reducer replaces
+ * the list wholesale. So both places that emit one (`system/init` and
+ * `configure()`) have to announce every setting, which means they need
+ * somewhere to merge into: announcing only what just changed empties every
+ * other control the client is driving off it (#137).
+ */
+export interface ConfigTracker {
+    current(): ConfigState;
+    /**
+     * Merge. A key the patch does not set keeps its value — and since every
+     * field is optional, a key set to `undefined` counts as not set rather
+     * than as "clear this", so building a patch out of `string | undefined`
+     * values cannot silently unadvertise a setting.
+     */
+    update(patch: ConfigState): ConfigState;
+}
+
+export function createConfigState(initial: ConfigState = {}): ConfigTracker {
+    let state: ConfigState = initial;
+    return {
+        current: () => state,
+        update(patch) {
+            const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+            state = { ...state, ...defined };
+            return state;
+        }
+    };
+}
+
+/**
  * What a `config` event advertises — one entry per setting we know the
  * current value of, so a client can both show it and switch it through
  * `configure()`.
  */
-export function configOptions(current: { readonly model?: string; readonly permissionMode?: string; readonly thinkingDisplay?: ThinkingDisplay }): ConfigOption[] {
+export function configOptions(current: ConfigState): ConfigOption[] {
     return [
         ...(current.model !== undefined ? [{ id: 'model', label: 'Model', values: [{ id: current.model }], current: current.model }] : []),
         ...(current.permissionMode !== undefined ? [{ id: 'permissionMode', label: 'Permission mode', values: PERMISSION_MODES.map((id) => ({ id })), current: current.permissionMode }] : []),
