@@ -1,542 +1,183 @@
 /**
- * The whole UI. `connectSession` turns the two server stubs into an
- * `AgentSession`; `useAgentSession` folds its events into a reactive
- * transcript. The view just reads that transcript — a streaming token is one
- * write to one part's `text`, so the only thing that re-renders per token is
- * that part's text node.
+ * The playground shell: a sidebar of live sessions, a New-session form, and a
+ * pane per session.
  *
- * Open a SECOND TAB: it asks for `(0, 0)`, replays the conversation and then
- * follows it live — because the session lives on the server and its events
- * are numbered. Approve a tool in one tab and watch the other one update.
+ * **The sessions are not in the browser.** Each pane holds a *view* of a log
+ * that lives on the server, addressed by `(epoch, seq)` — which is why
+ * switching sessions here, a second tab, a reconnect after a dropped
+ * connection and a phone opened an hour later all converge on the same
+ * transcript without any of them being special-cased.
  *
- * The connection is opened on MOUNT, never during SSR: a server render has
- * no business holding a subscription it cannot close.
+ * Panes are hidden, never unmounted. `useAgentSession` captures its source in
+ * setup, so an unkeyed pane reused for a different session would keep folding
+ * the old one; keeping every pane mounted also means switching costs nothing
+ * and side-by-side comparison is one class away.
  */
-import { component, useHead, onMounted, onUnmounted, signal } from 'sigx';
-import { agentMessages, childAgents, spawnedAgent, toolOutput } from '@sigx/ai-agent';
-import { connectSession, type AgentSessionClient } from '@sigx/ai-agent/wire';
-import { useAgentSession, type AgentMessage, type AgentPart, type AgentState, type AgentTranscript, type OpenRequest, type ToolPartState } from '@sigx/ai-agent/app';
-import { agentCommand, agentEvents } from './agent.server';
+import { component, useHead, onMounted, onUnmounted } from 'sigx';
+import { Session } from './Session';
+import { createPlayground } from './sessions';
+import { modeOf, type AgentChoice, type CatalogEntry } from './catalog';
 
-type Answers = Record<string, string | string[]>;
-
-/** One answerable field, read off the request's `schema` — a picker, a multi-picker, or free text. */
-interface Field {
-    readonly id: string;
-    readonly title: string;
-    readonly description?: string;
-    readonly multi: boolean;
-    readonly choices: readonly string[];
-    /** The schema leaves the value open, so an answer off the list is legal ("Other"). */
-    readonly freeText: boolean;
-}
-
-type Schema = Record<string, unknown>;
-const asSchema = (v: unknown): Schema | undefined => (typeof v === 'object' && v !== null ? (v as Schema) : undefined);
-
-/**
- * `schema` → fields. One property per question: an array is a multi-select, an
- * `enum` (plain, or under an `anyOf` branch) lists the choices, and a branch
- * that leaves the string open means free text is allowed too.
- */
-function fieldsOf(request: OpenRequest): Field[] {
-    const properties = asSchema(asSchema(request.schema)?.properties);
-    if (!properties) return [{ id: 'answer', title: 'Answer', multi: false, choices: [], freeText: true }];
-    return Object.entries(properties).map(([id, raw]) => {
-        const prop = asSchema(raw) ?? {};
-        const multi = prop.type === 'array';
-        const value = (multi ? asSchema(prop.items) : prop) ?? {};
-        const branches = (Array.isArray(value.anyOf) ? value.anyOf : []).map(asSchema);
-        const closed = Array.isArray(value.enum) ? (value.enum as unknown[]) : undefined;
-        const choices = (closed ?? branches.find((b) => Array.isArray(b?.enum))?.enum ?? []) as string[];
-        return {
-            id,
-            title: typeof prop.title === 'string' ? prop.title : id,
-            ...(typeof prop.description === 'string' ? { description: prop.description } : {}),
-            multi,
-            choices: choices.map(String),
-            freeText: !closed && (choices.length === 0 || branches.some((b) => b?.type === 'string' && b.enum === undefined))
-        };
-    });
-}
-
-/** The form's values, in the shape `respond({ type: 'input', answers })` wants. */
-function readAnswers(form: HTMLFormElement, fields: readonly Field[]): Answers {
-    const data = new FormData(form);
-    const answers: Answers = {};
-    for (const f of fields) {
-        const other = String(data.get(`${f.id}:other`) ?? '').trim();
-        // A question nobody answered is LEFT OUT, never sent as `''` or `[]`:
-        // the adapter reports exactly what it was given, and an empty value
-        // would read as answered on this side and unanswered on the other.
-        if (f.multi) {
-            const picked = [...data.getAll(f.id).map(String), ...(other ? [other] : [])].filter((v) => v !== '');
-            if (picked.length) answers[f.id] = picked;
-        } else {
-            const picked = other || String(data.get(f.id) ?? '');
-            if (picked) answers[f.id] = picked;
-        }
-    }
-    return answers;
-}
-
-/**
- * An input request as a real form: radios for a single choice, checkboxes for
- * a multi-select, and a free-text box wherever the schema leaves the value
- * open. Submitting answers every question in one `respond`.
- */
-const Ask = component<{ request: OpenRequest; onAnswer: (requestId: string, answers: Answers) => void }>((ctx) => {
-    return () => {
-        const request = ctx.props.request;
-        const fields = fieldsOf(request);
-        return (
-            <form
-                class="ask"
-                onSubmit={(e: Event) => {
-                    e.preventDefault();
-                    ctx.props.onAnswer(request.requestId, readAnswers(e.currentTarget as HTMLFormElement, fields));
-                }}
-            >
-                {fields.map((f) => (
-                    <fieldset class="question">
-                        <legend>{f.title}</legend>
-                        {f.description && <p class="question-text">{f.description}</p>}
-                        {f.choices.map((choice) => (
-                            <label>
-                                <input type={f.multi ? 'checkbox' : 'radio'} name={f.id} value={choice} /> {choice}
-                            </label>
-                        ))}
-                        {f.freeText && <input type="text" name={`${f.id}:other`} aria-label={`Other — ${f.title}`} placeholder={f.choices.length ? 'Other…' : 'Your answer…'} />}
-                    </fieldset>
-                ))}
-                <button type="submit">Answer</button>
-            </form>
-        );
-    };
-});
-
-/** The transport: two functions over the build-swapped server stubs. */
-function connect(): Promise<AgentSessionClient> {
-    return connectSession(
-        {
-            send: (command) => agentCommand({ command }),
-            events: (from) => agentEvents(from ? { from } : {})
-        },
-        // From the very beginning: a tab opened an hour late shows the whole
-        // conversation, not just what happens next.
-        { from: { epoch: 0, seq: 0 } }
-    );
-}
-
-/** What a card shows before it elides — a card summarises, the `<details>` has the rest. */
-const HEAD_CHARS = 72;
-const OUTPUT_LINES = 24;
-const OUTPUT_CHARS = 4000;
-
-/** One line, whitespace collapsed, capped. */
-function oneLine(text: string, max = HEAD_CHARS): string {
-    const flat = text.replace(/\s+/g, ' ').trim();
-    return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
-}
-
-/**
- * The call signature for the card header: the FIRST argument, summarised —
- * `Bash(command: ls -la)`, not the forty lines of nested JSON an
- * `AskUserQuestion` input is. The full input is one `<details>` away.
- */
-function signature(input: unknown): string {
-    if (input === undefined || input === null) return '';
-    if (typeof input !== 'object') return oneLine(String(input));
-    const entries = Object.entries(input as Record<string, unknown>);
-    if (entries.length === 0) return '';
-    const [name, value] = entries[0]!;
-    const shown = oneLine(`${name}: ${typeof value === 'string' ? value : JSON.stringify(value)}`);
-    return entries.length > 1 ? `${shown}, +${entries.length - 1}` : shown;
-}
-
-/** Keep the head AND the tail: a listing is worth reading at both ends. */
-function elide(text: string): string {
-    let out = text;
-    const lines = out.split('\n');
-    if (lines.length > OUTPUT_LINES) {
-        const head = lines.slice(0, Math.ceil(OUTPUT_LINES / 2));
-        const tail = lines.slice(lines.length - Math.floor(OUTPUT_LINES / 2));
-        out = [...head, `… ${lines.length - head.length - tail.length} lines omitted …`, ...tail].join('\n');
-    }
-    // One huge line survives the line cap; cap the characters too.
-    if (out.length > OUTPUT_CHARS) {
-        const half = Math.floor(OUTPUT_CHARS / 2);
-        out = `${out.slice(0, half)}\n… ${out.length - OUTPUT_CHARS} characters omitted …\n${out.slice(out.length - half)}`;
-    }
-    return out;
-}
-
-/**
- * Text worth putting in an element — `undefined` for anything that would
- * render blank. A block element drawn around nothing is not "empty", it is a
- * grey rectangle that says nothing (#128), and it is the same defect as the
- * blank assistant bubble in #71. Every branch below that opens a box guards on
- * this, never on mere presence.
- */
-function nonBlank(text: string | undefined): string | undefined {
-    return text !== undefined && text.trim() !== '' ? text : undefined;
-}
-
-/** Did the tool report a result at all? Absent (still running, or a harness that reports none) is not the same as empty. */
-function reportedOutput(p: ToolPartState): boolean {
-    return p.output !== undefined || !!p.content?.length;
-}
-
-/**
- * The output block, as TEXT. A string is already text — `JSON.stringify` on
- * one is what turned a shell listing into a single quoted line of `\n`
- * escapes, inside a `<pre>`. `toolOutput` collapses `output` and the
- * `content` blocks a harness may send instead; anything that is not a string
- * is pretty-printed JSON. The error has its own line, so it stays out.
- *
- * A result that renders blank is `undefined` here — there is no text to put
- * in the `<pre>`, so there is no `<pre>`. The card says so in one dim word
- * instead; `reportedOutput` is what tells "returned nothing" from "has not
- * returned".
- */
-function outputText(p: ToolPartState): string | undefined {
-    if (!reportedOutput(p)) return undefined;
-    const out = toolOutput(p);
-    return nonBlank(elide(typeof out === 'string' ? out : JSON.stringify(out, null, 2)));
-}
-
-/**
- * What a part needs from the session: the open requests and the two ways to
- * settle one, plus the live reasoning-token count — the only progress a
- * harness that shows none of its thinking gives us. A tool card that spawned
- * a sub-agent reads the agent and its messages from the `transcript`.
- */
-interface ThreadProps {
-    readonly requests: readonly OpenRequest[];
-    readonly onDecide: (requestId: string, allow: boolean) => void;
-    readonly onAnswer: (requestId: string, answers: Answers) => void;
-    readonly reasoningTokens?: number;
-    readonly transcript: AgentTranscript;
-    /** Stop one sub-agent — passed only when the agent controls its sub-agents (`subagents: 'control'`). */
-    readonly onCancelAgent?: (agentId: string) => void;
-}
-
-/** Exported for `__tests__/app.test.tsx`: what a part renders is the thing worth asserting on. */
-export const Part = component<{ part: AgentPart } & ThreadProps>((ctx) => {
-    return () => {
-        const p = ctx.props.part;
-        if (p.type === 'text') return <span class="text">{p.text}</span>;
-        if (p.type === 'reasoning') {
-            // Four states, and only two of them have text to show. A harness
-            // that shows none of its thinking (Claude Code under
-            // `thinking.display: 'omitted'`) still opens a REAL reasoning
-            // part whose text stays empty for the whole thinking window, so
-            // rendering `null` on empty text is ten seconds of blank thread
-            // (#78). While the part is open, say that it is thinking — with
-            // the neutral `usage.reasoningTokens` count once one arrives;
-            // once it has ended with nothing to show, there is nothing to say.
-            const thought = nonBlank(p.text);
-            if (!thought) {
-                const n = ctx.props.reasoningTokens;
-                return p.done ? null : <div class="reasoning thinking">Thinking…{n ? ` ${n} tokens` : ''}</div>;
-            }
-            // Exposed reasoning is long: open while it streams, folded away
-            // once it is done — the same `<details>` treatment as tool input.
-            return (
-                <details class="reasoning" open={!p.done}>
-                    <summary>{p.done ? 'Thought' : 'Thinking…'}</summary>
-                    {thought}
-                </details>
-            );
-        }
-        if (p.type === 'image' || p.type === 'file') return <code class="attachment">{p.type === 'file' && p.filename ? p.filename : p.mediaType}</code>;
-        if (p.type !== 'tool') return null;
-        // A tool card: name, input, status — and, while the call waits on the
-        // operator, the prompt in place on the card: Allow/Deny for a
-        // permission, the answer form for a question (Claude Code's
-        // `AskUserQuestion` arrives as an input request ON its tool call).
-        const open = p.requestId ? ctx.props.requests.find((r) => r.requestId === p.requestId) : undefined;
-        const sig = signature(p.input);
-        const output = outputText(p);
-        const error = nonBlank(p.error);
-        // The call spawned a sub-agent (its `agent-start` set `agentId`): its card hangs under this one.
-        const agent = p.agentId !== undefined ? ctx.props.transcript.agents[p.agentId] : undefined;
-        return (
-            <div class={`tool ${p.status}`}>
-                <code class="tool-head">
-                    {p.title ?? p.name}({sig})
-                </code>
-                <span class="tool-status">{p.status}</span>
-                {sig !== '' && (
-                    <details class="tool-input">
-                        <summary>input</summary>
-                        <pre>{JSON.stringify(p.input, null, 2)}</pre>
-                    </details>
-                )}
-                {output !== undefined && <pre class="tool-output">{output}</pre>}
-                {/* It ran and handed back nothing: one dim word, so "returned
-                    empty" still reads differently from "has not returned". */}
-                {output === undefined && reportedOutput(p) && <span class="tool-empty">no output</span>}
-                {error && <span class="tool-error">{error}</span>}
-                {open?.kind === 'input' && <Ask request={open} onAnswer={ctx.props.onAnswer} />}
-                {open && open.kind !== 'input' && (
-                    <p class="ask">
-                        Allow <code>{open.toolName ?? p.name}</code>?{' '}
-                        <button type="button" onClick={() => ctx.props.onDecide(open.requestId, true)}>
-                            Allow
-                        </button>{' '}
-                        <button type="button" onClick={() => ctx.props.onDecide(open.requestId, false)}>
-                            Deny
-                        </button>
-                    </p>
-                )}
-                {agent && (
-                    <AgentCard
-                        agent={agent}
-                        transcript={ctx.props.transcript}
-                        requests={ctx.props.requests}
-                        onDecide={ctx.props.onDecide}
-                        onAnswer={ctx.props.onAnswer}
-                        reasoningTokens={ctx.props.reasoningTokens}
-                        onCancelAgent={ctx.props.onCancelAgent}
-                    />
-                )}
-            </div>
-        );
-    };
-});
-
-/**
- * A sub-agent card: who it is, its status, and — folded away once it is done
- * — its own messages, rendered with the same `Message` and `Part` as the
- * thread. That is the recursion: a sub-agent's tool call that spawns another
- * one carries its own card, one level deeper. A child with no spawning call
- * (an ambient task) has nothing to hang on, so it follows at the end.
- *
- * Cancel stops THIS agent and leaves the turn running. It is offered from the
- * `subagents: 'control'` capability, never from who the agent is.
- */
-const AgentCard = component<{ agent: AgentState } & ThreadProps>((ctx) => {
-    return () => {
-        const { agent, transcript } = ctx.props;
-        const messages = agentMessages(transcript, agent.agentId);
-        const ambient = childAgents(transcript, agent.agentId).filter((child) => child.callId === undefined);
-        const running = agent.status === 'running' || agent.status === 'paused';
-        const cancel = ctx.props.onCancelAgent;
-        // Same rule as the tool card: a summary or an error that reads blank
-        // opens no element. The status pill and the card's colour already say
-        // that it failed, so there is nothing left unsaid.
-        const summary = nonBlank(agent.summary === undefined ? undefined : oneLine(agent.summary));
-        const error = nonBlank(agent.error?.message);
-        return (
-            <div class={`agent ${agent.status}`}>
-                <div class="agent-head">
-                    <strong>{agent.title ?? agent.kind ?? 'sub-agent'}</strong>
-                    <span class="agent-status">{agent.status}</span>
-                    {cancel && running && (
-                        <button type="button" onClick={() => cancel(agent.agentId)}>
-                            Cancel
-                        </button>
-                    )}
-                </div>
-                {summary && <p class="agent-summary">{summary}</p>}
-                {error && <span class="tool-error">{error}</span>}
-                {messages.length > 0 && (
-                    <details class="agent-work" open={running}>
-                        <summary>{running ? 'Working…' : `Its work (${messages.length} message${messages.length === 1 ? '' : 's'})`}</summary>
-                        {messages.map((m) => (
-                            <Message
-                                message={m}
-                                transcript={transcript}
-                                requests={ctx.props.requests}
-                                onDecide={ctx.props.onDecide}
-                                onAnswer={ctx.props.onAnswer}
-                                reasoningTokens={ctx.props.reasoningTokens}
-                                onCancelAgent={cancel}
-                            />
-                        ))}
-                    </details>
-                )}
-                {ambient.map((child) => (
-                    <AgentCard
-                        agent={child}
-                        transcript={transcript}
-                        requests={ctx.props.requests}
-                        onDecide={ctx.props.onDecide}
-                        onAnswer={ctx.props.onAnswer}
-                        reasoningTokens={ctx.props.reasoningTokens}
-                        onCancelAgent={cancel}
-                    />
-                ))}
-            </div>
-        );
-    };
-});
-
-const Message = component<{ message: AgentMessage } & ThreadProps>((ctx) => {
+/** One row in the sidebar: what it is, what it is doing, and how to close it. */
+const SessionRow = component<{
+    label: string;
+    model: string | undefined;
+    mode: string | undefined;
+    state: string;
+    selected: boolean;
+    onSelect: () => void;
+    onClose: () => void;
+}>((ctx) => {
     return () => (
-        <div class={`msg ${ctx.props.message.role}`}>
-            {ctx.props.message.parts.map((part) => (
-                <Part
-                    part={part}
-                    transcript={ctx.props.transcript}
-                    requests={ctx.props.requests}
-                    onDecide={ctx.props.onDecide}
-                    onAnswer={ctx.props.onAnswer}
-                    reasoningTokens={ctx.props.reasoningTokens}
-                    onCancelAgent={ctx.props.onCancelAgent}
-                />
-            ))}
+        <div class={`session-row ${ctx.props.selected ? 'selected' : ''} ${ctx.props.state}`}>
+            <button type="button" class="session-pick" onClick={ctx.props.onSelect}>
+                <span class="session-name">{ctx.props.label}</span>
+                <span class="session-meta">
+                    {[ctx.props.model, ctx.props.mode, ctx.props.state].filter(Boolean).join(' · ')}
+                </span>
+            </button>
+            <button type="button" class="session-close" aria-label="Close session" onClick={ctx.props.onClose}>
+                ×
+            </button>
         </div>
     );
 });
 
-/** The session view — mounted once the connection exists. */
-const Session = component<{ session: AgentSessionClient }>((ctx) => {
-    const view = useAgentSession(ctx.props.session, {
-        onError: (e) => console.error('[agent]', e)
-    });
-
-    let draft = '';
-
-    function decide(requestId: string, allow: boolean): void {
-        void view.respond(requestId, {
-            type: 'permission',
-            outcome: allow ? 'allow' : 'deny',
-            // `session` remembers the answer under the request's
-            // `permissionKey`, so the same call is never asked twice.
-            scope: allow ? 'session' : 'once',
-            ...(allow ? {} : { message: 'The operator said no.' })
-        });
-    }
+/**
+ * Open another one. An agent that failed last time is offered greyed out with
+ * the reason on it, rather than hidden — you should be able to see that Codex
+ * is installed-but-not-signed-in without guessing why it vanished.
+ */
+const NewSession = component<{
+    agents: readonly CatalogEntry[];
+    defaults: { agent: AgentChoice; model?: string; cwd: string };
+    full: boolean;
+    onOpen: (agent: AgentChoice, model: string | undefined, cwd: string | undefined) => void;
+}>((ctx) => {
+    let agent: AgentChoice = ctx.props.defaults.agent;
+    let model: string | undefined = ctx.props.defaults.model;
+    let cwd: string = ctx.props.defaults.cwd;
+    // Re-rendered on change so the model/cwd fields follow the chosen agent.
+    const entry = () => ctx.props.agents.find((a) => a.id === agent);
 
     function submit(e: Event): void {
         e.preventDefault();
-        const text = draft.trim();
-        if (!text) return;
-        draft = '';
-        const box = (e.currentTarget as HTMLFormElement).querySelector('textarea');
-        if (box) box.value = '';
-        void view.prompt(text);
+        ctx.props.onOpen(agent, model, entry()?.needsCwd ? cwd : undefined);
     }
-
-    function onKey(e: KeyboardEvent): void {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            (e.currentTarget as HTMLTextAreaElement).form?.requestSubmit();
-        }
-    }
-
-    function answer(requestId: string, answers: Answers): void {
-        void view.respond(requestId, { type: 'input', answers });
-    }
-
-    /** Questions with no tool call of their own; the rest render on their card. */
-    const questions = () => view.requests.filter((r) => r.kind === 'input' && r.callId === undefined);
-
-    /**
-     * The thread's own messages. One produced inside a sub-agent renders on
-     * that agent's card instead — but only when an agent claims its call, so a
-     * harness that nests work without announcing an agent still shows it here.
-     */
-    const thread = () => view.messages.filter((m) => m.parentCallId === undefined || !spawnedAgent(view.transcript, m.parentCallId));
-
-    /** Sub-agents no tool call spawned (ambient tasks): nothing to hang them on but the thread. */
-    const ambient = () => view.agentTree.filter((node) => node.agent.callId === undefined);
-
-    /** Capabilities, never the agent's id. */
-    const busy = () => view.state === 'running' || view.state === 'awaiting';
-    const steers = () => view.capabilities?.steer === true;
-    const cancelAgent = () => (view.capabilities?.subagents === 'control' ? (agentId: string) => void view.cancelAgent(agentId) : undefined);
-
-    const tokens = () => {
-        const u = view.usage;
-        return u ? (u.totalTokens ?? (u.inputTokens ?? 0) + (u.outputTokens ?? 0)) : 0;
-    };
 
     return () => (
-        <>
-            <header>
-                <h1>sigx agent</h1>
-                <small>
-                    {view.state}
-                    {tokens() ? ` · ${tokens()} tokens` : ''}
-                    {view.costUsd !== undefined ? ` · $${view.costUsd.toFixed(4)}` : ''}
-                    {view.live ? '' : ' · offline'}
-                </small>
-            </header>
-            <section class="thread">
-                {view.messages.length === 0 && (
-                    <p class="hint">
-                        Ask about the incidents: a triage sub-agent reads them on its own card (Cancel stops it alone), and the destructive tool stops and asks you. Type while a turn runs to steer it. Then open this page in a second tab — it replays everything and follows along.
-                    </p>
-                )}
-                {thread().map((m) => (
-                    <Message message={m} transcript={view.transcript} requests={view.requests} onDecide={decide} onAnswer={answer} reasoningTokens={view.usage?.reasoningTokens} onCancelAgent={cancelAgent()} />
-                ))}
-                {ambient().map((node) => (
-                    <AgentCard agent={node.agent} transcript={view.transcript} requests={view.requests} onDecide={decide} onAnswer={answer} reasoningTokens={view.usage?.reasoningTokens} onCancelAgent={cancelAgent()} />
-                ))}
-                {questions().map((r) => (
-                    <Ask request={r} onAnswer={answer} />
-                ))}
-                {/* An error is never an empty box — and never swallowed
-                    either: a failure with no message still gets a line. */}
-                {view.error && <p class="error">{nonBlank(view.error.message) ?? 'The session reported an error.'}</p>}
-            </section>
-            <form onSubmit={submit}>
-                <textarea
-                    rows={2}
-                    aria-label="Message"
-                    placeholder={busy() && steers() ? 'Steer the running turn…' : 'Message…'}
-                    onInput={(e) => {
-                        draft = (e.target as HTMLTextAreaElement).value;
+        <form class="new-session" onSubmit={submit}>
+            <label>
+                <span>Agent</span>
+                <select
+                    onChange={(e) => {
+                        agent = (e.currentTarget as HTMLSelectElement).value as AgentChoice;
+                        model = ctx.props.agents.find((a) => a.id === agent)?.models[0]?.id;
                     }}
-                    onKeyDown={onKey}
-                />
-                {/* An agent that cannot cancel gets no Cancel button. One that can steer keeps Send during a
-                    turn, beside Cancel: the message lands inside the running turn instead of waiting for it. */}
-                {busy() && view.capabilities?.cancel && (
-                    <button type="button" onClick={() => void view.cancel()}>
-                        Cancel
-                    </button>
-                )}
-                {(!busy() || steers() || !view.capabilities?.cancel) && (
-                    <button type="submit" disabled={busy() && !steers()}>
-                        Send
-                    </button>
-                )}
-            </form>
-        </>
+                >
+                    {ctx.props.agents.map((a) => (
+                        <option value={a.id} selected={a.id === agent} disabled={Boolean(a.unavailable)} title={a.unavailable ?? a.install}>
+                            {a.label}
+                            {a.unavailable ? ' — unavailable' : ''}
+                        </option>
+                    ))}
+                </select>
+            </label>
+            {/* A harness reports its models once it is up, so there is nothing
+                honest to offer here — the pane's Settings panel is where you
+                switch it. */}
+            {entry() && entry()!.models.length > 0 && (
+                <label>
+                    <span>Model</span>
+                    <select onChange={(e) => (model = (e.currentTarget as HTMLSelectElement).value)}>
+                        {entry()!.models.map((m) => (
+                            <option value={m.id} selected={m.id === model}>
+                                {m.label ?? m.id}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            )}
+            {entry()?.needsCwd && (
+                <label>
+                    <span>Directory</span>
+                    <input type="text" value={cwd} onInput={(e) => (cwd = (e.currentTarget as HTMLInputElement).value)} />
+                </label>
+            )}
+            <button type="submit" disabled={ctx.props.full}>
+                New session
+            </button>
+            {ctx.props.full && <p class="hint">The session limit is reached — close one first.</p>}
+        </form>
     );
 });
 
 export const App = component(() => {
-    useHead({ title: 'sigx ai — agent' });
+    useHead({ title: 'sigx ai — agent playground' });
+    const pg = createPlayground();
+    const { state } = pg;
 
-    // The client is a live object, not state: keep it out of the proxy and
-    // flip one flag when it is ready.
-    let client: AgentSessionClient | null = null;
-    const status = signal({ ready: false, error: '' });
-
+    // Everything happens on MOUNT. A server render must open no session and no
+    // subscription — and opening-when-empty during SSR would start one per
+    // page render.
     onMounted(() => {
-        connect().then(
-            (session) => {
-                client = session;
-                status.ready = true;
-            },
-            (e: unknown) => {
-                // Never blank: an error whose message is empty would leave
-                // "Connecting…" up for ever, which is the same lie as an
-                // empty box.
-                status.error = nonBlank(e instanceof Error ? e.message : String(e)) ?? 'Could not open the agent session.';
+        void (async () => {
+            try {
+                await pg.refresh();
+                // Out of the box: land in a conversation rather than a form.
+                if (state.rows.length === 0 && state.catalog) await pg.open({ agent: state.catalog.defaults.agent, ...(state.catalog.defaults.model ? { model: state.catalog.defaults.model } : {}) });
+            } catch (e) {
+                state.error = e instanceof Error ? e.message : String(e);
+                state.ready = true;
             }
-        );
+        })();
     });
 
-    // Ours to close: `useAgentSession` unsubscribes on unmount, but the
-    // connection belongs to whoever opened it.
-    onUnmounted(() => client?.disconnect());
+    // The connections belong to whoever opened them. Dropping them leaves the
+    // sessions running on the server — which is the point.
+    onUnmounted(() => pg.disconnectAll());
 
-    return () => <main>{status.ready && client ? <Session session={client} /> : status.error ? <p class="error">{status.error}</p> : <p class="hint">Connecting…</p>}</main>;
+    const label = (agent: AgentChoice) => state.catalog?.agents.find((a) => a.id === agent)?.label ?? agent;
+
+    return () => (
+        <main class={`layout ${state.compare ? 'compare' : ''}`}>
+            <aside class="sidebar">
+                <h1>agent playground</h1>
+                {state.rows.map((row) => (
+                    <SessionRow
+                        label={label(row.agent)}
+                        model={row.model}
+                        mode={modeOf(row.config)}
+                        state={row.state}
+                        selected={row.sessionId === state.selected}
+                        onSelect={() => pg.select(row.sessionId)}
+                        onClose={() => void pg.close(row.sessionId)}
+                    />
+                ))}
+                {state.rows.length > 1 && (
+                    <label class="compare-toggle">
+                        <input type="checkbox" checked={state.compare} onChange={(e) => (state.compare = (e.currentTarget as HTMLInputElement).checked)} />
+                        <span>Show all side by side</span>
+                    </label>
+                )}
+                {state.catalog && (
+                    <NewSession
+                        agents={state.catalog.agents}
+                        defaults={state.catalog.defaults}
+                        full={state.rows.length >= state.catalog.maxSessions}
+                        onOpen={(agent, model, cwd) => void pg.open({ agent, ...(model ? { model } : {}), ...(cwd ? { cwd } : {}) })}
+                    />
+                )}
+                {state.error && <p class="error">{state.error}</p>}
+            </aside>
+            <section class="panes">
+                {!state.ready && <p class="hint">Connecting…</p>}
+                {state.rows.map((row) => (
+                    <div class="pane" key={row.sessionId} hidden={!state.compare && row.sessionId !== state.selected}>
+                        <Session session={pg.client(row.sessionId)!} info={row} />
+                    </div>
+                ))}
+            </section>
+        </main>
+    );
 });

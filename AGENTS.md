@@ -259,16 +259,27 @@ on every OS in the matrix).
   endpoint in `src/ai.server.ts`, `useChat` transcript, provider picked by
   env (`SIGX_AI_PROVIDER`), `mockModel` when no key is set so it runs out of
   the box. Not published.
-- `examples/agent` → `agent-example` — an SSR sigx app around ONE agent
-  session: `src/agent.server.ts` opens it (agent picked by env `SIGX_AI_AGENT` —
-  `modelAgent` on `mockModel` by default, the Claude Code adapter when
-  available), serves it with `serveSession`, and exposes a `serverFn` command
-  endpoint plus a `serverStream` frame stream; `src/App.tsx` is
-  `connectSession` + `useAgentSession` with tool cards, permission prompts,
-  cancel and usage. A second tab joins the SAME session as a late observer.
-  `smoke.mjs` is the whole thing without a browser. `__tests__/app.test.tsx`
-  mounts the exported `Part` and asserts the DOM — render decisions live only
-  here, so the packages cannot cover them. Not published.
+- `examples/agent` → `agent-example` — the **`@sigx/ai-agent` playground**: an
+  SSR sigx app where sessions are opened from the UI against any agent, model
+  and mode, several at once, and compared side by side. `src/catalog.ts` is
+  the agent list and the DTOs both sides share (deliberately not a
+  `*.server.ts` — the client build stubs those wholesale);
+  `src/agents.server.ts` builds one agent per choice; `src/registry.server.ts`
+  holds the live sessions and their agents, refcounted so a harness process
+  outlives its first conversation and dies with its last, with one watcher per
+  session that reaps it when it ends (which is why there is no close
+  endpoint — the wire's own `close` command does it); `src/agent.server.ts` is
+  five endpoints (`agentCatalog`, `agentSessions`, `agentOpenSession`, and the
+  two wire ones keyed by `sessionId`, which rides the transport envelope, never
+  the wire command). `src/App.tsx` is the sidebar and a pane per session,
+  `src/Session.tsx` one pane plus the config panel — one `<select>` per
+  `ConfigOption`, which is how plan mode is switched on every adapter with no
+  per-adapter branching — and `src/Thread.tsx` the transcript itself. Env vars
+  are the form's defaults, not the law. `smoke.mjs` is the whole thing without
+  a browser: importing opens nothing, two sessions stay independent,
+  `configure()` goes over the real wire. `__tests__/app.test.tsx` mounts `Part`
+  and `ConfigPanel` and asserts the DOM — render decisions live only here, so
+  the packages cannot cover them. Not published.
 
 Path aliases: `tsconfig.json` and `vitest.config.ts` map `@sigx/ai` (and
 its subpaths) and the provider packages to `packages/*/src`, so tests and

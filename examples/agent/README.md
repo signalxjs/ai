@@ -1,32 +1,32 @@
-# agent — an `@sigx/ai-agent` session in a real SignalX app
+# agent — the `@sigx/ai-agent` playground
 
-One session lives on the server; `serveSession` exposes it; every tab
-`connectSession`s to it and `useAgentSession` renders it. Tool cards,
-permission prompts, cancel and usage — and a **second tab that joins the
-same conversation**, replays it by sequence and then follows along. No key
-needed to run it.
+Open a session against any agent, on any model, in any mode — from the page,
+not from `.env`. Open several at once and run the same prompt against Claude
+Code, Codex and our own engine side by side. Switch a running session into
+**plan mode**, or onto another model, from its Settings panel. No key and no
+installed CLI needed to start.
 
 ## Quickstart
 
 ```sh
 pnpm install
 pnpm build                        # the example resolves the packages from dist/
-pnpm --filter agent-example dev   # http://localhost:5320, our engine on the scripted mock
+pnpm --filter agent-example dev   # http://localhost:5320
 ```
 
 ```
-agent dev  http://localhost:5320  (agent: sigx, model: mock)
-            open it in two tabs — the second one replays the same session
+agent dev  http://localhost:5320  (no keys — the scripted agents are always there)
+            pick an agent, a model and a mode in the sidebar; open several at once to compare them
 ```
 
-Type *“any incidents?”*. Watch, in order:
+A `sigx` session on the scripted mock is open when the page loads. Type
+*“any incidents?”*. Watch, in order:
 
 1. `triage` starts a **sub-agent**, unasked — it only reads, so it is
    annotated `readOnly: true` and the session's policy is `allowReadOnly`.
    Its card opens under the tool call that spawned it, shows `running`, and
-   streams its own work: its own `list_incidents` call, then its report.
-   While it runs, **Cancel** on the card stops that agent alone; the turn
-   carries on without it.
+   streams its own work. While it runs, **Cancel** on the card stops that
+   agent alone; the turn carries on without it.
 2. `restart_service` **stops and asks**: the turn goes `awaiting`, the tool
    card grows an Allow / Deny prompt, and the turn continues on your answer.
 3. The answer streams in, token by token.
@@ -34,41 +34,23 @@ Type *“any incidents?”*. Watch, in order:
 Type while a turn runs: our engine can steer (`capabilities.steer`), so Send
 stays next to Cancel and the message lands inside the running turn.
 
-Now open a second tab. It shows the whole conversation — replayed from
-`(epoch 0, seq 0)` — and the next turn reaches both tabs live. Approve a
-tool in one and the other updates.
+Now press **New session** and pick a different agent — or the same one on a
+different model. Both appear in the sidebar with their state and mode; tick
+**Show all side by side** to watch them answer the same question at once.
 
-With a real model, or a real harness:
-
-```sh
-ANTHROPIC_API_KEY=sk-ant-…     pnpm --filter agent-example dev   # our engine on Claude
-OPENAI_API_KEY=sk-…            pnpm --filter agent-example dev   # our engine on OpenAI
-SIGX_AI_AGENT=claude-code      pnpm --filter agent-example dev   # Claude Code itself
-SIGX_AI_AGENT=codex            pnpm --filter agent-example dev   # Codex (`codex app-server`)
-SIGX_AI_AGENT=acp:gemini       pnpm --filter agent-example dev   # Gemini CLI over ACP
-SIGX_AI_AGENT=acp:cursor       pnpm --filter agent-example dev   # the Cursor CLI agent over ACP
-SIGX_AI_AGENT=acp:claude-code  pnpm --filter agent-example dev   # Claude Code via its ACP bridge
-SIGX_AI_AGENT=acp:codex        pnpm --filter agent-example dev   # Codex via its ACP bridge
-```
-
-Every harness runs on your own login. Each one needs its CLI installed and
-signed in; when it cannot start, the example prints why and falls back to our
-own engine — a missing CLI gets an install hint, any other failure (not
-signed in, an SDK error) its error message:
+Every harness runs on your own login and needs its CLI installed and signed
+in. One that cannot start says why, *in the form*, and is offered greyed out
+with the reason on it — an explicit choice never silently becomes a different
+agent:
 
 ```
-[agent] SIGX_AI_AGENT=codex needs the "codex" CLI on PATH — install it (npm i -g @openai/codex) or point SIGX_AI_AGENT_COMMAND at it; falling back to the sigx engine.
+Needs the "codex" CLI on PATH — install it (npm i -g @openai/codex) or point SIGX_AI_AGENT_COMMAND at it.
 ```
 
-**Nothing in `App.tsx` changes either way** — that is the point of the
-contract. A harness works in a directory: `SIGX_AI_CWD` (default: where you
-started the server) is its session's `cwd`, and `SIGX_AI_AGENT_COMMAND`
-points at a specific executable instead of the PATH lookup — when that path
-does not exist, the warning names it instead of asking you to install the CLI.
-
-| `SIGX_AI_AGENT` | Adapter | CLI | Passed through to the child |
+| Agent | Adapter | CLI | Passed through to the child |
 |---|---|---|---|
-| `sigx` (default) | `modelAgent` on `@sigx/ai` | — | — (`SIGX_AI_PROVIDER`, `SIGX_AI_MODEL`, the API keys) |
+| `sigx` | `modelAgent` on `@sigx/ai` | — | — (the API keys) |
+| `mock` | `mockAgent` from `@sigx/ai-agent/testing` | — | — |
 | `claude-code` | `@sigx/ai-agent-claude-code` | the SDK's bundled Claude Code | `ANTHROPIC_*`, `CLAUDE_CONFIG_DIR` |
 | `codex` | `@sigx/ai-agent-codex` | `codex` (`npm i -g @openai/codex`) | `OPENAI_API_KEY`, `CODEX_HOME` |
 | `acp:gemini` | `@sigx/ai-agent-acp` | `gemini` (`npm i -g @google/gemini-cli`) | `GEMINI_API_KEY`, `GOOGLE_API_KEY` |
@@ -79,124 +61,133 @@ does not exist, the warning names it instead of asking you to install the CLI.
 A harness child gets an allowlisted environment (`PATH`, `HOME`, proxy
 variables, …) plus the vendor variables in the last column — nothing else.
 
-The `SIGX_` prefix is deliberate: a bare `AI_AGENT` is generic enough that the
-tooling you run this from may already define it (Claude Code does). Each
-variable is validated against the values the server understands, so an
-unrecognised one warns and the banner names the fallback it actually used.
+**Nothing in the transcript view changes between them** — that is the point of
+the contract. A key gives `sigx` real models to pick from; the harnesses run
+on their own login and report their own models once they are up.
 
-Or put them in a file — `dev` and `start` both load `.env` (node's
-`--env-file-if-exists`, so a missing file is fine):
+### Env vars are defaults now, not the law
+
+`SIGX_AI_AGENT`, `SIGX_AI_PROVIDER`, `SIGX_AI_MODEL` and `SIGX_AI_CWD` choose
+what the **form starts on** and what the first session opens with. Everything
+after that is the UI's. `SIGX_AI_AGENT_COMMAND` still points a harness at a
+specific executable.
 
 ```sh
 cp .env.example .env             # then uncomment what you need
 ```
 
-`.env` is gitignored; `.env.example` documents every var the example reads
-(`SIGX_AI_AGENT`, `SIGX_AI_CWD`, `SIGX_AI_AGENT_COMMAND`, `SIGX_AI_PROVIDER`,
-`SIGX_AI_MODEL`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `PORT`) and the
-vendor variables each harness passes through.
+`.env` is gitignored; `.env.example` documents every var the example reads.
 
-Production:
+Production, and end to end without a browser:
 
 ```sh
-pnpm --filter agent-example build
-pnpm --filter agent-example start
-```
-
-End to end, without a browser:
-
-```sh
-pnpm --filter agent-example smoke   # boots the server, runs one mock turn, joins late
+pnpm --filter agent-example build && pnpm --filter agent-example start
+pnpm --filter agent-example smoke   # two sessions, isolation, configure, late join, close
 pnpm test examples/agent            # the view's render decisions, in the DOM
 ```
 
+## Switching plan mode — and why there is no code for it
+
+The Settings panel on a pane is **one loop over `view.config`**, one `<select>`
+per option, and `view.configure({ [id]: value })` on change. That is all of it.
+
+Plan mode on Claude Code is `permissionMode: 'plan'`. On an ACP agent it is
+`mode`, whatever that agent calls its modes. On Codex it is `approvalPolicy`
+plus `sandbox`. The panel knows none of those names: each adapter advertises
+its own vocabulary in a `config` event and the UI renders what it is given.
+**The moment a control here needs an `if` on the agent, the fix belongs in the
+adapter.**
+
+Two honest details the panel shows rather than hides:
+
+- Claude Code announces its settings only with the first turn, so a fresh
+  pane says *“reports its settings after its first message”* instead of
+  drawing a panel that cannot work yet (signalxjs/ai#139).
+- An option with one value renders **disabled**, showing what is running. A
+  dropdown offering one choice is a lie.
+
 ## What to look at
 
-- **`src/agent.server.ts`** — the whole server side. Two tools (`defineTool`
-  with a Zod schema; `list_incidents` carries `annotations: { readOnly: true }`,
-  which is what `allowReadOnly` reads), a `triage` sub-agent for our engine
-  (`agentTool` over a second `modelAgent`: its events nest under the call,
-  and the mock gives it a script of its own), the agent picked by env (our
-  engine or any harness adapter — one `switch`, the same `SESSION_OPTIONS` for all),
-  one session opened with a policy, and `serveSession` — then two endpoints: a
-  `serverFn` that takes wire commands and a `serverStream` that yields wire
-  frames from the client's cursor. Deliberately **one process-wide session**,
-  so the second tab is a late joiner rather than a new conversation.
-- **`src/App.tsx`** — `connectSession` over the two build-swapped stubs, then
-  `useAgentSession(session)` and a view that just reads the transcript. A
-  token is one write to one part's `text`: open devtools and watch only that
-  text node update. Permission prompts render **on the tool card** they
-  belong to, from `part.requestId` → `view.requests`. A sub-agent renders as
-  a card **under the tool call that spawned it**, from `part.agentId` →
-  `transcript.agents`, with its own messages (`agentMessages`) inside — so a
-  nested agent nests one card deeper. Its Cancel is `view.cancelAgent(id)`,
-  offered from `capabilities.subagents === 'control'`; the composer keeps
-  Send during a turn when `capabilities.steer` is set.
-- **`vite.config.ts`** — `sigx()` + `sigxServer()`. The client build swaps
-  `agent.server.ts` for stubs, so neither the agent, nor the policy, nor a
-  key reaches the browser.
-- **`smoke.mjs`** — the example as a test: boot the dev server, load the real
-  endpoints, drive one turn through `connectSession`, answer the permission
-  request, check the sub-agent (bound to its spawning call, its work nested
-  under it, ended `completed`), then connect a second client and assert both
-  transcripts — and their sub-agents — match.
-- **`__tests__/app.test.tsx`** — the view itself, mounted in happy-dom. One
-  rule, checked everywhere the view opens a block: **an element is for content
-  that exists, never for content that is merely present.** A tool that
-  completed with an empty output gets no `<pre>` (one dim `no output`
-  instead), a blank sub-agent summary gets no `<p>`, a blank error gets no
-  `<span>`.
-
-**Non-goals:** no auth, no rate limit, no persistence, one shared session. A
-real app puts `createServerApp({ authenticate, middleware: [rateLimit] })` in
-front of both endpoints, opens a session per principal, passes
-`rq.principal` to `handleCommand` with an `authorize` on `serveSession`, and
-persists `session.ref` plus a durable `EventLogStore` instead of
-`memoryEventLog()`.
+- **`src/catalog.ts`** — the agent list, install hints, session limit and the
+  DTOs, shared by both sides. Deliberately *not* a `*.server.ts` module:
+  `@sigx/vite` replaces one of those wholesale in the client build and a
+  re-export cannot be stubbed, so the types the UI needs have to live
+  somewhere the browser may import.
+- **`src/agents.server.ts`** — the tools, the scripted models, the `triage`
+  sub-agent, and one `createAgent(choice)` per agent. Nothing runs at import.
+- **`src/registry.server.ts`** — the live sessions, and the agents hosting
+  them. A map of `serveSession`s keyed by id, and a map of agents keyed by
+  what they host, **refcounted** so a harness process outlives its first
+  conversation and dies with its last. One `watch` loop per session tracks its
+  state for the sidebar and, in its `finally`, reaps it — which is why there is
+  no close endpoint.
+- **`src/agent.server.ts`** — five endpoints and nothing else.
+- **`src/App.tsx`** — the sidebar, the New-session form, and a pane per
+  session. **`src/Session.tsx`** — one pane, and the config panel.
+  **`src/Thread.tsx`** — the transcript itself, unchanged by the split.
+- **`smoke.mjs`** — the playground as a test, no browser: importing the
+  endpoints opens nothing, two sessions stay independent, `configure()` goes
+  over the real wire, a stale id answers with a typed error, and closing one
+  leaves the other running.
 
 ## The lesson worth copying
 
-**The session is not in the browser.** The page holds a *view* of a log that
-lives elsewhere, addressed by `(epoch, seq)` — which is why a second tab, a
-reconnect after a dropped connection, and a phone opened an hour later all
-converge on the same transcript without any of them being special-cased. A
-permission prompt is an event with an id; answering it is a command. Nothing
-in the UI is stateful except the draft in the textarea.
+**The session is not in the browser.** A pane holds a *view* of a log that
+lives elsewhere, addressed by `(epoch, seq)` — which is why switching sessions
+in the sidebar, a second tab, a reconnect after a dropped connection and a
+phone opened an hour later all converge on the same transcript without any of
+them being special-cased. A permission prompt is an event with an id;
+answering it is a command.
 
-The corollary: **unmounting a view must not close the session.**
-`useAgentSession` unsubscribes on unmount and leaves the session alone — a
-turn still running carries on, and nothing it does afterwards reaches the
-gone view. The connection belongs to whoever opened it (here, `App` closes it
-in `onUnmounted`).
+**Topology is the app's job, not the library's.** `serveSession` serves one
+session and the wire envelope has no create/list/destroy verb — deliberately.
+So the session id rides the *transport* (`{ send, events }`), never the
+command, and the registry lives here. A real app routes on `rq.principal` in
+exactly the same place.
 
 ## Things that will bite you
 
-- **`useAgentSession` subscribes on mount, not in setup.** A server render
-  must not open a subscription it cannot close, so SSR paints the shell and
-  the browser replays from `(0, 0)`. Expect an empty transcript in the SSR
-  HTML — that is correct.
-- **Branch on capabilities, never on `agent.id`.** The Cancel button is
-  rendered from `view.capabilities?.cancel`, so an agent that cannot cancel
-  simply does not offer it.
+- **`useAgentSession` subscribes on mount, not in setup**, and captures its
+  source there. Panes are therefore **keyed and hidden, never unmounted** — a
+  reused pane would keep folding the session it first saw.
+- **Branch on capabilities, never on `agent.id`.** Cancel comes from
+  `view.capabilities?.cancel`, the config panel from `?.config`, Send-during-a-
+  turn from `?.steer`.
+- **Four sessions, not more.** Each holds an NDJSON `serverStream` open and an
+  HTTP/1.1 browser allows about six sockets per origin; past that the command
+  POSTs queue behind the streams and the page stops responding with nothing to
+  show for it. A real app multiplexes one stream, or serves HTTP/2.
+- **`connectSession({ bufferSize })` is not decoration.** Reloading a long
+  session replays everything into that buffer *before* the pane mounts, and
+  the default 2000 would have evicted the start by the time
+  `useAgentSession` subscribes from `(0, 0)` — which throws, leaving an empty
+  transcript.
 - **A late answer is not an error.** `respond()` on a request the policy, a
-  timeout or a cancel already settled resolves with no effect — two tabs may
-  race to approve the same tool, and that is fine.
-- **Without an `eventLog`, a cursor that has fallen out of the in-memory
-  buffer gets a `gap` frame**, and the client resets to the head. This
-  example passes `memoryEventLog()` so a long conversation still replays.
+  timeout or a cancel already settled resolves with no effect.
+- **A closed session is gone.** Its event log goes with it, so a finished run
+  is not replayable and does not appear in a new tab. Keeping finished runs
+  readable is a small follow-up — `serveSession.close()` deliberately does not
+  close the session — not a rewrite.
+
+**Non-goals:** no auth, no rate limit, no persistence. A real app puts
+`createServerApp({ authenticate, middleware: [rateLimit] })` in front of the
+endpoints, keys sessions off `rq.principal`, passes it to `handleCommand` with
+an `authorize` on `serveSession`, and persists `session.ref` plus a durable
+`EventLogStore` instead of `memoryEventLog()`.
 
 ## Files
 
 | File | What |
 |---|---|
-| `src/agent.server.ts` | tools, agent selection, the session, `serveSession`, and the two endpoints |
-| `src/App.tsx` | `connectSession` + `useAgentSession`; tool cards, permission prompts, sub-agent cards, cancel, steering, usage |
-| `src/entry-server.tsx` / `src/entry-client.tsx` | the per-request app factory / the hydrating browser entry |
-| `src/env.d.ts` | Vite client types |
-| `dev-server.mjs` / `server.mjs` | dev (Vite middleware) / production (Node) servers |
-| `smoke.mjs` | end-to-end check: boot, one mock turn, a late joiner (`pnpm --filter agent-example smoke`) |
-| `__tests__/app.test.tsx` | the view in the DOM: mounts the real `Part` and checks that no block is opened for content that does not exist (`pnpm test examples/agent`) |
-| `vite.config.ts` | `sigx()` + `sigxServer()` |
+| `src/catalog.ts` | the agents, install hints, the session cap, and the DTOs both sides share |
+| `src/agents.server.ts` | tools, scripted models, the `triage` sub-agent, `createAgent` / `sessionOptionsFor` |
+| `src/registry.server.ts` | live sessions and their agents, refcounted; the watcher that reaps them |
+| `src/agent.server.ts` | the five endpoints |
+| `src/App.tsx` | sidebar, New-session form, one pane per session |
+| `src/Session.tsx` | one pane: header, the config panel, transcript, composer |
+| `src/Thread.tsx` | messages, parts, tool cards, sub-agent cards, permission prompts |
+| `src/sessions.ts` | the browser's store: one `connectSession` client per session |
+| `smoke.mjs` | the end-to-end check (`pnpm --filter agent-example smoke`) |
+| `__tests__/app.test.tsx` | the view in the DOM: `Part` and the config panel |
+| `vite.config.ts` | `sigx()` + `sigxServer()`; the client build swaps the server modules for stubs |
 | `.env.example` | every env var the example reads; copy to `.env` |
-| `index.html` | the shell and its CSS |
-| `tsconfig.json` | typechecks against the packages' SOURCE, so it works on a clean checkout |
