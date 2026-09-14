@@ -45,7 +45,7 @@ jobs:
       # rarely-run dispatch job on a self-hosted bench VM, under a comment that
       # still calls checkout v5 + create-pull-request v6 the known-good pair.
       # Revisit when the estate moves, not before.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
