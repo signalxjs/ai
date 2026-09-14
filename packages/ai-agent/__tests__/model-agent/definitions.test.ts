@@ -24,7 +24,9 @@ async function run(reply: (req: ModelRequest) => MockReply, sessionOptions: Sess
     const model = mockModel({ respond: (req) => reply(req) });
     const agent = modelAgent({ model, tools: [echo, lookup, slow] });
     const session = await agent.session(sessionOptions);
-    const all = collect(session.subscribe());
+    // From the start, not live: a session announces its `config` before
+    // anyone can subscribe, and `fromStart: true` below means the whole log.
+    const all = collect(session.subscribe({ epoch: 0, seq: 0 }));
     const turn = session.prompt('go');
     const events: AgentEvent[] = [];
     for await (const e of turn) {
@@ -154,5 +156,34 @@ describe('modelAgent agent definitions (defineAgents)', () => {
         expect(await failing({ reviewer: { description: 'x' } })).toBeUndefined();
         expect(new AgentError('protocol_error', 'x')).toBeInstanceOf(Error);
         await agent.dispose();
+    });
+});
+
+describe('modelAgent agent definitions: the model a delegate runs on', () => {
+    /** One host turn that delegates once; the delegate's reply is the turn's text. */
+    async function delegateOn(definitionModel: string | undefined) {
+        const host = mockModel({ respond: (req) => (isDelegate(req) ? { text: 'host model' } : req.messages.some((m) => m.role === 'tool') ? { text: 'Done.' } : { toolCalls: [{ name: 'reviewer', input: { task: 'x' }, id: 'r1' }] }), modelId: 'host' });
+        const other = mockModel({ script: [{ text: 'other model' }], modelId: 'other' });
+        const agent = modelAgent({ model: host, models: [other] });
+        const session = await agent.session({
+            policy: allowAll,
+            agents: { reviewer: { description: 'x', prompt: REVIEW_PROMPT, ...(definitionModel !== undefined ? { model: definitionModel } : {}) } }
+        });
+        const events = await collect(session.prompt('go'));
+        await session.close();
+        const parts = events.filter((e): e is Extract<AgentEvent, { type: 'part-delta' }> => e.type === 'part-delta' && e.parentCallId !== undefined);
+        return parts.map((e) => e.delta).join('');
+    }
+
+    it('runs the delegate on the model the definition names, when the agent offers it', async () => {
+        expect(await delegateOn('other')).toBe('other model');
+    });
+
+    it('keeps the session’s model when the definition names one the agent does not offer — a definition’s model is a harness alias, not an error', async () => {
+        expect(await delegateOn('sonnet-ish')).toBe('host model');
+    });
+
+    it('keeps the session’s model when the definition names none', async () => {
+        expect(await delegateOn(undefined)).toBe('host model');
     });
 });

@@ -208,7 +208,7 @@ describe('modelAgent', () => {
     it('the session transcript equals a replay of its events', async () => {
         const { agent } = agentWith({ respond: (_r, round) => (round === 0 ? { toolCalls: [{ name: 'lookup', input: {}, id: 'c1' }] } : { text: 'done', usage: { outputTokens: 1 } }) });
         const session = await agent.session({ policy: allowAll });
-        const all = collect(session.subscribe());
+        const all = collect(session.subscribe({ epoch: 0, seq: 0 })); // from the start: the opening `config` is part of the log
         await session.prompt('go').result;
         await session.close();
         const fromRef = (session.ref.data as { transcript: unknown }).transcript;
@@ -287,7 +287,7 @@ describe('modelAgent', () => {
     it('pricing turns usage into costUsd on the usage event, the result and the transcript', async () => {
         const { agent } = agentWith({ script: [{ text: 'hi', usage: { inputTokens: 10, outputTokens: 5 } }] }, { pricing: (u) => (u.outputTokens ?? 0) * 0.001 });
         const session = await agent.session();
-        const all = collect(session.subscribe());
+        const all = collect(session.subscribe({ epoch: 0, seq: 0 })); // from the start: the opening `config` is part of the log
         const { events, result } = await drain(session.prompt('go'));
         expect(events.find((e) => e.type === 'usage')).toMatchObject({ scope: 'turn', costUsd: 0.005 });
         expect(result.costUsd).toBe(0.005);
@@ -318,7 +318,7 @@ describe('modelAgent', () => {
         expect(MODEL_AGENT_CAPABILITIES.subagents).toBe('control');
         const { agent, model } = agentWith({ respond: (_r, round) => (round === 0 ? { toolCalls: [{ name: 'echo', input: { a: 1 }, id: 'c1' }] } : { text: 'ok, and thanks' }) });
         const session = await agent.session();
-        const all = collect(session.subscribe());
+        const all = collect(session.subscribe({ epoch: 0, seq: 0 })); // from the start: the opening `config` is part of the log
         const first = session.prompt('go');
         let second: ReturnType<typeof session.prompt> | undefined;
         const seen: AgentEvent[] = [];
@@ -383,5 +383,76 @@ describe('modelAgent', () => {
         // Everything is accepted by our engine…
         expect((await session.prompt([{ type: 'text', text: 'see' }, { type: 'image', mediaType: 'image/png', data: 'AA==' }]).result).stopReason).toBe('end_turn');
         expect(MODEL_AGENT_CAPABILITIES.promptParts).toBe('text+image+file');
+    });
+});
+
+describe('modelAgent model selection', () => {
+    const two = (extra: Partial<Parameters<typeof modelAgent>[0]> = {}) => {
+        const first = mockModel({ script: [{ text: 'from a' }], modelId: 'a' });
+        const second = mockModel({ script: [{ text: 'from b' }], modelId: 'b' });
+        return { first, second, agent: modelAgent({ model: first, models: [second], ...extra }) };
+    };
+    const configOf = (events: readonly AgentEvent[]) => events.filter((e) => e.type === 'config').at(-1) as Extract<AgentEvent, { type: 'config' }> | undefined;
+
+    it('announces its models when the session opens, before anyone prompts', async () => {
+        const { agent } = two();
+        const session = await agent.session();
+        // From `{0,0}`: the announcement precedes any subscriber, which is the
+        // point — a late joiner replaying the session still sees it.
+        const all = collect(session.subscribe({ epoch: 0, seq: 0 }));
+        await session.close();
+        expect(configOf(await all)).toMatchObject({
+            options: [{ id: 'model', current: 'a', values: [{ id: 'a', label: 'mock/a' }, { id: 'b', label: 'mock/b' }] }]
+        });
+        expect(MODEL_AGENT_CAPABILITIES.config).toBe(true);
+    });
+
+    it('configure({ model }) switches the model the next turn runs on, and re-announces the whole list', async () => {
+        const { agent } = two();
+        const session = await agent.session();
+        const all = collect(session.subscribe({ epoch: 0, seq: 0 }));
+        expect(textOf((await drain(session.prompt('go'))).events)).toBe('from a');
+        await session.configure!({ model: 'b' });
+        expect(textOf((await drain(session.prompt('go'))).events)).toBe('from b');
+        await session.close();
+        const latest = configOf(await all)!;
+        expect(latest.options[0]).toMatchObject({ id: 'model', current: 'b' });
+        // The whole list, not just what moved — the reducer replaces it wholesale.
+        expect(latest.options[0]!.values.map((v) => v.id)).toEqual(['a', 'b']);
+    });
+
+    it('refuses a model the agent does not offer, and names the ones it does', async () => {
+        const { agent } = two();
+        const session = await agent.session();
+        await expect(session.configure!({ model: 'c' })).rejects.toThrow(/has no model "c" \(it offers a, b\)/);
+        // A patch meant for a richer agent is ignored, not an error.
+        await expect(session.configure!({ permissionMode: 'plan' })).resolves.toBeUndefined();
+        await session.close();
+    });
+
+    it('session({ model }) opens on that model — and an unknown one is an error, not a silent default', async () => {
+        const { agent } = two();
+        const session = await agent.session({ model: 'b' });
+        expect(textOf((await drain(session.prompt('go'))).events)).toBe('from b');
+        await session.close();
+        await expect(agent.session({ model: 'c' })).rejects.toThrow(/has no model "c"/);
+    });
+
+    it('two sessions of one agent run different models: the choice is the session’s, not the agent’s', async () => {
+        const { agent } = two();
+        const onA = await agent.session();
+        const onB = await agent.session({ model: 'b' });
+        expect(textOf((await drain(onA.prompt('go'))).events)).toBe('from a');
+        expect(textOf((await drain(onB.prompt('go'))).events)).toBe('from b');
+        await onA.close();
+        await onB.close();
+    });
+
+    it('an agent given no models still advertises the one it runs, with no switch to make', async () => {
+        const agent = modelAgent({ model: mockModel({ script: [{ text: 'hi' }], modelId: 'only' }) });
+        const session = await agent.session();
+        const all = collect(session.subscribe({ epoch: 0, seq: 0 }));
+        await session.close();
+        expect(configOf(await all)!.options[0]!.values).toEqual([{ id: 'only', label: 'mock/only' }]);
     });
 });

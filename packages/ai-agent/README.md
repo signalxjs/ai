@@ -173,8 +173,8 @@ codingState(transcript)?.diffs; // every diff the agent made, tagged with its tu
 
 ## Our engine as an agent: `modelAgent`
 
-`modelAgent({ model, tools?, system?, maxSteps?, store?, pricing? })` runs each
-prompt as one `streamText` turn over the session transcript. Every client tool
+`modelAgent({ model, models?, tools?, system?, maxSteps?, store?, pricing? })`
+runs each prompt as one `streamText` turn over the session transcript. Every client tool
 call goes through the session's policy (`permissions: 'every-call'`); a `'ask'`
 becomes a `request` event an interactive client answers with
 `session.respond()`, and a headless session denies it. Structured output is
@@ -187,6 +187,32 @@ id (`fork: true`) with no grants and no open requests. `pricing(usage)` turns
 a turn's usage into `costUsd` on the `usage` event, the result and the
 transcript; the `LanguageModel` seam carries no price list, so without it no
 cost is reported.
+
+**Switching model** (`config: true`): `models` lists what a session may run
+on besides the default. A `LanguageModel` already says what it is, so the list
+is the catalogue — no ids to keep in step:
+
+```ts
+const agent = modelAgent({
+    model: anthropic().model('claude-opus-5'),
+    models: [anthropic().model('claude-haiku-4-5'), openai().model('gpt-5')]
+});
+
+const session = await agent.session({ model: 'gpt-5' }); // or the default
+await session.configure({ model: 'claude-haiku-4-5' }); // from the next turn on
+```
+
+The session announces a `model` `ConfigOption` when it opens — before anyone
+prompts, so a late joiner replaying from `{ epoch: 0, seq: 0 }` sees it — and
+re-announces the whole list on every `configure()`. The choice belongs to the
+**session**, not the agent: two sessions of one agent can run different
+models, and every turn reads the session's current one. An id the agent does
+not offer is an `AgentError`, from `session({ model })` and `configure()`
+alike; other keys in a patch are ignored, so a client may send one meant for a
+richer agent. An agent given no `models` still advertises the model it runs,
+with no switch to make. A sub-agent definition's `model` picks from the same
+list, but it is a harness alias by contract, so an id we do not know leaves
+the delegate on the session's model rather than failing.
 
 **Steering** (`steer: true`): `prompt()` while a turn runs emits a
 `user-message` in that turn at once and hands the input to the engine at its
@@ -201,8 +227,9 @@ goes on.
 
 **Agent definitions** (`defineAgents: true`): `session({ agents })` gives the
 model one tool per definition, named after it, whose single argument is the
-`task`. Calling it runs the definition as a nested `modelAgent` on the same
-model — its `prompt` as the system prompt, only the `tools` it names (all of
+`task`. Calling it runs the definition as a nested `modelAgent` on the
+session's model, or on the definition's own when it names one the agent offers
+— its `prompt` as the system prompt, only the `tools` it names (all of
 the session's when absent), `maxTurns` as its step budget — through
 `agentTool`, so it is a sub-agent like any other: `agent-start` with the
 definition's name as `kind`, its events nested under the call, a request it

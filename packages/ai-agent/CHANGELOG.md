@@ -8,6 +8,17 @@ follow [SemVer](https://semver.org/).
 
 ### Added
 
+- `modelAgent({ models })` — further `LanguageModel`s a session may run on
+  besides the default. The session announces a `model` `ConfigOption` when it
+  opens (so a late joiner replaying from `{ epoch: 0, seq: 0 }` sees it) and
+  `configure({ model })` switches it from the next turn on, re-announcing the
+  whole list. The choice belongs to the session, not the agent: two sessions
+  of one agent can run different models. A `LanguageModel` carries its own
+  `provider` and `modelId`, so the array is the whole catalogue — values are
+  labelled `provider/modelId` and de-duplicated by id, default first.
+  `MODEL_AGENT_CAPABILITIES.config` is `true`, and our engine now passes the
+  `configure` conformance scenario.
+
 - `createJsonRpcPeer({ requireVersion: false })` accepts incoming messages without the
   `"jsonrpc": "2.0"` member, for peers that speak JSON-RPC without it (`codex app-server`).
   A member other than `"2.0"` is still refused, and outgoing messages always carry it.
@@ -193,6 +204,17 @@ follow [SemVer](https://semver.org/).
   sub-agent raised.
 
 ### Changed
+
+- `modelAgent` honours `SessionOptions.model`, which it previously ignored:
+  `session({ model })` opens on that model, and an id the agent does not offer
+  is an `AgentError` rather than a silent fall back to the default. An
+  `AgentDefinition.model` on a sub-agent is honoured the same way, except that
+  an unknown id is *not* an error — a definition's model is a harness alias by
+  contract, so the delegate stays on the session's model.
+- Every `modelAgent` session emits a `config` event as its first event. A
+  consumer that subscribes live (`subscribe()` with no cursor) misses it, as
+  it would any event emitted before it subscribed; subscribe from
+  `{ epoch: 0, seq: 0 }` for the whole log.
 
 - `createJsonRpcPeer` no longer replies to an id-less message that lacks `"jsonrpc": "2.0"`.
   Such a message is notification-shaped, so nobody waits for a reply, and the old `id: null`
