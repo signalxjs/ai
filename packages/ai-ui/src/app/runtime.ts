@@ -12,7 +12,7 @@ import { anySignal, createActionRunner, type ActionErrorSite, type ActionRunner,
 import { baseCatalog, type UICatalog } from '../catalog/index.js';
 import { childScope, defaultHelpers, evaluateSource, type EvalEnv, type HelperTable, type Scope } from '../expr/index.js';
 import type { ActionStep, EventBinding, RunMode, UINode, UISpec } from '../spec/types.js';
-import { applyUIChunk, createDocument, type UIDocument, type UIStreamChunk } from '../stream/index.js';
+import { applyUIChunk, createDocument, mergeDeep, type UIDocument, type UIStreamChunk } from '../stream/index.js';
 import type { UIEvent } from './registry.js';
 
 export interface UIRuntimeOptions {
@@ -47,6 +47,13 @@ export interface UIRuntime {
     dispatch(node: UINode, event: string, binding: EventBinding, scope: Scope, payload?: UIEvent): void;
     /** Reactive: `true` while an action from `node` is running. */
     pending(node: UINode): boolean;
+    /**
+     * Record a state write by the user or an action: `root` is the top-level
+     * key, `undefined` a write into a loop item. While the spec streams,
+     * `spec.state` keeps seeding the runtime state — except keys touched
+     * this way (all of them, once a loop item was written).
+     */
+    touch(root: string | undefined): void;
     dispose(): void;
 }
 
@@ -95,21 +102,46 @@ export function createUIRuntime(options: UIRuntimeOptions = {}): UIRuntime {
         },
         emit: (name, payload) => options.onEmit?.(name, payload),
         http: options.http,
+        onWrite: (root) => touch(root),
         onError: (error, at) => {
             if (options.onActionError) options.onActionError(error, at);
             else if (__DEV__) console.error('[sigx ai-ui] action failed:', error, at.step);
         }
     });
 
-    /** Keys of `spec.state` not yet in the runtime state get their initial value; existing keys are never touched. */
+    const touched = new Set<string>();
+    let frozen = false;
+
+    function touch(root: string | undefined): void {
+        if (root === undefined) frozen = true;
+        else touched.add(root);
+    }
+
+    /**
+     * `spec.state` → runtime state. While the spec streams, a key's initial
+     * value is still being written (`todos: [{ "id": "a", "title": "Tr`), so
+     * seeding is a MERGE that follows the spec until the stream finishes —
+     * except keys the user or an action already wrote, which are theirs. Once
+     * the document is done, only keys still missing are added.
+     */
     function seedState(): void {
         const initial = (toRaw(doc).spec as UISpec).state;
         if (!initial || typeof initial !== 'object') return;
-        const raw = toRaw(state);
+        const raw = toRaw(state) as Record<string, unknown>;
+        const settled = doc.status === 'done' || doc.status === 'error';
         for (const k of Object.keys(initial)) {
-            if (k.startsWith('$') || k === '__proto__' || Object.prototype.hasOwnProperty.call(raw, k)) continue;
+            if (k.startsWith('$') || k === '__proto__' || touched.has(k)) continue;
             const v = initial[k];
-            state[k] = typeof v === 'object' && v !== null ? JSON.parse(JSON.stringify(v)) : v;
+            const present = Object.prototype.hasOwnProperty.call(raw, k);
+            if (!present) {
+                state[k] = typeof v === 'object' && v !== null ? JSON.parse(JSON.stringify(v)) : v;
+                continue;
+            }
+            if (settled || frozen) continue;
+            const cur = raw[k];
+            if (typeof v === 'object' && v !== null && typeof cur === 'object' && cur !== null && Array.isArray(v) === Array.isArray(cur)) {
+                mergeDeep(state[k] as Record<string, unknown> | unknown[], v);
+            } else if (cur !== v) state[k] = typeof v === 'object' && v !== null ? JSON.parse(JSON.stringify(v)) : v;
         }
     }
 
@@ -189,6 +221,7 @@ export function createUIRuntime(options: UIRuntimeOptions = {}): UIRuntime {
         run: (steps, scope, runOptions) => runner.run(steps, scope ?? rootScope, { ...runOptions, signal: runOptions?.signal ? anySignal([controller.signal, runOptions.signal]).signal : controller.signal }),
         dispatch,
         pending: (node) => pendingOf(node).value > 0,
+        touch,
         dispose: () => controller.abort(new Error('disposed'))
     };
 }

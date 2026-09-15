@@ -27,8 +27,9 @@ function bounded<V>(): { get(k: string): V | undefined; set(k: string, v: V): vo
 const exprs = bounded<Expr | ExprError>();
 const templates = bounded<Template | ExprError>();
 
-/** Parsed expression or the `ExprError` it raised — never throws. */
-export function parseCached(source: string): Expr | ExprError {
+/** Parsed expression or the `ExprError` it raised — never throws. A non-string (a `{$}` still streaming in) is an error too. */
+export function parseCached(source: unknown): Expr | ExprError {
+    if (typeof source !== 'string') return new ExprError('expected an expression string', source, 0);
     const hit = exprs.get(source);
     if (hit) return hit;
     let result: Expr | ExprError;
@@ -41,7 +42,8 @@ export function parseCached(source: string): Expr | ExprError {
     return result;
 }
 
-export function templateCached(source: string): Template | ExprError {
+export function templateCached(source: unknown): Template | ExprError {
+    if (typeof source !== 'string') return new ExprError('expected a template string', source, 0);
     const hit = templates.get(source);
     if (hit) return hit;
     let result: Template | ExprError;

@@ -10,8 +10,8 @@ import { parseCached, templateCached } from './cache.js';
 import { evaluate, lookupVar, NOT_FOUND, safeGet, toText, type EvalEnv, type Scope } from './evaluate.js';
 import { isExprValue } from '../spec/types.js';
 
-/** Evaluate a source string; a parse error yields `undefined` (streaming-tolerant) unless `strict`. */
-export function evaluateSource(source: string, scope: Scope | undefined, env: EvalEnv, strict = false): unknown {
+/** Evaluate a source string; a parse error (or a source that is not a string yet) yields `undefined` — streaming-tolerant — unless `strict`. */
+export function evaluateSource(source: unknown, scope: Scope | undefined, env: EvalEnv, strict = false): unknown {
     const ast = parseCached(source);
     if (ast instanceof ExprError) {
         if (strict) throw ast;
@@ -48,6 +48,8 @@ export function resolveValue(value: unknown, scope: Scope | undefined, env: Eval
 export interface LValue {
     readonly container: Record<string, unknown> | unknown[];
     readonly key: string | number;
+    /** The top-level state key the path is rooted in; `undefined` when rooted in a scope variable (a loop item). */
+    readonly root: string | undefined;
 }
 
 /** `true` when `expr` is a chain of identifier, member and index steps — something a value can be written to. */
@@ -74,15 +76,24 @@ export function lvalue(path: string, scope: Scope | undefined, env: EvalEnv, cre
         const v = lookupVar(scope, ast.name);
         // A bound loop variable is an item, not a slot: `todo` alone is not writable.
         if (v !== NOT_FOUND) return undefined;
-        return { container: env.state, key: ast.name };
+        return { container: env.state, key: ast.name, root: ast.name };
     }
     if (ast.k !== 'member' && ast.k !== 'index') return undefined;
     const container = resolveContainer(ast.obj, scope, env, create);
     if (!container) return undefined;
     const key = ast.k === 'member' ? ast.prop : evaluate(ast.index, scope, env);
-    if (typeof key === 'number') return Array.isArray(container) || typeof container === 'object' ? { container, key } : undefined;
+    const root = rootOf(ast, scope);
+    if (typeof key === 'number') return Array.isArray(container) || typeof container === 'object' ? { container, key, root } : undefined;
     if (typeof key !== 'string' || key.startsWith('$') || key === '__proto__' || key === 'constructor' || key === 'prototype') return undefined;
-    return { container, key };
+    return { container, key, root };
+}
+
+/** The state key a path is rooted in, or `undefined` when its root is a scope variable. */
+function rootOf(expr: Expr, scope: Scope | undefined): string | undefined {
+    let e = expr;
+    while (e.k === 'member' || e.k === 'index') e = e.obj;
+    if (e.k !== 'id' || e.name.startsWith('$')) return undefined;
+    return lookupVar(scope, e.name) === NOT_FOUND ? e.name : undefined;
 }
 
 function resolveContainer(expr: Expr, scope: Scope | undefined, env: EvalEnv, create: boolean): Record<string, unknown> | unknown[] | undefined {

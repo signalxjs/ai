@@ -32,14 +32,14 @@ describe('resolveValue', () => {
 describe('lvalue', () => {
     it('roots a bare name in state and a dotted path in the object it names', () => {
         const state = { form: { email: 'a' }, list: [1, 2] } as Record<string, unknown>;
-        expect(lvalue('draft', undefined, env(state))).toEqual({ container: state, key: 'draft' });
-        expect(lvalue('form.email', undefined, env(state))).toEqual({ container: state.form, key: 'email' });
-        expect(lvalue('list[1]', undefined, env(state))).toEqual({ container: state.list, key: 1 });
+        expect(lvalue('draft', undefined, env(state))).toEqual({ container: state, key: 'draft', root: 'draft' });
+        expect(lvalue('form.email', undefined, env(state))).toEqual({ container: state.form, key: 'email', root: 'form' });
+        expect(lvalue('list[1]', undefined, env(state))).toEqual({ container: state.list, key: 1, root: 'list' });
     });
-    it('roots a loop variable in the item, and refuses to overwrite the variable itself', () => {
+    it('roots a loop variable in the item (root undefined), and refuses to overwrite the variable itself', () => {
         const todo = { done: false };
         const scope = childScope(undefined, { todo });
-        expect(lvalue('todo.done', scope, env({}))).toEqual({ container: todo, key: 'done' });
+        expect(lvalue('todo.done', scope, env({}))).toEqual({ container: todo, key: 'done', root: undefined });
         expect(lvalue('todo', scope, env({}))).toBeUndefined();
     });
     it('creates intermediates only when asked, and never through $ or prototype keys', () => {

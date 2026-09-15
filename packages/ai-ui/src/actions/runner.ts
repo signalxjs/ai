@@ -42,7 +42,8 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
                 resolve: (value) => untrack(() => resolveValue(value, scope, env)),
                 run: (nested, nestedScope) => execute(nested, nestedScope ?? scope, run),
                 patchUI: (patches: readonly UIPatch[]) => options.patchUI?.(patches),
-                emit: (name, payload) => options.emit?.(name, payload)
+                emit: (name, payload) => options.emit?.(name, payload),
+                touch: (root) => options.onWrite?.(root)
             };
             try {
                 const args = untrack(() => resolveArgs(step, scope, env));

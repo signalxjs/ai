@@ -13,7 +13,7 @@
 import { toRaw } from '@sigx/reactivity';
 import { component, jsx, type JSXElement } from '@sigx/runtime-core';
 import { childScope, evaluateSource, lvalue, resolveValue, truthy, type Scope } from '../expr/index.js';
-import type { UINode } from '../spec/types.js';
+import { isExprValue, type UINode } from '../spec/types.js';
 import { keyOf } from './keys.js';
 import type { UIComponentProps, UIEvent, UIModel, UIRegistry } from './registry.js';
 import type { UIRuntime } from './runtime.js';
@@ -72,7 +72,8 @@ const warned = new Set<string>();
 export function renderNode(node: UINode, ctx: NodeContext): JSXElement {
     const { runtime, registry, scope } = ctx;
     const env = runtime.env;
-    if (node.if !== undefined && !truthy(evaluateSource(node.if.$, scope, env))) return null;
+    // A `{$}` still streaming in (`{}`, or a half-typed source) is not ready: an `if` hides the node, a `for` renders no rows yet.
+    if (node.if !== undefined && !truthy(isExprValue(node.if) ? evaluateSource(node.if.$, scope, env) : false)) return null;
     const type = node.type;
     const impl = typeof type === 'string' ? registry[type] : undefined;
     if (!impl) {
@@ -94,12 +95,12 @@ export function renderNode(node: UINode, ctx: NodeContext): JSXElement {
 
     const children: JSXElement[] = [];
     const specChildren = Array.isArray(node.children) ? node.children : undefined;
-    if (node.for && typeof node.for === 'object' && node.for.items) {
-        const items = evaluateSource(node.for.items.$, scope, env);
+    if (node.for && typeof node.for === 'object') {
+        const items = isExprValue(node.for.items) ? evaluateSource(node.for.items.$, scope, env) : undefined;
         if (Array.isArray(items) && specChildren) {
             const as = typeof node.for.as === 'string' ? node.for.as : 'item';
             const indexName = typeof node.for.index === 'string' ? node.for.index : 'index';
-            const keyExpr = node.for.key?.$;
+            const keyExpr = isExprValue(node.for.key) ? node.for.key.$ : undefined;
             const seen = new Set<string>();
             items.forEach((item, i) => {
                 const itemScope = scopeForItem(scope, item, i, as, indexName);
@@ -135,7 +136,9 @@ export function renderNode(node: UINode, ctx: NodeContext): JSXElement {
             value,
             set(v) {
                 const target = lvalue(bind, scope, env, true);
-                if (target) (target.container as Record<string | number, unknown>)[target.key] = v;
+                if (!target) return;
+                runtime.touch(target.root);
+                (target.container as Record<string | number, unknown>)[target.key] = v;
             }
         };
     }

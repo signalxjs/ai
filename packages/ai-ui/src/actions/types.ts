@@ -22,6 +22,8 @@ export interface UIActionContext {
     run(steps: readonly ActionStep[], scope?: Scope): Promise<unknown>;
     patchUI(patches: readonly UIPatch[]): void;
     emit(name: string, payload: unknown): void;
+    /** Report a state write (`root` is the top-level key, `undefined` for a loop item), so a streaming spec stops re-seeding it. */
+    touch(root: string | undefined): void;
 }
 
 export type ActionHandler = (args: Record<string, unknown>, ctx: UIActionContext) => unknown | Promise<unknown>;
@@ -56,6 +58,8 @@ export interface ActionRunnerOptions {
     readonly patchUI?: (patches: readonly UIPatch[]) => void;
     readonly emit?: (name: string, payload: unknown) => void;
     readonly http?: HttpOptions;
+    /** Every state write by an action, by top-level key (`undefined` for a loop item). */
+    readonly onWrite?: (root: string | undefined) => void;
     /** Every failed run lands here; runs never reject into the event loop. */
     readonly onError?: (error: Error, at: ActionErrorSite) => void;
 }

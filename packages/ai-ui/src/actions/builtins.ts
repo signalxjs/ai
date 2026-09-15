@@ -21,6 +21,7 @@ function str(args: Record<string, unknown>, name: string): string {
 function slot(ctx: UIActionContext, path: string, create = true): { container: Container; key: string | number } {
     const lv = lvalue(path, ctx.scope, ctx.env, create);
     if (!lv) throw new UIActionError(`"${path}" is not a writable path`);
+    ctx.touch(lv.root);
     return { container: lv.container as Container, key: lv.key };
 }
 
@@ -51,7 +52,11 @@ const stateActions: ActionTable = {
             target = container[key] as Container;
         } else target = ctx.state;
         batch(() => {
-            for (const k of Object.keys(value)) if (!k.startsWith('$') && k !== '__proto__') target[k] = value[k];
+            for (const k of Object.keys(value)) {
+                if (k.startsWith('$') || k === '__proto__') continue;
+                if (target === ctx.state) ctx.touch(k);
+                target[k] = value[k];
+            }
         });
     },
     'state.push': (args, ctx) => {

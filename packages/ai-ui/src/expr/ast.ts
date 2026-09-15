@@ -31,10 +31,11 @@ export type Template = ReadonlyArray<string | Expr>;
 export class ExprError extends Error {
     readonly pos: number;
     readonly source: string;
-    constructor(message: string, source: string, pos: number) {
-        super(`${message} (at ${pos} in "${source.length > 80 ? `${source.slice(0, 77)}…` : source}")`);
+    constructor(message: string, source: unknown, pos: number) {
+        const text = typeof source === 'string' ? source : String(source ?? '');
+        super(`${message} (at ${pos} in "${text.length > 80 ? `${text.slice(0, 77)}…` : text}")`);
         this.name = 'ExprError';
         this.pos = pos;
-        this.source = source;
+        this.source = text;
     }
 }
