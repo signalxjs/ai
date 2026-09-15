@@ -32,7 +32,9 @@ follow [SemVer](https://semver.org/).
   a printed reason, and `mockAgent`'s tool step gains `inputDeltas` to script
   them. `checkEventInvariants` holds a streamed `callId` to one turn — the id
   is spent even when the turn ended before the call was made, because the
-  unsettled part is still in the transcript.
+  unsettled part is still in the transcript — and holds every delta and the
+  settling `tool-call` to one `name`, since the deltas open the part with it
+  and the settle does not rewrite it.
 - COMPATIBILITY: `tool-input-delta` is a new member of the event union, so a
   `connectSession` client from an earlier version rejects the frame as
   unknown. It still reaches the right transcript when the `tool-call` lands

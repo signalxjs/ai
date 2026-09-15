@@ -152,6 +152,28 @@ describe('agentConformance', () => {
             ])
         ).toThrow(/tool-call "c1".*streamed in another turn/);
 
+        // The name has to agree, because the deltas OPEN the part with it and
+        // the settling `tool-call` deliberately does not rewrite it — so a
+        // harness whose two halves disagree would leave the wrong tool named
+        // on the card, with nothing to notice it.
+        expect(() =>
+            checkEventInvariants([
+                { ...t1, seq: 1, type: 'turn-start', input: [] },
+                deltaIn(t1, 2),
+                { ...t1, seq: 3, type: 'tool-input-delta', callId: 'c1', name: 'shell', delta: '"}' },
+                { ...t1, seq: 4, type: 'turn-end', stopReason: 'end_turn' }
+            ])
+        ).toThrow(/tool-input-delta for "c1".*names "shell".*earlier deltas named "weather"/);
+        expect(() =>
+            checkEventInvariants([
+                { ...t1, seq: 1, type: 'turn-start', input: [] },
+                deltaIn(t1, 2),
+                { ...t1, seq: 3, type: 'tool-call', callId: 'c1', name: 'shell' },
+                { ...t1, seq: 4, type: 'tool-update', callId: 'c1', status: 'completed' },
+                { ...t1, seq: 5, type: 'turn-end', stopReason: 'end_turn' }
+            ])
+        ).toThrow(/tool-call "c1".*names "shell".*input deltas named "weather"/);
+
         // Deltas and the call they belong to, in one turn, are fine.
         expect(() =>
             checkEventInvariants([

@@ -90,7 +90,11 @@ export type AgentEventPayload =
            * A `callId` is spent once its arguments have streamed, even if the
            * turn ended before the call was made: the unsettled part is still
            * in the transcript, so a later turn reusing that id would append to
-           * it, or settle it. `checkEventInvariants` enforces that.
+           * it, or settle it. And every delta for a call, plus the `tool-call`
+           * that settles it, must agree on `name` — the deltas OPEN the part
+           * with it and the settle does not rewrite it, so disagreeing leaves
+           * the wrong tool named on the card. `checkEventInvariants` enforces
+           * both.
            */
           readonly type: 'tool-input-delta';
           readonly callId: string;
