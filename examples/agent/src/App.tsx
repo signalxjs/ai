@@ -13,7 +13,7 @@
  * the old one; keeping every pane mounted also means switching costs nothing
  * and side-by-side comparison is one class away.
  */
-import { component, useHead, onMounted, onUnmounted } from 'sigx';
+import { component, useHead, onMounted, onUnmounted, signal } from 'sigx';
 import { Session } from './Session';
 import { createPlayground } from './sessions';
 import { modeOf, type AgentChoice, type CatalogEntry } from './catalog';
@@ -48,21 +48,44 @@ const SessionRow = component<{
  * the reason on it, rather than hidden — you should be able to see that Codex
  * is installed-but-not-signed-in without guessing why it vanished.
  */
-const NewSession = component<{
+export const NewSession = component<{
     agents: readonly CatalogEntry[];
     defaults: { agent: AgentChoice; model?: string; cwd: string };
     full: boolean;
+    busy: boolean;
     onOpen: (agent: AgentChoice, model: string | undefined, cwd: string | undefined) => void;
 }>((ctx) => {
-    let agent: AgentChoice = ctx.props.defaults.agent;
-    let model: string | undefined = ctx.props.defaults.model;
-    let cwd: string = ctx.props.defaults.cwd;
-    // Re-rendered on change so the model/cwd fields follow the chosen agent.
-    const entry = () => ctx.props.agents.find((a) => a.id === agent);
+    /**
+     * The model to start an agent on — the catalogue default only when that
+     * agent actually offers it.
+     *
+     * The dropdown is rendered from the agent's list and a `<select>` whose
+     * `selected` matches nothing still paints its FIRST option, so a default
+     * belonging to another agent left the page showing one model and the wire
+     * carrying another. `undefined` for an agent with no list at all: a
+     * harness reports its own once it is up, and there is nothing honest to
+     * send before that.
+     */
+    const modelFor = (agent: AgentChoice): string | undefined => {
+        const models = ctx.props.agents.find((a) => a.id === agent)?.models ?? [];
+        if (models.length === 0) return undefined;
+        const wanted = ctx.props.defaults.model;
+        return models.some((m) => m.id === wanted) ? wanted : models[0]!.id;
+    };
+
+    // Reactive, not plain `let`s: the Model dropdown and the Directory field
+    // are rendered FROM the chosen agent, so a non-reactive draft left them
+    // showing the previous agent's — a harness never got its cwd field.
+    const draft = signal<{ agent: AgentChoice; model: string | undefined; cwd: string }>({
+        agent: ctx.props.defaults.agent,
+        model: modelFor(ctx.props.defaults.agent),
+        cwd: ctx.props.defaults.cwd
+    });
+    const entry = () => ctx.props.agents.find((a) => a.id === draft.agent);
 
     function submit(e: Event): void {
         e.preventDefault();
-        ctx.props.onOpen(agent, model, entry()?.needsCwd ? cwd : undefined);
+        ctx.props.onOpen(draft.agent, draft.model, entry()?.needsCwd ? draft.cwd : undefined);
     }
 
     return () => (
@@ -71,12 +94,15 @@ const NewSession = component<{
                 <span>Agent</span>
                 <select
                     onChange={(e) => {
-                        agent = (e.currentTarget as HTMLSelectElement).value as AgentChoice;
-                        model = ctx.props.agents.find((a) => a.id === agent)?.models[0]?.id;
+                        const next = (e.currentTarget as HTMLSelectElement).value as AgentChoice;
+                        draft.agent = next;
+                        // The model has to belong to the new agent, or the
+                        // session opens on one it does not offer.
+                        draft.model = modelFor(next);
                     }}
                 >
                     {ctx.props.agents.map((a) => (
-                        <option value={a.id} selected={a.id === agent} disabled={Boolean(a.unavailable)} title={a.unavailable ?? a.install}>
+                        <option value={a.id} selected={a.id === draft.agent} disabled={Boolean(a.unavailable)} title={a.unavailable ?? a.install}>
                             {a.label}
                             {a.unavailable ? ' — unavailable' : ''}
                         </option>
@@ -89,9 +115,9 @@ const NewSession = component<{
             {entry() && entry()!.models.length > 0 && (
                 <label>
                     <span>Model</span>
-                    <select onChange={(e) => (model = (e.currentTarget as HTMLSelectElement).value)}>
+                    <select onChange={(e) => (draft.model = (e.currentTarget as HTMLSelectElement).value)}>
                         {entry()!.models.map((m) => (
-                            <option value={m.id} selected={m.id === model}>
+                            <option value={m.id} selected={m.id === draft.model}>
                                 {m.label ?? m.id}
                             </option>
                         ))}
@@ -101,11 +127,11 @@ const NewSession = component<{
             {entry()?.needsCwd && (
                 <label>
                     <span>Directory</span>
-                    <input type="text" value={cwd} onInput={(e) => (cwd = (e.currentTarget as HTMLInputElement).value)} />
+                    <input type="text" value={draft.cwd} onInput={(e) => (draft.cwd = (e.currentTarget as HTMLInputElement).value)} />
                 </label>
             )}
-            <button type="submit" disabled={ctx.props.full}>
-                New session
+            <button type="submit" disabled={ctx.props.full || ctx.props.busy}>
+                {ctx.props.busy ? 'Opening…' : 'New session'}
             </button>
             {ctx.props.full && <p class="hint">The session limit is reached — close one first.</p>}
         </form>
@@ -145,6 +171,7 @@ export const App = component(() => {
                 <h1>agent playground</h1>
                 {state.rows.map((row) => (
                     <SessionRow
+                        key={row.sessionId}
                         label={label(row.agent)}
                         model={row.model}
                         mode={modeOf(row.config)}
@@ -165,6 +192,7 @@ export const App = component(() => {
                         agents={state.catalog.agents}
                         defaults={state.catalog.defaults}
                         full={state.rows.length >= state.catalog.maxSessions}
+                        busy={state.opening}
                         onOpen={(agent, model, cwd) => void pg.open({ agent, ...(model ? { model } : {}), ...(cwd ? { cwd } : {}) })}
                     />
                 )}

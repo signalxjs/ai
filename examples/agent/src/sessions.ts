@@ -20,6 +20,8 @@ export interface PlaygroundState {
     compare: boolean;
     error: string;
     ready: boolean;
+    /** A session is being opened — spawning a harness takes seconds. */
+    opening: boolean;
 }
 
 export interface Playground {
@@ -33,7 +35,7 @@ export interface Playground {
 }
 
 export function createPlayground(): Playground {
-    const state = signal<PlaygroundState>({ rows: [], catalog: undefined, selected: '', compare: false, error: '', ready: false });
+    const state = signal<PlaygroundState>({ rows: [], catalog: undefined, selected: '', compare: false, error: '', ready: false, opening: false });
     const clients = new Map<string, AgentSessionClient>();
 
     /**
@@ -101,24 +103,46 @@ export function createPlayground(): Playground {
          * becomes a late observer of every one of them.
          */
         async refresh() {
-            const [catalog, sessions] = await Promise.all([agentCatalog({}), agentSessions({})]);
-            state.catalog = catalog;
-            for (const info of sessions) await attach(info);
-            state.ready = true;
+            try {
+                const [catalog, sessions] = await Promise.all([agentCatalog({}), agentSessions({})]);
+                state.catalog = catalog;
+                // One session that will not attach must not stop the others.
+                for (const info of sessions) {
+                    await attach(info).catch((e: unknown) => {
+                        state.error = `Could not follow session ${info.sessionId}: ${e instanceof Error ? e.message : String(e)}`;
+                        console.error('[agent] attach failed', e);
+                    });
+                }
+            } finally {
+                state.ready = true;
+            }
         },
 
+        /**
+         * Never let this fail silently. Opening crosses two network calls and
+         * can spawn a process; a rejection anywhere used to vanish into the
+         * `void` at the call site, and the page just sat there.
+         */
         async open(request) {
             state.error = '';
-            const result = await agentOpenSession(request);
-            if (!result.ok) {
-                state.error = result.reason;
-                // The catalogue learned why; re-read it so the form can grey
-                // the agent out and show the install hint.
-                state.catalog = await agentCatalog({});
-                return;
+            state.opening = true;
+            try {
+                const result = await agentOpenSession(request);
+                if (!result.ok) {
+                    state.error = result.reason;
+                    // The catalogue learned why; re-read it so the form can
+                    // grey the agent out and show the install hint.
+                    state.catalog = await agentCatalog({}).catch(() => state.catalog);
+                    return;
+                }
+                await attach(result.session);
+                state.selected = result.session.sessionId;
+            } catch (e) {
+                state.error = `Could not open a ${request.agent} session: ${e instanceof Error ? e.message : String(e)}`;
+                console.error('[agent] open failed', e);
+            } finally {
+                state.opening = false;
             }
-            await attach(result.session);
-            state.selected = result.session.sessionId;
         },
 
         /**
@@ -129,7 +153,9 @@ export function createPlayground(): Playground {
         async close(sessionId) {
             const client = clients.get(sessionId);
             if (!client) return;
-            await client.close().catch(() => {});
+            // Drop it locally whatever the server says: a session we cannot
+            // reach is not one the sidebar should keep offering.
+            await client.close().catch((e: unknown) => console.warn('[agent] close failed', e));
             forget(sessionId);
         },
 
