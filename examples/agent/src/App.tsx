@@ -48,19 +48,37 @@ const SessionRow = component<{
  * the reason on it, rather than hidden — you should be able to see that Codex
  * is installed-but-not-signed-in without guessing why it vanished.
  */
-const NewSession = component<{
+export const NewSession = component<{
     agents: readonly CatalogEntry[];
     defaults: { agent: AgentChoice; model?: string; cwd: string };
     full: boolean;
     busy: boolean;
     onOpen: (agent: AgentChoice, model: string | undefined, cwd: string | undefined) => void;
 }>((ctx) => {
+    /**
+     * The model to start an agent on — the catalogue default only when that
+     * agent actually offers it.
+     *
+     * The dropdown is rendered from the agent's list and a `<select>` whose
+     * `selected` matches nothing still paints its FIRST option, so a default
+     * belonging to another agent left the page showing one model and the wire
+     * carrying another. `undefined` for an agent with no list at all: a
+     * harness reports its own once it is up, and there is nothing honest to
+     * send before that.
+     */
+    const modelFor = (agent: AgentChoice): string | undefined => {
+        const models = ctx.props.agents.find((a) => a.id === agent)?.models ?? [];
+        if (models.length === 0) return undefined;
+        const wanted = ctx.props.defaults.model;
+        return models.some((m) => m.id === wanted) ? wanted : models[0]!.id;
+    };
+
     // Reactive, not plain `let`s: the Model dropdown and the Directory field
     // are rendered FROM the chosen agent, so a non-reactive draft left them
     // showing the previous agent's — a harness never got its cwd field.
     const draft = signal<{ agent: AgentChoice; model: string | undefined; cwd: string }>({
         agent: ctx.props.defaults.agent,
-        model: ctx.props.defaults.model,
+        model: modelFor(ctx.props.defaults.agent),
         cwd: ctx.props.defaults.cwd
     });
     const entry = () => ctx.props.agents.find((a) => a.id === draft.agent);
@@ -80,7 +98,7 @@ const NewSession = component<{
                         draft.agent = next;
                         // The model has to belong to the new agent, or the
                         // session opens on one it does not offer.
-                        draft.model = ctx.props.agents.find((a) => a.id === next)?.models[0]?.id;
+                        draft.model = modelFor(next);
                     }}
                 >
                     {ctx.props.agents.map((a) => (

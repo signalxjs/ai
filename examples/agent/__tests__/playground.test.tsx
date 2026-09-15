@@ -7,11 +7,11 @@
  * and having it appear is the playground's whole premise, so it gets a test.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { jsx, defineApp } from 'sigx';
+import { component, jsx, defineApp } from 'sigx';
 import { mockAgent } from '@sigx/ai-agent/testing';
 import { memoryEventLog, type AgentSession } from '@sigx/ai-agent';
 import { serveSession, isWireCommand, WIRE_PROTOCOL_VERSION, type ServedSession, type WireCommand } from '@sigx/ai-agent/wire';
-import type { AgentCatalog, OpenRequest, OpenResult, SessionInfo } from '../src/catalog';
+import type { AgentCatalog, AgentChoice, CatalogEntry, OpenRequest, OpenResult, SessionInfo } from '../src/catalog';
 
 /** A registry the size of the test: `mockAgent` sessions, served for real. */
 const sessions = new Map<string, { session: AgentSession; served: ServedSession; info: SessionInfo }>();
@@ -260,5 +260,88 @@ describe('the shell stylesheet', () => {
         if (setsDisplay) {
             expect(html).toMatch(/\.pane\[hidden\]\s*\{[^}]*display\s*:\s*none/);
         }
+    });
+});
+
+/**
+ * The New-session form on its own.
+ *
+ * One contract: **what the form submits is what the form is showing.** The
+ * Model dropdown is rendered from the chosen agent's list, but the draft was
+ * seeded from the catalogue's default — and a `<select>` whose `selected`
+ * matches no option still paints its FIRST one. So a default belonging to
+ * another agent (or to none) left the page showing one model and the wire
+ * carrying another.
+ */
+describe('the New-session form', () => {
+    const closers: (() => void)[] = [];
+    afterEach(() => {
+        for (const close of closers.splice(0).reverse()) close();
+    });
+
+    const AGENTS: readonly CatalogEntry[] = [
+        { id: 'mock', label: 'mock (scripted)', kind: 'mock', models: [], needsCwd: false },
+        { id: 'sigx', label: 'sigx (our engine)', kind: 'engine', models: [{ id: 'mock:demo' }, { id: 'mock:other' }], needsCwd: false },
+        { id: 'claude-code', label: 'Claude Code', kind: 'harness', models: [], needsCwd: true }
+    ];
+
+    type Opened = { agent: AgentChoice; model: string | undefined; cwd: string | undefined };
+
+    async function form(defaults: { agent: AgentChoice; model?: string; cwd: string }) {
+        const { NewSession } = await import('../src/App');
+        const opened: Opened[] = [];
+        const One = component(
+            () => () => <NewSession agents={AGENTS} defaults={defaults} full={false} busy={false} onOpen={(agent, model, cwd) => opened.push({ agent, model, cwd })} />,
+            { name: 'One' }
+        );
+        const container = document.createElement('div');
+        document.body.appendChild(container);
+        const app = defineApp(jsx(One, {})).mount(container);
+        closers.push(() => {
+            app.unmount();
+            container.remove();
+        });
+        const submit = () => container.querySelector('form.new-session')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        const modelSelect = () => [...container.querySelectorAll<HTMLSelectElement>('select')][1];
+        const agentSelect = () => container.querySelector<HTMLSelectElement>('select')!;
+        return { container, opened, submit, modelSelect, agentSelect };
+    }
+
+    it('submits the model the dropdown is showing, not a stale default', async () => {
+        // `gone:old` is no model of any agent — the catalogue moved on.
+        const f = await form({ agent: 'sigx', model: 'gone:old', cwd: '/tmp' });
+
+        // What the browser paints when nothing matches: the first option.
+        expect(f.modelSelect()!.value).toBe('mock:demo');
+        f.submit();
+
+        expect(f.opened).toHaveLength(1);
+        expect(f.opened[0]!.model).toBe('mock:demo');
+    });
+
+    it('sends no model for an agent that offers none', async () => {
+        // A harness reports its models once it is up, so the form shows no
+        // dropdown — submitting the catalogue default would name a model this
+        // agent never offered.
+        const f = await form({ agent: 'mock', model: 'mock:demo', cwd: '/tmp' });
+
+        expect(f.modelSelect()).toBeUndefined();
+        f.submit();
+
+        expect(f.opened[0]!.model).toBeUndefined();
+    });
+
+    it('keeps a default the newly-picked agent does offer', async () => {
+        const f = await form({ agent: 'mock', model: 'mock:other', cwd: '/tmp' });
+
+        f.agentSelect().value = 'sigx';
+        f.agentSelect().dispatchEvent(new Event('change', { bubbles: true }));
+        await new Promise((r) => setTimeout(r, 20));
+
+        // Not `mock:demo`: jumping to the first model throws away a perfectly
+        // good default the new agent lists.
+        expect(f.modelSelect()!.value).toBe('mock:other');
+        f.submit();
+        expect(f.opened[0]!.model).toBe('mock:other');
     });
 });
