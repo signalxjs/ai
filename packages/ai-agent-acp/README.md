@@ -59,9 +59,12 @@ await agent.dispose();                             // kills the agent process tr
   updates become session `usage`, mode and config changes become `config`
   (drive them with `session.configure({ mode, ...options })`). `mode` always
   means the ACP *session* mode; an agent that declares a config option of its
-  own called `mode` gets it under `acp:mode`, with our label qualified to
-  "Session mode" so two dropdowns never read the same. Two options are never
-  advertised under one id — `id` is what `configure()` addresses.
+  own called `mode` gets it under `acp:mode`. Two options are never advertised
+  under one id — `id` is what `configure()` addresses. Our own label is the
+  only one we rewrite: when an agent declares an option it also calls "Mode",
+  ours becomes "Session mode", so those two are not both labelled `Mode`.
+  Labels an agent gives its *own* options are left alone, so it can still
+  render two of them alike if it chooses to.
 - **Resume and history.** The `SessionRef` names the ACP session and its
   `cwd`; resuming uses `session/resume` when advertised and otherwise
   `session/load`, whose replayed history lands in the new epoch as plain
