@@ -122,6 +122,48 @@ describe('agentConformance', () => {
         await expect(perm.run()).rejects.toBeInstanceOf(ConformanceError);
     });
 
+    it('invariant checks hold a streamed callId to one turn, even when its call never came', () => {
+        const t1 = { sessionId: 's', epoch: 1, turnId: 't1' } as const;
+        const t2 = { sessionId: 's', epoch: 1, turnId: 't2' } as const;
+        const deltaIn = (ctx: typeof t1 | typeof t2, seq: number): AgentEvent => ({ ...ctx, seq, type: 'tool-input-delta', callId: 'c1', name: 'weather', delta: '{"a' });
+
+        // A turn cancelled mid-argument leaves a call written but never made.
+        // That is legal, and no `tool-call` is required to follow it.
+        const cancelled: AgentEvent[] = [
+            { ...t1, seq: 1, type: 'turn-start', input: [] },
+            deltaIn(t1, 2),
+            { ...t1, seq: 3, type: 'turn-end', stopReason: 'cancelled' }
+        ];
+        expect(() => checkEventInvariants(cancelled)).not.toThrow();
+
+        // But the callId is spent. Reusing it in a LATER turn would have a
+        // client appending to — or settling — the streaming part the cancelled
+        // turn left behind.
+        expect(() => checkEventInvariants([...cancelled, { ...t2, seq: 4, type: 'turn-start', input: [] }, deltaIn(t2, 5), { ...t2, seq: 6, type: 'turn-end', stopReason: 'end_turn' }])).toThrow(
+            /tool-input-delta for "c1".*another turn/
+        );
+        expect(() =>
+            checkEventInvariants([
+                ...cancelled,
+                { ...t2, seq: 4, type: 'turn-start', input: [] },
+                { ...t2, seq: 5, type: 'tool-call', callId: 'c1', name: 'weather' },
+                { ...t2, seq: 6, type: 'tool-update', callId: 'c1', status: 'completed' },
+                { ...t2, seq: 7, type: 'turn-end', stopReason: 'end_turn' }
+            ])
+        ).toThrow(/tool-call "c1".*streamed in another turn/);
+
+        // Deltas and the call they belong to, in one turn, are fine.
+        expect(() =>
+            checkEventInvariants([
+                { ...t1, seq: 1, type: 'turn-start', input: [] },
+                deltaIn(t1, 2),
+                { ...t1, seq: 3, type: 'tool-call', callId: 'c1', name: 'weather', input: { a: 1 } },
+                { ...t1, seq: 4, type: 'tool-update', callId: 'c1', status: 'completed' },
+                { ...t1, seq: 5, type: 'turn-end', stopReason: 'end_turn' }
+            ])
+        ).not.toThrow();
+    });
+
     it('invariant checks hold sub-agents to one start, a seen spawning call, and a terminal end', () => {
         const base = { sessionId: 's', epoch: 1, turnId: 't' } as const;
         const turnStart: AgentEvent = { ...base, seq: 1, type: 'turn-start', input: [] };

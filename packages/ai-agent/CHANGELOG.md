@@ -30,7 +30,9 @@ follow [SemVer](https://semver.org/).
   Codex app-server protocol has no argument deltas. `agentConformance` gains a
   `streaming-tool-input` scenario, which adapters declaring `false` skip with
   a printed reason, and `mockAgent`'s tool step gains `inputDeltas` to script
-  them.
+  them. `checkEventInvariants` holds a streamed `callId` to one turn — the id
+  is spent even when the turn ended before the call was made, because the
+  unsettled part is still in the transcript.
 - COMPATIBILITY: `tool-input-delta` is a new member of the event union, so a
   `connectSession` client from an earlier version rejects the frame as
   unknown. It still reaches the right transcript when the `tool-call` lands

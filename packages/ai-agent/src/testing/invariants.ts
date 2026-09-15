@@ -33,6 +33,15 @@ export function checkEventInvariants(events: readonly AgentEvent[], options: Eve
     const turnStarts = new Map<string, number>();
     const turnEnds = new Map<string, number>();
     const calls = new Map<string, string>();
+    /**
+     * callId → the turn its arguments streamed in. Kept APART from `calls`: a
+     * streamed call has not been announced, so it must not trip the "reuses a
+     * callId" assert when its own `tool-call` lands, nor join the
+     * terminal-status sweep. It still SPENDS the id — a turn cancelled
+     * mid-argument leaves a streaming part behind, and a later turn reusing
+     * that id would have a client appending to it, or settling it.
+     */
+    const streamedIn = new Map<string, string | undefined>();
     const agents = new Map<string, string>();
     /** callId → agentId: a spawning call binds at most one agent, or `spawnedAgent` is ambiguous. */
     const spawnedBy = new Map<string, string>();
@@ -73,9 +82,18 @@ export function checkEventInvariants(events: readonly AgentEvent[], options: Eve
                 // required to follow — a cancelled turn legitimately leaves a
                 // call written but never made.
                 assert(!calls.has(e.callId), `tool-input-delta for "${e.callId}" at seq ${e.seq} arrived after its tool-call`);
+                if (streamedIn.has(e.callId)) {
+                    assert(streamedIn.get(e.callId) === e.turnId, `tool-input-delta for "${e.callId}" at seq ${e.seq} is in turn "${e.turnId}", but that call streamed in another turn ("${streamedIn.get(e.callId)}")`);
+                } else {
+                    streamedIn.set(e.callId, e.turnId);
+                }
                 break;
             case 'tool-call':
                 assert(!calls.has(e.callId), `tool-call "${e.callId}" at seq ${e.seq} reuses a callId already announced`);
+                assert(
+                    !streamedIn.has(e.callId) || streamedIn.get(e.callId) === e.turnId,
+                    `tool-call "${e.callId}" at seq ${e.seq} is in turn "${e.turnId}", but that call streamed in another turn ("${streamedIn.get(e.callId)}")`
+                );
                 calls.set(e.callId, 'pending');
                 break;
             case 'tool-update':

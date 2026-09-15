@@ -86,6 +86,11 @@ export type AgentEventPayload =
            * Optional for every harness (`capabilities.streamingToolInput`) and
            * per call even where it is offered — a harness that has the whole
            * input at once simply emits `tool-call` alone.
+           *
+           * A `callId` is spent once its arguments have streamed, even if the
+           * turn ended before the call was made: the unsettled part is still
+           * in the transcript, so a later turn reusing that id would append to
+           * it, or settle it. `checkEventInvariants` enforces that.
            */
           readonly type: 'tool-input-delta';
           readonly callId: string;
