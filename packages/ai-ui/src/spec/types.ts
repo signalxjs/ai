@@ -33,12 +33,15 @@ export type RunMode = 'drop' | 'restart' | 'queue' | 'parallel';
  * One step of an action. `do` names a built-in (`state.set`, `http`, …),
  * a host action, or — through `call` — a named spec action. Every other key
  * is an argument, resolved through the expression language before the step
- * runs. `as` binds the result in the run's scope; `if` skips the step;
- * `catch` runs when the step throws (with `$error` bound).
+ * runs. `as` binds the result in the run's scope; `if` skips the step —
+ * evaluated right before it, so it sees what earlier steps wrote — and
+ * `else` runs instead when `if` is false; `catch` runs when the step throws
+ * (with `$error` bound).
  */
 export interface ActionStep {
     readonly do: string;
     readonly if?: ExprValue;
+    readonly else?: ActionStep[];
     readonly as?: string;
     readonly catch?: ActionStep[];
     readonly [arg: string]: unknown;

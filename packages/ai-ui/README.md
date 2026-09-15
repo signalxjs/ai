@@ -88,7 +88,10 @@ keys of data objects are unreachable.
 
 ### Actions
 
-Steps run in order, each awaited: `{ "do", "if"?, "as"?, "catch"?, …args }`.
+Steps run in order, each awaited: `{ "do", "if"?, "else"?, "as"?, "catch"?, …args }`.
+An `if` is evaluated right before its step, so it sees what earlier steps
+wrote; either/or logic is one step with `if` and `else`, never two steps
+guarded by `X` and `!X` (the validator warns about that pair).
 Built-ins: `state.set | patch | push | remove | toggle`, `ui.patch`, `http`
 (same-origin by default, `http.allowHosts` for more), `delay`, `emit` (to
 the host), `call` (a named spec action, with `$args`), `seq`, `all`, `log`.

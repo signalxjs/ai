@@ -128,6 +128,25 @@ describe('createActionRunner', () => {
         expect(calls[0]![1].body).toBe('{"a":1}');
     });
 
+    it('`else` runs when `if` is false — and is what a calculator digit needs, since the second `if` of an X / !X pair sees the first step\'s write', async () => {
+        // The pattern GPT-5 wrote: two steps guarded by `overwrite` and `!overwrite`. Sequential semantics run both once `overwrite` flips.
+        const twoIfs = [
+            { do: 'state.patch', if: { $: 'overwrite' }, value: { input: { $: '$args.d' }, overwrite: false } },
+            { do: 'state.set', if: { $: '!overwrite' }, path: 'input', value: { $: "input == '0' ? $args.d : input + $args.d" } }
+        ];
+        const withElse = [
+            { do: 'state.patch', if: { $: 'overwrite' }, value: { input: { $: '$args.d' }, overwrite: false }, else: [{ do: 'state.set', path: 'input', value: { $: "input == '0' ? $args.d : input + $args.d" } }] }
+        ];
+        for (const [steps, expected] of [[twoIfs, '22'], [withElse, '2']] as const) {
+            const { state, runner } = setup({ input: '1', overwrite: true });
+            await runner.run(steps, childScope(undefined, { $args: { d: '2' } }));
+            expect(state.input).toBe(expected);
+        }
+        const { state, runner } = setup({ n: 0 });
+        await runner.run([{ do: 'state.set', if: { $: 'n > 0' }, path: 'a', value: 1, else: [{ do: 'state.set', path: 'b', value: 2 }] }]);
+        expect(state).toEqual({ n: 0, b: 2 });
+    });
+
     it('a step that is not an object is an error', async () => {
         const { runner, errors } = setup();
         await runner.run(['nope' as unknown as ActionStep]);

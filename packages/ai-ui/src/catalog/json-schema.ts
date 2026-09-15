@@ -40,6 +40,7 @@ export function specJsonSchema(catalog: UICatalog): JsonSchema {
                 properties: {
                     do: { type: 'string', enum: Object.keys(catalog.actions) },
                     if: { $ref: '#/$defs/expr' },
+                    else: { type: 'array', description: 'Steps to run instead when "if" is false.', items: { $ref: '#/$defs/step' } },
                     as: { type: 'string', description: 'Bind the result to this name for later steps.' },
                     catch: { type: 'array', items: { $ref: '#/$defs/step' } }
                 },

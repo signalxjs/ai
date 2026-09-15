@@ -282,6 +282,24 @@ class Validator {
             return;
         }
         value.forEach((step, i) => this.step(step, [...path, i]));
+        if (this.final) this.negatedPairs(value, path);
+    }
+
+    /**
+     * Two adjacent steps guarded by `X` and `!X` look like if/else but are
+     * not: the second `if` is evaluated after the first step ran, so when the
+     * first step changes what `X` reads, both run. The fix is `else`.
+     */
+    private negatedPairs(steps: unknown[], path: Path): void {
+        const source = (s: unknown): string | undefined => (isPlainObject(s) && isExprValue(s.if) ? s.if.$.replace(/\s+/g, '') : undefined);
+        const negated = (a: string, b: string): boolean => b === `!(${a})` || b === `!${a}` || a === `!(${b})` || a === `!${b}`;
+        for (let i = 1; i < steps.length; i++) {
+            const a = source(steps[i - 1]);
+            const b = source(steps[i]);
+            if (a && b && negated(a, b)) {
+                this.warn([...path, i, 'if'], 'negates the previous step\'s "if", but is evaluated AFTER that step ran — if that step changes what the condition reads, both run. Put these steps in the previous step\'s "else" instead.');
+            }
+        }
     }
 
     step(value: unknown, path: Path): void {
@@ -294,6 +312,10 @@ class Validator {
             if (name !== undefined || this.final) this.error([...path, 'do'], 'must be an action name');
         } else if (this.final && !this.catalog.actions[name]) this.error([...path, 'do'], `unknown action "${name}"`);
         if (value.if !== undefined) this.exprValue(value.if, [...path, 'if'], true);
+        if (value.else !== undefined) {
+            if (value.if === undefined) this.warn([...path, 'else'], 'has no "if" to be the else of');
+            this.steps(value.else, [...path, 'else']);
+        }
         if (value.as !== undefined && (typeof value.as !== 'string' || !IDENT.test(value.as))) this.error([...path, 'as'], 'must be an identifier');
         if (value.catch !== undefined) this.steps(value.catch, [...path, 'catch']);
         if (name === 'call' && this.final) {
@@ -304,7 +326,7 @@ class Validator {
         if (name === 'ui.patch' && value.patches !== undefined && !Array.isArray(value.patches)) this.error([...path, 'patches'], 'must be an array');
         // Argument values may carry expressions anywhere; check the ones we can see.
         for (const k of Object.keys(value)) {
-            if (['do', 'if', 'as', 'catch', 'steps'].includes(k)) continue;
+            if (['do', 'if', 'else', 'as', 'catch', 'steps'].includes(k)) continue;
             this.argValue(value[k], [...path, k]);
         }
     }

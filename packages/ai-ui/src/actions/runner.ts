@@ -27,7 +27,10 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
             if (!step || typeof step !== 'object' || typeof step.do !== 'string') throw new UIActionError('a step must be { "do": "<action>", … }', step);
             if (step.if !== undefined) {
                 const cond = untrack(() => evaluateSource(step.if!.$, scope, env, true));
-                if (!truthy(cond)) continue;
+                if (!truthy(cond)) {
+                    if (Array.isArray(step.else)) await execute(step.else, scope, run);
+                    continue;
+                }
             }
             const handler = Object.prototype.hasOwnProperty.call(actions, step.do) ? actions[step.do] : undefined;
             if (!handler) throw new UIActionError(`unknown action "${step.do}"`, step);

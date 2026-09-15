@@ -58,7 +58,8 @@ export function describeCatalog(catalog: UICatalog, options: DescribeOptions = {
     out.push('');
     out.push('### Actions');
     out.push('An event handler is a list of steps, run in order and awaited: "on": { "press": [ { "do": "<action>", …args } ] }.');
-    out.push('A step may carry "if" ({"$": …}, skip when false), "as" (bind the result to a name for later steps; it is also $result) and "catch" (steps to run if it fails; $error is set).');
+    out.push('A step may carry "if" ({"$": …}, skip when false), "else" (steps to run instead when "if" is false), "as" (bind the result to a name for later steps; it is also $result) and "catch" (steps to run if it fails; $error is set).');
+    out.push('Steps run in order and each "if" is evaluated right before its step, so it sees what earlier steps wrote. For either/or logic use one step with "if" and "else" — never two steps guarded by X and !X (if the first step changes X, both run).');
     for (const [name, def] of Object.entries(catalog.actions)) {
         const args = def.args ? Object.entries(def.args).map(([n, s]) => propLine(n, s)).join('; ') : '';
         out.push(`- **${name}** — ${def.description}${args ? ` Args: ${args}.` : ''}${def.result ? ` Result: ${def.result}` : ''}`);
