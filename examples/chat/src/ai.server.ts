@@ -271,6 +271,11 @@ export const chat = serverStream({
             tools: [weather, time, sendEmail, renderUi],
             messages: input.messages,
             maxSteps: 4,
+            // OpenAI streams reasoning text only when asked for a summary; without
+            // it a GPT-5 turn is silent for the whole think (a minute for a UI).
+            // Anthropic's adaptive thinking is summarized by default. `effort` is
+            // the knob to trade wait for quality ('low' | 'medium' | 'high').
+            ...(input.selection.provider === 'openai' ? { providerOptions: { reasoning: { summary: 'auto' } } } : {}),
             // A closed tab aborts the model call and any running tool.
             signal: rq.abortSignal
         });

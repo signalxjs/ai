@@ -44,7 +44,9 @@ export const Part = component<{ part: UIPart; role: UIMessage['role']; live: boo
                 </div>
             );
         }
-        if (p.type === 'reasoning') return p.text ? <div class="reasoning">{p.text}</div> : null;
+        // A reasoning part with no text yet (or a provider that sends none) is
+        // still the model thinking: say so rather than show nothing.
+        if (p.type === 'reasoning') return p.text ? <div class="reasoning">{p.text}</div> : ctx.props.live ? <span class="thinking">thinking…</span> : null;
         // An attachment the user sent: show what it is, not its bytes.
         if (p.type === 'image' || p.type === 'file') return <code class="attachment">{p.type === 'file' && p.filename ? p.filename : p.mediaType}</code>;
         // Arguments still arriving: show the raw JSON as it lands, so a long
@@ -69,6 +71,8 @@ const Message = component<{ message: UIMessage; live: boolean; onEmit: (name: st
         const m = ctx.props.message;
         return (
             <div class={`msg ${m.role}`}>
+                {/* The turn has started but nothing has arrived: the model is thinking, or a provider that sends no reasoning text is. */}
+                {ctx.props.live && m.parts.length === 0 && <span class="thinking">thinking…</span>}
                 {m.parts.map((part, i) => (
                     <Part part={part} role={m.role} live={ctx.props.live && i === m.parts.length - 1} onEmit={ctx.props.onEmit} />
                 ))}
