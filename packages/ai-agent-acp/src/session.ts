@@ -25,7 +25,7 @@ import type {
     AcpSessionUpdate
 } from './schema.js';
 import { ACP_AUTH_REQUIRED, ACP_METHODS } from './schema.js';
-import { ACP_NS, createUpdateMapper, toConfigOptions, toPermissionOutcome, toPromptPart, toStopReason, toUsage, toAcpBlocks } from './stream.js';
+import { ACP_NS, createUpdateMapper, toConfigView, toPermissionOutcome, toPromptPart, toStopReason, toUsage, toAcpBlocks } from './stream.js';
 
 /** What the ref carries: enough to `session/load` the same id in the same place. */
 export interface AcpRefData {
@@ -162,7 +162,7 @@ export async function openAcpSession(o: OpenAcpSessionOptions): Promise<AgentSes
         else core.emit(event);
     };
     const emitConfig = () => {
-        const options = toConfigOptions(modes, configOptions);
+        const { options } = toConfigView(modes, configOptions);
         if (options.length) emit({ type: 'config', options });
     };
 
@@ -194,6 +194,14 @@ export async function openAcpSession(o: OpenAcpSessionOptions): Promise<AgentSes
             if (closed) return;
             switch (update.sessionUpdate) {
                 case 'current_mode_update':
+                    // An agent that never declared modes but reports one now
+                    // gains a mode state here — and with it the `mode` id. If
+                    // it ALSO declares a config option called `mode`, that
+                    // option's advertised id moves to `acp:mode` from this
+                    // point. The only id in the adapter that can move
+                    // mid-session, and it stays self-consistent: the last
+                    // `config` event always names exactly the ids
+                    // `configure()` accepts.
                     if (modes) modes = { ...modes, currentModeId: update.currentModeId };
                     else modes = { currentModeId: update.currentModeId, availableModes: [{ id: update.currentModeId, name: update.currentModeId }] };
                     emitConfig();
@@ -350,21 +358,38 @@ export async function openAcpSession(o: OpenAcpSessionOptions): Promise<AgentSes
         respond: (requestId, decision) => core.respond(requestId, decision),
         cancel: () => core.cancel(),
         async configure(patch: Readonly<Record<string, string>>) {
+            // The ids a client may send are the ones this session last
+            // EMITTED, and each one remembers what it drives — so an agent's
+            // own `mode` option and the session's ACP modes are both
+            // reachable, whatever they call themselves. Routing on the literal
+            // key instead meant the second of the two could never be set.
+            // Which ids exist depends on WHICH options the session has, not on
+            // their values, so one view serves the whole patch even as the
+            // loop moves them.
+            const { origins } = toConfigView(modes, configOptions);
             for (const [key, value] of Object.entries(patch)) {
-                if (key === 'mode') {
+                const origin = origins.get(key);
+                if (!origin) {
+                    throw new AgentError('protocol_error', `[sigx ai-agent-acp] unknown config option "${key}" (this session advertises: ${[...origins.keys()].join(', ') || 'none'})`);
+                }
+                if (origin.kind === 'mode') {
                     // Modes are per session: only send what this session was offered.
-                    if (!modes) throw new AgentError('protocol_error', `[sigx ai-agent-acp] session "${sessionId}" has no modes to set`);
-                    if (!modes.availableModes.some((m) => m.id === value)) throw new AgentError('protocol_error', `[sigx ai-agent-acp] unknown mode "${value}" (available: ${modes.availableModes.map((m) => m.id).join(', ')})`);
+                    if (!origin.modes.availableModes.some((m) => m.id === value)) {
+                        throw new AgentError('protocol_error', `[sigx ai-agent-acp] unknown mode "${value}" (available: ${origin.modes.availableModes.map((m) => m.id).join(', ')})`);
+                    }
                     await peer.request(ACP_METHODS.sessionSetMode, { sessionId, modeId: value });
-                    modes = { ...modes, currentModeId: value };
+                    modes = { ...(modes ?? origin.modes), currentModeId: value };
                     continue;
                 }
-                const option = configOptions?.find((c) => c.id === key);
-                if (!option) throw new AgentError('protocol_error', `[sigx ai-agent-acp] unknown config option "${key}"`);
-                if (option.type === 'boolean') await peer.request(ACP_METHODS.sessionSetConfigOption, { sessionId, configId: key, type: 'boolean', value: value === 'true' });
-                else await peer.request(ACP_METHODS.sessionSetConfigOption, { sessionId, configId: key, value });
-                configOptions = configOptions!.map((c): AcpSessionConfigOption => {
-                    if (c.id !== key) return c;
+                // `configId` is the AGENT's own id, never the id we advertised
+                // it under — the two differ exactly when they collided.
+                const option = origin.option;
+                if (option.type === 'boolean') await peer.request(ACP_METHODS.sessionSetConfigOption, { sessionId, configId: option.id, type: 'boolean', value: value === 'true' });
+                else await peer.request(ACP_METHODS.sessionSetConfigOption, { sessionId, configId: option.id, value });
+                // Matched by IDENTITY: the entry this id resolved to, not the
+                // first that happens to share its id.
+                configOptions = (configOptions ?? []).map((c): AcpSessionConfigOption => {
+                    if (c !== option) return c;
                     return c.type === 'boolean' ? { ...c, currentValue: value === 'true' } : { ...c, currentValue: value };
                 });
             }

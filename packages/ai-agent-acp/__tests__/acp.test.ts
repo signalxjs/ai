@@ -15,6 +15,7 @@ import { codingState, codingExtension } from '@sigx/ai-agent/coding';
 import { acp, gemini, cursor, claudeCodeAcp, codexAcp, copilotAcp, ACP_BASE_CAPABILITIES } from '@sigx/ai-agent-acp';
 import { fakeAcpAgent, FULL_CAPABILITIES, type FakeAcp } from './fake-acp-agent';
 import { isInsideRoots } from '../src/client-methods';
+import { toConfigView } from '../src/stream';
 
 const collect = async <T>(it: AsyncIterable<T>) => {
     const out: T[] = [];
@@ -310,6 +311,65 @@ describe('acp(): sessions and turns', () => {
         await expect(session.configure!({ nope: 'x' })).rejects.toThrow(/unknown config option/);
     });
 
+    it("keeps an agent's own \"mode\" option and the session's modes both reachable — two ids, two labels, two settings", async () => {
+        // Seen against `acp:copilot`: Copilot's ACP server declares a config
+        // option of its own called Mode while the session also has ACP modes.
+        // They are two different settings, and neither may shadow the other.
+        const { agent, fake } = connect({
+            modes: { currentModeId: 'ask', availableModes: [{ id: 'ask', name: 'Ask' }, { id: 'auto', name: 'Auto' }] },
+            configOptions: [{ id: 'mode', name: 'Mode', type: 'select', currentValue: 'fast', options: [{ value: 'fast', name: 'Fast' }, { value: 'thorough', name: 'Thorough' }] }],
+            onPrompt: async () => ({ stopReason: 'end_turn' })
+        });
+        const session = await agent.session({ cwd });
+        const all = collect(session.subscribe({ epoch: 0, seq: 0 }));
+
+        await session.configure!({ mode: 'auto', 'acp:mode': 'thorough' });
+
+        // Each reached its OWN method — the session mode through
+        // `session/set_mode`, the agent's option through
+        // `session/set_config_option` under the AGENT's id.
+        expect(fake.modes.get('fake-1')).toBe('auto');
+        expect(fake.configValues.get('mode')).toBe('thorough');
+        await session.close();
+
+        const configs = (await all).filter((e): e is Extract<AgentEvent, { type: 'config' }> => e.type === 'config');
+        // `mode` still means the session mode; the newcomer is namespaced. The
+        // LABELS go the other way — an agent's own name is not ours to rewrite.
+        expect(configs[0]!.options.map((o) => [o.id, o.label])).toEqual([['mode', 'Session mode'], ['acp:mode', 'Mode']]);
+        expect(configs.at(-1)!.options.map((o) => [o.id, o.current])).toEqual([['mode', 'auto'], ['acp:mode', 'thorough']]);
+    });
+
+    it("configure({ mode }) reaches set_config_option when the agent's mode is a config option, not a session mode", async () => {
+        const { agent, fake } = connect({
+            configOptions: [{ id: 'mode', name: 'Mode', type: 'select', currentValue: 'fast', options: [{ value: 'fast', name: 'Fast' }, { value: 'thorough', name: 'Thorough' }] }],
+            onPrompt: async () => ({ stopReason: 'end_turn' })
+        });
+        const session = await agent.session({ cwd });
+
+        // It used to throw "has no modes to set": routing on the literal key
+        // meant a session with no modes could not reach an option called mode.
+        await session.configure!({ mode: 'thorough' });
+
+        expect(fake.configValues.get('mode')).toBe('thorough');
+        expect(fake.modes.get('fake-1')).toBeUndefined();
+        await session.close();
+    });
+
+    it('an agent option merely NAMED "Mode" is disambiguated too — two identical dropdowns is the bug', async () => {
+        const { agent } = connect({
+            modes: { currentModeId: 'ask', availableModes: [{ id: 'ask', name: 'Ask' }] },
+            configOptions: [{ id: 'reasoning', name: 'Mode', type: 'boolean', currentValue: false }],
+            onPrompt: async () => ({ stopReason: 'end_turn' })
+        });
+        const session = await agent.session({ cwd });
+        const all = collect(session.subscribe({ epoch: 0, seq: 0 }));
+        await session.close();
+
+        const configs = (await all).filter((e): e is Extract<AgentEvent, { type: 'config' }> => e.type === 'config');
+        // The ids never collided, so neither moves; the labels did.
+        expect(configs[0]!.options.map((o) => [o.id, o.label])).toEqual([['mode', 'Session mode'], ['reasoning', 'Mode']]);
+    });
+
     it('resumes through session/resume, loads history through session/load into a new epoch, forks, lists', async () => {
         const resumable = connect({ onPrompt: async (api) => ((await api.text('again')), { stopReason: 'end_turn' }) });
         const s1 = await resumable.agent.session({ cwd });
@@ -571,7 +631,10 @@ describe('acp(): honesty (#88)', () => {
     it('configure({ mode }) on a session without modes rejects instead of sending session/set_mode blindly', async () => {
         const { agent, fake } = connect({ onPrompt: async () => ({ stopReason: 'end_turn' }) });
         const session = await agent.session({ cwd });
-        await expect(session.configure!({ mode: 'auto' })).rejects.toThrow(/no modes/);
+        // `mode` is no longer special-cased, so a session that advertises
+        // nothing rejects it as the unknown option it is — and says what it
+        // does advertise, which "no modes" never did.
+        await expect(session.configure!({ mode: 'auto' })).rejects.toThrow(/unknown config option "mode"[\s\S]*advertises: none/);
         expect(fake.requests.some((r) => r.method === 'session/set_mode')).toBe(false);
         const withModes = connect({ modes: { currentModeId: 'ask', availableModes: [{ id: 'ask', name: 'Ask' }] }, onPrompt: async () => ({ stopReason: 'end_turn' }) });
         const s2 = await withModes.agent.session({ cwd });
@@ -592,5 +655,50 @@ describe('acp(): honesty (#88)', () => {
         expect(events.at(-1)).toMatchObject({ type: 'state', value: 'closed' });
         expect(fake.requests.some((r) => r.method === 'session/close')).toBe(true);
         await expect(fetch(url, { method: 'POST' })).rejects.toThrow();
+    });
+});
+
+/**
+ * The mapping on its own, where the byte-for-byte case is easiest to state:
+ * an agent that does NOT collide must come out exactly as it always has.
+ */
+describe('toConfigView()', () => {
+    it('leaves a non-colliding agent untouched — same ids, same labels, same order', () => {
+        const view = toConfigView({ currentModeId: 'ask', availableModes: [{ id: 'ask', name: 'Ask' }] }, [
+            { id: 'model', name: 'Model', type: 'select', currentValue: 'fast', options: [{ value: 'fast', name: 'Fast' }] },
+            { id: 'thinking', name: 'Thinking', type: 'boolean', currentValue: false }
+        ]);
+
+        expect(view.options.map((o) => [o.id, o.label, o.current])).toEqual([
+            ['mode', 'Mode', 'ask'],
+            ['model', 'Model', 'fast'],
+            ['thinking', 'Thinking', 'false']
+        ]);
+        expect(view.options[2]!.values).toEqual([{ id: 'true' }, { id: 'false' }]);
+    });
+
+    it('remembers what each emitted id drives — by identity, not by id', () => {
+        const mine = { id: 'mode', name: 'Mode', type: 'boolean', currentValue: false } as const;
+        const modes = { currentModeId: 'ask', availableModes: [{ id: 'ask', name: 'Ask' }] };
+        const view = toConfigView(modes, [mine]);
+
+        expect(view.origins.get('mode')).toEqual({ kind: 'mode', modes });
+        // The agent's own entry, not a copy: `configure()` sends `option.id`.
+        expect(view.origins.get('acp:mode')).toEqual({ kind: 'option', option: mine });
+    });
+
+    it('emits no id twice, whatever the agent declares', () => {
+        const view = toConfigView({ currentModeId: 'a', availableModes: [{ id: 'a', name: 'A' }] }, [
+            { id: 'mode', name: 'One', type: 'boolean', currentValue: false },
+            { id: 'acp:mode', name: 'Two', type: 'boolean', currentValue: false }
+        ]);
+
+        const ids = view.options.map((o) => o.id);
+        expect(new Set(ids).size).toBe(ids.length);
+        expect(ids).toEqual(['mode', 'acp:mode', 'acp:acp:mode']);
+    });
+
+    it('says nothing when the session has neither', () => {
+        expect(toConfigView(null, null)).toEqual({ options: [], origins: new Map() });
     });
 });

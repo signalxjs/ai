@@ -139,30 +139,86 @@ export function toCategory(kind: AcpToolKind | null | undefined): string | undef
     return isCodingCategory(kind) ? kind : 'other';
 }
 
-/** Modes and config options as one `config` event payload. */
-export function toConfigOptions(modes: AcpSessionModeState | null | undefined, options: readonly AcpSessionConfigOption[] | null | undefined): ConfigOption[] {
+/** The id the session's own ACP modes are advertised under. */
+export const ACP_MODE_ID = 'mode';
+const MODE_LABEL = 'Mode';
+/** Used only when an agent declares an option that would render as "Mode" too. */
+const MODE_LABEL_QUALIFIED = 'Session mode';
+
+/**
+ * Where an emitted `ConfigOption` came from. Deliberately NOT a field on
+ * `ConfigOption` — that shape is the contract in `@sigx/ai-agent`. This is the
+ * adapter's own side table, so `configure()` routes on ORIGIN rather than on
+ * the literal key `mode`.
+ */
+export type AcpConfigOrigin = { readonly kind: 'mode'; readonly modes: AcpSessionModeState } | { readonly kind: 'option'; readonly option: AcpSessionConfigOption };
+
+export interface AcpConfigView {
+    /** The `config` event payload. */
+    readonly options: readonly ConfigOption[];
+    /** Emitted id → what it drives. One entry per `options` entry. */
+    readonly origins: ReadonlyMap<string, AcpConfigOrigin>;
+}
+
+/**
+ * Modes and config options as one `config` event payload, plus where each
+ * entry came from.
+ *
+ * An agent may declare a config option of its own called `mode` (GitHub
+ * Copilot's ACP server does) while the session also has ACP modes. They are
+ * two different settings, so both stay reachable and neither shadows the
+ * other — `ConfigOption.id` is what `configure()` addresses, so emitting it
+ * twice is a contract violation however the two render.
+ *
+ * The two halves of the collision are resolved in opposite directions, each
+ * the way it costs least:
+ *
+ * - `mode` keeps meaning the ACP SESSION mode. It is what every client and
+ *   `configure({ mode })` has always meant, so the colliding agent option is
+ *   namespaced instead (`acp:mode`).
+ * - The LABELS go the other way: an agent's own name is not ours to rewrite,
+ *   so when both would render as "Mode" it is OUR generic label that gets
+ *   specific. Keyed on the label, not the id — an option `{ id: 'reasoning',
+ *   name: 'Mode' }` puts two identical dropdowns on screen just as surely.
+ *
+ * With no collision nothing moves.
+ */
+export function toConfigView(modes: AcpSessionModeState | null | undefined, options: readonly AcpSessionConfigOption[] | null | undefined): AcpConfigView {
     const out: ConfigOption[] = [];
+    const origins = new Map<string, AcpConfigOrigin>();
+    const declared = options ?? [];
     if (modes) {
         out.push({
-            id: 'mode',
-            label: 'Mode',
+            id: ACP_MODE_ID,
+            label: declared.some((o) => o.name === MODE_LABEL) ? MODE_LABEL_QUALIFIED : MODE_LABEL,
             values: modes.availableModes.map((m) => ({ id: m.id, label: m.name, ...(m.description ? { description: m.description } : {}) })),
             current: modes.currentModeId
         });
+        origins.set(ACP_MODE_ID, { kind: 'mode', modes });
     }
-    for (const o of options ?? []) {
-        if (o.type === 'select') {
-            out.push({
-                id: o.id,
-                label: o.name,
-                values: o.options.map((v) => ({ id: v.value, label: v.name, ...(v.description ? { description: v.description } : {}) })),
-                current: o.currentValue
-            });
-        } else {
-            out.push({ id: o.id, label: o.name, values: [{ id: 'true' }, { id: 'false' }], current: String(o.currentValue) });
-        }
+    for (const o of declared) {
+        const id = uniqueId(o.id, origins);
+        out.push(
+            o.type === 'select'
+                ? {
+                      id,
+                      label: o.name,
+                      values: o.options.map((v) => ({ id: v.value, label: v.name, ...(v.description ? { description: v.description } : {}) })),
+                      current: o.currentValue
+                  }
+                : { id, label: o.name, values: [{ id: 'true' }, { id: 'false' }], current: String(o.currentValue) }
+        );
+        origins.set(id, { kind: 'option', option: o });
     }
-    return out;
+    return { options: out, origins };
+}
+
+/** A taken id is namespaced, never dropped: two settings mean two controls. */
+function uniqueId(id: string, taken: ReadonlyMap<string, unknown>): string {
+    if (!taken.has(id)) return id;
+    let candidate = `${ACP_NS}:${id}`;
+    for (let n = 2; taken.has(candidate); n++) candidate = `${ACP_NS}:${id}:${n}`;
+    return candidate;
 }
 
 /** The permission option a decision selects, or `cancelled`. */
