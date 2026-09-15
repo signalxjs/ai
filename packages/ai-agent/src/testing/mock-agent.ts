@@ -43,6 +43,13 @@ export interface MockToolStep {
     readonly title?: string;
     readonly annotations?: ToolAnnotations;
     readonly category?: string;
+    /**
+     * The call's arguments arriving as raw JSON text before the call itself,
+     * the way a streaming provider sends them. Concatenated they are usually
+     * `JSON.stringify(input)`, but nothing checks that: a script can hand over
+     * text that never parses, which is exactly what a client has to survive.
+     */
+    readonly inputDeltas?: readonly string[];
     readonly source?: 'client' | 'native' | 'mcp';
     /** Session-grant key; default `tool:<name>`. */
     readonly permissionKey?: string;
@@ -130,6 +137,7 @@ export const MOCK_CAPABILITIES: AgentCapabilities = makeCapabilities({
     promptParts: 'text+image+file',
     tools: 'native',
     permissions: 'every-call',
+    streamingToolInput: true,
     importTranscript: true,
     subagents: 'control'
 });
@@ -286,6 +294,7 @@ export function mockAgent(options: MockAgentOptions = {}): MockAgent {
                 } else if ('tool' in step) {
                     const t = step.tool;
                     const callId = `call_${++callSeq}`;
+                    for (const delta of t.inputDeltas ?? []) driver.emit({ type: 'tool-input-delta', callId, name: t.name, delta, messageId: frame.messageId });
                     driver.emit({
                         type: 'tool-call',
                         callId,

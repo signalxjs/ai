@@ -92,13 +92,16 @@ describe('agentConformance: codex(fake app-server)', () => {
         skip,
         sessionOptions: { cwd: '/repo' }
     });
-    it('skips the every-call permission scenarios (Codex is harness-filtered, the nested request one included), portable resume, the support-agent flow and the fixed session listing', () => {
+    it('skips the every-call permission scenarios (Codex is harness-filtered, the nested request one included), portable resume, streaming tool input, the support-agent flow and the fixed session listing', () => {
         expect(cases.filter((c) => c.skip).map((c) => c.name)).toEqual([
             'conformance: tool-permission',
             'conformance: headless-deny',
             'conformance: support-agent',
             'conformance: session-grant',
             'conformance: request-timeout',
+            // The app-server protocol has no argument deltas: items are
+            // announced whole.
+            'conformance: streaming-tool-input',
             'conformance: list-sessions',
             'conformance: portable-resume',
             'conformance: delegate-request'

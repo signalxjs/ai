@@ -77,6 +77,45 @@ async function openSession(script: readonly (readonly MockStep[])[], options: Se
 const inMemory = (served: ReturnType<typeof serveSession>): SessionTransport => ({ send: (c) => served.handleCommand(c), events: (from, o) => served.events(from, o) });
 
 describe('useAgentSession', () => {
+    it('writes a streaming call’s arguments into the part in place, and keeps one card when it settles', async () => {
+        const session = await openSession([[{ tool: { name: 'weather', input: { city: 'Paris' }, inputDeltas: ['{"ci', 'ty":"Pa', 'ris"}'], output: 'sunny' } }]], { policy: allowAll });
+        const m = mount(session);
+        await tick();
+
+        // Count how often the message LIST re-renders: a delta must write one
+        // part, not rebuild the transcript around it.
+        let listRuns = 0;
+        const stop = effect(() => {
+            m.view.messages.map((x) => x.parts.length);
+            listRuns++;
+        });
+        const runsBefore = listRuns;
+
+        const seen: string[] = [];
+        const off = effect(() => {
+            const part = m.view.messages.flatMap((x) => x.parts).find((x) => x.type === 'tool');
+            if (part?.type === 'tool' && part.inputText !== undefined) seen.push(part.inputText);
+        });
+
+        await m.view.prompt('go');
+        await tick();
+
+        // The card filled in as the arguments arrived…
+        expect(seen).toContain('{"ci');
+        expect(seen.at(-1)).toBe('{"city":"Paris"}');
+        // …and there is exactly one of it, settled.
+        const tools = m.view.messages.flatMap((x) => x.parts).filter((p: AgentPart) => p.type === 'tool');
+        expect(tools).toHaveLength(1);
+        expect(tools[0]).toMatchObject({ name: 'weather', status: 'completed', input: { city: 'Paris' } });
+        expect(m.container.querySelectorAll('.tool')).toHaveLength(1);
+        expect(m.container.querySelector('.tool')?.textContent).toBe('weather:completed');
+        // One push for the assistant message and one for the part — the deltas
+        // themselves never touched the list.
+        expect(listRuns - runsBefore).toBeLessThanOrEqual(3);
+        off();
+        stop();
+    });
+
     it('folds the session into a reactive transcript and renders it', async () => {
         const session = await openSession([[{ text: 'Hello there friend' }]]);
         const m = mount(session);

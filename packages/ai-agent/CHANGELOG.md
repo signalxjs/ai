@@ -8,6 +8,40 @@ follow [SemVer](https://semver.org/).
 
 ### Added
 
+- **Progressive tool input.** A `tool-input-delta` event carries a call's
+  arguments as raw JSON text before its `tool-call`, which then settles the
+  part they opened IN PLACE — one part per call, never two. `ToolPartState`
+  gains `inputText` (the raw text) and the reducer-only `status: 'streaming'`
+  (`ToolPartStatus`); `input` is the best partial read of the text, repaired
+  structurally (`{"ci` is a dangling key and reads as `{}`), and is ABSENT
+  when there is nothing to read at all — no text yet, or arguments that are
+  not JSON — so `'input' in part` is the honest test. A `tool-call` that names
+  no input settles the part with none, exactly as the non-streaming path. The
+  text is capped at 100 000 characters, the same cap `applyChunk` uses, and
+  the call still settles with the real input regardless. `toChatStream` maps
+  it to the `tool-input` `UIChunk` `useChat` already renders, `toUIMessages`
+  to a `streaming` `UIToolPart`, and `fromUIMessages` DROPS such a part — a
+  call that was written but never made is not history.
+- `AgentCapabilities.streamingToolInput` says whether an adapter carries
+  those deltas. It is a statement about the adapter, not a promise about every
+  call, so a client must never wait for a streaming part before showing a
+  call. `modelAgent` and `@sigx/ai-agent-claude-code` declare it; ACP refines
+  a call's input as a whole object rather than as appendable text, and the
+  Codex app-server protocol has no argument deltas. `agentConformance` gains a
+  `streaming-tool-input` scenario, which adapters declaring `false` skip with
+  a printed reason, and `mockAgent`'s tool step gains `inputDeltas` to script
+  them. `checkEventInvariants` holds a streamed `callId` to one turn — the id
+  is spent even when the turn ended before the call was made, because the
+  unsettled part is still in the transcript — and holds every delta and the
+  settling `tool-call` to one `name`, since the deltas open the part with it
+  and the settle does not rewrite it.
+- COMPATIBILITY: `tool-input-delta` is a new member of the event union, so a
+  `connectSession` client from an earlier version rejects the frame as
+  unknown. It still reaches the right transcript when the `tool-call` lands
+  and the cursor recovers on the next event, but pin client and server to the
+  same version to see streaming input. `WIRE_PROTOCOL_VERSION` is unchanged —
+  the envelope did not move.
+
 - `modelAgent({ models })` — further `LanguageModel`s a session may run on
   besides the default. The session announces a `model` `ConfigOption` when it
   opens (so a late joiner replaying from `{ epoch: 0, seq: 0 }` sees it) and

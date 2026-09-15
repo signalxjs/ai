@@ -49,15 +49,40 @@ export interface ReasoningPartState {
     providerData?: unknown;
 }
 
+/**
+ * A tool part's state: the wire's `ToolStatus` plus `streaming`, which only the
+ * REDUCER sets — the arguments are still arriving and the call has not been
+ * made. No adapter ever emits it; `tool-update.status` stays `ToolStatus`. The
+ * same split `@sigx/ai` makes with `UIToolState`.
+ */
+export type ToolPartStatus = ToolStatus | 'streaming';
+
 export interface ToolPartState {
     readonly type: 'tool';
     readonly callId: string;
     readonly name: string;
+    /**
+     * The call's arguments.
+     *
+     * While `status` is `streaming` this is the best partial read of
+     * `inputText`, repaired structurally: `{"ci` is a dangling key and reads
+     * as `{}`, `{"city":"Pa` as `{ city: 'Pa' }`. It is ABSENT when there is
+     * nothing to read at all — no text yet, or arguments that are not JSON —
+     * so `'input' in part` is the honest test for "an argument can be read",
+     * and an early `{}` means "nothing named yet", not "called with nothing".
+     * Once a `tool-call` has settled the part, this is the input the call was
+     * made with, and absent if it named none.
+     */
     input?: unknown;
+    /**
+     * The raw argument JSON as it arrives, while `status` is `streaming`, so a
+     * view can show the text before it parses. Deleted when the call settles.
+     */
+    inputText?: string;
     title?: string;
     annotations?: ToolAnnotations;
     category?: string;
-    status: ToolStatus;
+    status: ToolPartStatus;
     output?: unknown;
     error?: string;
     content?: readonly ContentBlock[];

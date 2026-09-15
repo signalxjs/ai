@@ -8,6 +8,14 @@ versions follow [SemVer](https://semver.org/).
 
 ### Added
 
+- `streamingToolInput: true`. A call's arguments now reach the transcript as
+  `tool-input-delta` events while the model writes them — the SDK's
+  `input_json_delta` frames, which the adapter already buffered internally and
+  only announced once assembled. The call itself is still announced exactly
+  once, at `content_block_stop`, and settles the part the deltas opened. The
+  deltas carry the MCP-stripped tool name, so they and the call agree, and a
+  sub-agent's deltas carry its `parentCallId` like the rest of its events.
+
 - Session option `thinking` (the SDK's `ThinkingConfig`), passed to
   `query()`, defaulting to `{ type: 'adaptive', display: 'summarized' }`. The
   adapter previously sent none, so every session ran on the SDK's default

@@ -54,6 +54,12 @@ export function fromUIMessages(messages: readonly UIMessage[], options: FromUIOp
                 emit({ type: 'part-start', turnId, messageId: m.id, partId, kind: p.type });
                 if (p.text) emit({ type: 'part-delta', turnId, partId, delta: p.text });
                 emit({ type: 'part-end', turnId, partId, ...(p.type === 'reasoning' && p.providerData !== undefined ? { providerData: p.providerData } : {}) });
+            } else if (p.type === 'tool' && p.state === 'streaming') {
+                // A call whose arguments were still being written when the
+                // transcript was captured was never made. Importing it as a
+                // `tool-call` would invent one. `@sigx/ai`'s own
+                // `toModelMessages` drops these for the same reason.
+                continue;
             } else if (p.type === 'tool') {
                 emit({ type: 'tool-call', turnId, messageId: m.id, callId: p.id, name: p.name, input: p.input });
                 const status = toolStatus(p.state);

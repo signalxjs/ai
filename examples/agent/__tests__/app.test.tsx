@@ -54,6 +54,37 @@ function withAgent(agent: Partial<AgentState>): { part: AgentPart; transcript: A
     return { part: tool({ agentId: full.agentId }), transcript };
 }
 
+describe('a call whose arguments are still being written', () => {
+    it('shows the raw text as it arrives, and no output or status box yet', () => {
+        const dom = render(tool({ status: 'streaming', inputText: '{"query":"sel', input: { query: 'sel' } }));
+
+        // The RAW text, not a signature of the partial parse: the point is that
+        // a long input reads as a stream rather than as a spinner.
+        expect(dom.querySelector('.tool-head')?.textContent).toBe('ToolSearch({"query":"sel…)');
+        expect(dom.querySelector('.tool-status')?.textContent).toBe('writing arguments');
+        expect(dom.querySelector('pre.tool-output')).toBeNull();
+        expect(dom.querySelector('.tool-empty')).toBeNull();
+        expect(dom.querySelector('.tool')?.className).toContain('streaming');
+    });
+
+    it('says nothing about arguments it does not have yet', () => {
+        const dom = render(tool({ status: 'streaming', inputText: '' }));
+        expect(dom.querySelector('.tool-head')?.textContent).toBe('ToolSearch(…)');
+    });
+});
+
+/**
+ * The stylesheet, read as text: happy-dom runs no cascade, so a DOM assertion
+ * cannot tell whether a streaming card is visually distinguishable at all.
+ */
+describe('the streaming tool style', () => {
+    it('gives a streaming card its own border treatment', async () => {
+        const { readFile } = await import('node:fs/promises');
+        const html = await readFile('examples/agent/index.html', 'utf8');
+        expect(html).toMatch(/\.tool\.streaming\s*\{[^}]*border/);
+    });
+});
+
 describe('tool output', () => {
     it('opens no <pre> for a call that completed with an EMPTY output (#128)', () => {
         const dom = render(tool({ output: '' }));

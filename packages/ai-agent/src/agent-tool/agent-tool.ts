@@ -49,7 +49,7 @@ export type AgentToolResult<O extends StandardSchemaV1 | undefined> = O extends 
  * a delegate's tokens are its own, reported on its `agent-update`, never
  * summed into the host session's totals.
  */
-const FORWARDED = new Set<AgentEvent['type']>(['part-start', 'part-delta', 'part-end', 'tool-call', 'tool-update', 'agent-start', 'agent-update', 'request', 'request-resolved', 'ext', 'error']);
+const FORWARDED = new Set<AgentEvent['type']>(['part-start', 'part-delta', 'part-end', 'tool-call', 'tool-input-delta', 'tool-update', 'agent-start', 'agent-update', 'request', 'request-resolved', 'ext', 'error']);
 
 /** How much of the prompt an `agent-start` describes. */
 const DESCRIPTION_CHARS = 200;

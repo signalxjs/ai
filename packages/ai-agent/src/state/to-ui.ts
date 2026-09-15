@@ -64,7 +64,19 @@ function assistantParts(m: AgentMessage): UIPart[] {
     for (const p of m.parts) {
         if (p.type === 'text') parts.push({ type: 'text', text: p.text });
         else if (p.type === 'reasoning') parts.push({ type: 'reasoning', text: p.text, ...(p.providerData !== undefined ? { providerData: p.providerData } : {}) });
-        else if (p.type === 'tool') {
+        else if (p.type === 'tool' && p.status === 'streaming') {
+            // `UIToolPart` documents `input` as ABSENT while the arguments are
+            // still arriving — `input: null` would read as "the call takes
+            // null", which is a different thing.
+            parts.push({
+                type: 'tool',
+                id: p.callId,
+                name: p.name,
+                state: 'streaming',
+                ...('input' in p ? { input: p.input } : {}),
+                ...(p.inputText !== undefined ? { inputText: p.inputText } : {})
+            });
+        } else if (p.type === 'tool') {
             const output = toolOutput(p);
             parts.push({
                 type: 'tool',
@@ -82,6 +94,8 @@ function assistantParts(m: AgentMessage): UIPart[] {
 /** `UIToolState` from a tool part's status (and its open request). */
 export function toolState(p: ToolPartState): UIToolState {
     switch (p.status) {
+        case 'streaming':
+            return 'streaming';
         case 'pending':
         case 'in_progress':
             return p.requestId !== undefined ? 'awaiting' : 'pending';

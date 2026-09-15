@@ -14,6 +14,10 @@ function scriptFor(scenario: ConformanceScenario): MockStep[] {
         case 'headless-deny':
         case 'request-timeout':
             return [{ tool: { name: 'guarded', input: {}, output: { ok: true }, source: 'client' } }, { text: 'Done.' }];
+        case 'streaming-tool-input':
+            // Split mid-key and mid-value on purpose: a client that only
+            // parses on whole chunks would still look right.
+            return [{ tool: { name: 'guarded', input: { city: 'Paris' }, inputDeltas: ['{"ci', 'ty":"Pa', 'ris"}'], output: { ok: true }, source: 'client' } }, { text: 'Done.' }];
         case 'session-grant':
             return [{ tool: { name: 'guarded', input: {}, output: { ok: true }, source: 'client' } }, { tool: { name: 'guarded', input: {}, output: { ok: true }, source: 'client' } }, { text: 'Done twice.' }];
         case 'configure':
@@ -116,6 +120,70 @@ describe('agentConformance', () => {
         const cases = agentConformance(() => mockAgent({ script: [[{ text: 'nope' }]] }), { capabilities: MOCK_CAPABILITIES });
         const perm = cases.find((c) => c.name === 'conformance: tool-permission')!;
         await expect(perm.run()).rejects.toBeInstanceOf(ConformanceError);
+    });
+
+    it('invariant checks hold a streamed callId to one turn, even when its call never came', () => {
+        const t1 = { sessionId: 's', epoch: 1, turnId: 't1' } as const;
+        const t2 = { sessionId: 's', epoch: 1, turnId: 't2' } as const;
+        const deltaIn = (ctx: typeof t1 | typeof t2, seq: number): AgentEvent => ({ ...ctx, seq, type: 'tool-input-delta', callId: 'c1', name: 'weather', delta: '{"a' });
+
+        // A turn cancelled mid-argument leaves a call written but never made.
+        // That is legal, and no `tool-call` is required to follow it.
+        const cancelled: AgentEvent[] = [
+            { ...t1, seq: 1, type: 'turn-start', input: [] },
+            deltaIn(t1, 2),
+            { ...t1, seq: 3, type: 'turn-end', stopReason: 'cancelled' }
+        ];
+        expect(() => checkEventInvariants(cancelled)).not.toThrow();
+
+        // But the callId is spent. Reusing it in a LATER turn would have a
+        // client appending to — or settling — the streaming part the cancelled
+        // turn left behind.
+        expect(() => checkEventInvariants([...cancelled, { ...t2, seq: 4, type: 'turn-start', input: [] }, deltaIn(t2, 5), { ...t2, seq: 6, type: 'turn-end', stopReason: 'end_turn' }])).toThrow(
+            /tool-input-delta for "c1".*another turn/
+        );
+        expect(() =>
+            checkEventInvariants([
+                ...cancelled,
+                { ...t2, seq: 4, type: 'turn-start', input: [] },
+                { ...t2, seq: 5, type: 'tool-call', callId: 'c1', name: 'weather' },
+                { ...t2, seq: 6, type: 'tool-update', callId: 'c1', status: 'completed' },
+                { ...t2, seq: 7, type: 'turn-end', stopReason: 'end_turn' }
+            ])
+        ).toThrow(/tool-call "c1".*streamed in another turn/);
+
+        // The name has to agree, because the deltas OPEN the part with it and
+        // the settling `tool-call` deliberately does not rewrite it — so a
+        // harness whose two halves disagree would leave the wrong tool named
+        // on the card, with nothing to notice it.
+        expect(() =>
+            checkEventInvariants([
+                { ...t1, seq: 1, type: 'turn-start', input: [] },
+                deltaIn(t1, 2),
+                { ...t1, seq: 3, type: 'tool-input-delta', callId: 'c1', name: 'shell', delta: '"}' },
+                { ...t1, seq: 4, type: 'turn-end', stopReason: 'end_turn' }
+            ])
+        ).toThrow(/tool-input-delta for "c1".*names "shell".*earlier deltas named "weather"/);
+        expect(() =>
+            checkEventInvariants([
+                { ...t1, seq: 1, type: 'turn-start', input: [] },
+                deltaIn(t1, 2),
+                { ...t1, seq: 3, type: 'tool-call', callId: 'c1', name: 'shell' },
+                { ...t1, seq: 4, type: 'tool-update', callId: 'c1', status: 'completed' },
+                { ...t1, seq: 5, type: 'turn-end', stopReason: 'end_turn' }
+            ])
+        ).toThrow(/tool-call "c1".*names "shell".*input deltas named "weather"/);
+
+        // Deltas and the call they belong to, in one turn, are fine.
+        expect(() =>
+            checkEventInvariants([
+                { ...t1, seq: 1, type: 'turn-start', input: [] },
+                deltaIn(t1, 2),
+                { ...t1, seq: 3, type: 'tool-call', callId: 'c1', name: 'weather', input: { a: 1 } },
+                { ...t1, seq: 4, type: 'tool-update', callId: 'c1', status: 'completed' },
+                { ...t1, seq: 5, type: 'turn-end', stopReason: 'end_turn' }
+            ])
+        ).not.toThrow();
     });
 
     it('invariant checks hold sub-agents to one start, a seen spawning call, and a terminal end', () => {

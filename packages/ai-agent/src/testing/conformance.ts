@@ -181,6 +181,15 @@ export const CONFORMANCE_SCENARIOS: readonly ConformanceScenario[] = [
         needs: { permissions: 'every-call' }
     },
     {
+        name: 'streaming-tool-input',
+        description: 'Call the `guarded` tool once with its arguments streamed as `tool-input-delta` events before the call itself.',
+        prompt: 'Use the guarded tool.',
+        tools: [CONFORMANCE_TOOLS.guarded],
+        interactive: false,
+        policy: allowAll,
+        needs: { streamingToolInput: true }
+    },
+    {
         name: 'configure',
         description: 'Announce at least one `config` option with two or more values (during the turn or when the session opens), reply with text; the suite then switches that option through `configure()` and expects a `config` event reflecting it.',
         prompt: 'Say hello.',
@@ -512,6 +521,31 @@ async function runScenario(scenario: ConformanceScenario, agent: Agent, options:
                 const res = r.events.find((e) => e.type === 'request-resolved');
                 assert(res && res.type === 'request-resolved' && res.by === 'timeout' && res.outcome === 'deny', 'an unanswered request must resolve to deny by timeout');
                 assert(r.events.some((e) => e.type === 'tool-update' && e.status === 'denied'), 'expected the tool to be denied');
+                assertStop(r.result, 'end_turn');
+                break;
+            }
+            case 'streaming-tool-input': {
+                const r = await runTurn(session, scenario);
+                const call = r.events.find((e): e is Extract<AgentEvent, { type: 'tool-call' }> => e.type === 'tool-call');
+                assert(call, 'expected the guarded tool to be called');
+                const deltas = r.events.filter((e): e is Extract<AgentEvent, { type: 'tool-input-delta' }> => e.type === 'tool-input-delta' && e.callId === call.callId);
+                assert(deltas.length > 0, 'an agent declaring streamingToolInput must stream this call’s arguments');
+                // Before, always: the deltas describe a call that has not been
+                // made yet, and a client folds them into the part the
+                // `tool-call` then settles.
+                assert(deltas.every((d) => d.seq < call.seq), 'every tool-input-delta must arrive before its tool-call');
+                assert(
+                    deltas.every((d) => d.name === call.name),
+                    'a delta names the same tool as the call it belongs to'
+                );
+                // What the deltas spell out is what the call was made with.
+                assertEqual(JSON.parse(deltas.map((d) => d.delta).join('')) as unknown, call.input, 'the concatenated deltas parse to the call’s input');
+                // One part per call, never two.
+                const t = createTranscript(session.id);
+                const reduce = createReducer();
+                for (const e of r.events) reduce(t, e);
+                const parts = t.messages.flatMap((m) => m.parts).filter((p) => p.type === 'tool' && p.callId === call.callId);
+                assert(parts.length === 1, `the deltas and the call must fold into ONE part (saw ${parts.length})`);
                 assertStop(r.result, 'end_turn');
                 break;
             }

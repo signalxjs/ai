@@ -236,6 +236,18 @@ export const Part = component<{ part: AgentPart } & ThreadProps>((ctx) => {
         // operator, the prompt in place on the card: Allow/Deny for a
         // permission, the answer form for a question (Claude Code's
         // `AskUserQuestion` arrives as an input request ON its tool call).
+        // The arguments are still being written: show the RAW text, not a
+        // signature of the partial parse. The point is that a long input reads
+        // as a stream rather than as a spinner.
+        if (p.status === 'streaming')
+            return (
+                <div class="tool streaming">
+                    <code class="tool-head">
+                        {p.name}({oneLine(p.inputText ?? '')}…)
+                    </code>
+                    <span class="tool-status">writing arguments</span>
+                </div>
+            );
         const open = p.requestId ? ctx.props.requests.find((r) => r.requestId === p.requestId) : undefined;
         const sig = signature(p.input);
         const output = outputText(p);

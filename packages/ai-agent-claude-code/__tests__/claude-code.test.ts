@@ -780,9 +780,12 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
         expect(fake.calls[0]!.mcpServers).toEqual({ 'sigx-tools': { type: 'http', url: 'http://127.0.0.1:1/mcp', headers: { Authorization: 'Bearer tok' } } });
         const nested = events.filter((e) => e.parentCallId === 'task_1');
         // The request resolution is a session-level decision, not part of the nested work.
-        expect(nested.map((e) => e.type)).toEqual(['part-start', 'part-delta', 'part-delta', 'part-end', 'tool-call', 'tool-update', 'tool-update']);
+        expect(nested.map((e) => e.type)).toEqual(['part-start', 'part-delta', 'part-delta', 'part-end', 'tool-input-delta', 'tool-input-delta', 'tool-call', 'tool-update', 'tool-update']);
         expect(nested[0]).toMatchObject({ actor: 'subagent' });
         expect(nested.find((e) => e.type === 'tool-call')).toMatchObject({ callId: 'toolu_9', name: 'echo', input: { x: 1 } });
+        // A sub-agent's argument deltas are nested too, and name the tool the
+        // way the call does (the MCP prefix already stripped).
+        expect(nested.filter((e) => e.type === 'tool-input-delta').every((e) => e.callId === 'toolu_9' && e.name === 'echo')).toBe(true);
         const asks = events.filter((e): e is Extract<AgentEvent, { type: 'request-resolved' }> => e.type === 'request-resolved');
         expect(asks).toHaveLength(2);
         expect(events.find((e) => e.type === 'tool-update' && e.callId === 'task_1' && e.status === 'completed')).toMatchObject({ output: 'summary' });
@@ -1383,6 +1386,21 @@ function scriptFor(scenario: ConformanceScenario): TurnScript {
                 yield* toolUseBlocks('toolu_g', 'mcp__sigx-tools__guarded', {});
                 yield* messageStop();
                 const r = await ctx.ask('mcp__sigx-tools__guarded', {});
+                yield toolResult('toolu_g', r.behavior === 'allow' ? '{"ok":true}' : (r.message ?? 'denied'), r.behavior === 'deny');
+                yield messageStart();
+                yield* textBlocks('Done.');
+                yield* messageStop();
+                yield RESULT();
+            };
+        case 'streaming-tool-input':
+            return async function* (_u, _t, ctx) {
+                const input = { city: 'Paris' };
+                yield messageStart();
+                // `toolUseBlocks` already streams the arguments in halves, the
+                // way the CLI does.
+                yield* toolUseBlocks('toolu_g', 'mcp__sigx-tools__guarded', input);
+                yield* messageStop();
+                const r = await ctx.ask('mcp__sigx-tools__guarded', input);
                 yield toolResult('toolu_g', r.behavior === 'allow' ? '{"ok":true}' : (r.message ?? 'denied'), r.behavior === 'deny');
                 yield messageStart();
                 yield* textBlocks('Done.');

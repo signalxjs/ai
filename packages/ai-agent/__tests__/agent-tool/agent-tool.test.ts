@@ -230,6 +230,34 @@ describe('agentTool', () => {
         ]);
     });
 
+    it('a delegate’s streaming tool input is namespaced too — not folded into the host’s call', async () => {
+        // The same id collision as above, one event earlier: an un-namespaced
+        // `tool-input-delta` would open its part on the HOST's `call_1`.
+        const look = defineTool({ name: 'look', description: 'x', input: question, execute: () => 'looked' });
+        const delegate = modelAgent({
+            id: 'delegate',
+            model: mockModel({
+                respond: (_r, round) => (round === 0 ? { toolCalls: [{ name: 'look', input: { question: 'q' }, inputDeltas: ['{"ques', 'tion":"q"}'] }] } : { text: 'found it' })
+            }),
+            tools: [look]
+        });
+        const ask = agentTool(delegate, { name: 'ask', description: 'x', input: question, prompt: (i) => i.question, sessionOptions: { policy: allowAll } });
+        const { events, t } = await hostTurn([ask], (round) => (round === 0 ? { toolCalls: [{ name: 'ask', input: { question: 'q' } }] } : { text: 'Summary.' }));
+
+        const hostCall = toolCalls(events).find((e) => e.name === 'ask')!;
+        const nestedCall = toolCalls(events).find((e) => e.name === 'look')!;
+        const deltas = events.filter((e): e is Extract<AgentEvent, { type: 'tool-input-delta' }> => e.type === 'tool-input-delta');
+        expect(deltas.length).toBeGreaterThan(0);
+        expect(deltas.every((d) => d.callId === nestedCall.callId)).toBe(true);
+        expect(deltas.every((d) => d.parentCallId === hostCall.callId)).toBe(true);
+        // And still one part per call: the deltas did not open a third.
+        const parts = t.messages.flatMap((m) => m.parts).filter((p) => p.type === 'tool');
+        expect(parts.map((p) => [p.name, p.callId, p.status])).toEqual([
+            ['ask', hostCall.callId, 'completed'],
+            ['look', nestedCall.callId, 'completed']
+        ]);
+    });
+
     it('two delegates in one turn keep their ids apart', async () => {
         const look = defineTool({ name: 'look', description: 'x', input: question, execute: () => 'looked' });
         const delegate = (name: string) => modelAgent({ id: name, model: mockModel({ respond: (_r, round) => (round === 0 ? { toolCalls: [{ name: 'look', input: { question: 'q' } }] } : { text: `${name} done` }) }), tools: [look] });

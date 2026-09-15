@@ -61,7 +61,7 @@ describe('agentConformance: copilot(fake client)', () => {
         skip,
         sessionOptions: { cwd: '/repo' }
     });
-    it('skips the every-call permission scenarios (Copilot is harness-filtered), structured output, fork, portable resume, the support-agent flow, sub-agent control and steering', () => {
+    it('skips the every-call permission scenarios (Copilot is harness-filtered), structured output, fork, portable resume, streaming tool input, the support-agent flow, sub-agent control and steering', () => {
         expect(cases.filter((c) => c.skip).map((c) => c.name)).toEqual([
             'conformance: tool-permission',
             'conformance: headless-deny',
@@ -69,6 +69,10 @@ describe('agentConformance: copilot(fake client)', () => {
             'conformance: support-agent',
             'conformance: session-grant',
             'conformance: request-timeout',
+            // The SDK does emit `assistant.tool_call_delta`, but its `toolName`
+            // is optional and our event requires a name, so the adapter does
+            // not carry them yet — the capability says what it honours today.
+            'conformance: streaming-tool-input',
             'conformance: fork',
             'conformance: portable-resume',
             'conformance: delegate-cancel',

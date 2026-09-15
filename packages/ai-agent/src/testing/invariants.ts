@@ -33,6 +33,20 @@ export function checkEventInvariants(events: readonly AgentEvent[], options: Eve
     const turnStarts = new Map<string, number>();
     const turnEnds = new Map<string, number>();
     const calls = new Map<string, string>();
+    /**
+     * callId → the turn its arguments streamed in, and the tool they named.
+     * Kept APART from `calls`: a streamed call has not been announced, so it
+     * must not trip the "reuses a callId" assert when its own `tool-call`
+     * lands, nor join the terminal-status sweep.
+     *
+     * The id is still SPENT — a turn cancelled mid-argument leaves a streaming
+     * part behind, and a later turn reusing that id would have a client
+     * appending to it, or settling it. The NAME matters for the same reason:
+     * the deltas open the part with it and the settling `tool-call`
+     * deliberately does not rewrite it, so a harness whose two halves disagree
+     * would leave the wrong tool named on the card forever.
+     */
+    const streamedIn = new Map<string, { readonly turnId: string | undefined; readonly name: string }>();
     const agents = new Map<string, string>();
     /** callId → agentId: a spawning call binds at most one agent, or `spawnedAgent` is ambiguous. */
     const spawnedBy = new Map<string, string>();
@@ -62,8 +76,39 @@ export function checkEventInvariants(events: readonly AgentEvent[], options: Eve
                 assert(e.turnId !== undefined, `turn-end at seq ${e.seq} has no turnId`);
                 turnEnds.set(e.turnId, (turnEnds.get(e.turnId) ?? 0) + 1);
                 break;
+            case 'tool-input-delta':
+                // The deltas come BEFORE the call they describe — that is the
+                // whole point of them. One arriving after is a harness
+                // reopening a call it already made.
+                // Deliberately NOT tracked alongside `calls`: a streaming
+                // call has not been announced, so it must not trip the
+                // "reuses a callId" assert when its `tool-call` lands, nor
+                // join the terminal-status sweep. Nor is a `tool-call`
+                // required to follow — a cancelled turn legitimately leaves a
+                // call written but never made.
+                assert(!calls.has(e.callId), `tool-input-delta for "${e.callId}" at seq ${e.seq} arrived after its tool-call`);
+                {
+                    const streamed = streamedIn.get(e.callId);
+                    if (streamed) {
+                        assert(streamed.turnId === e.turnId, `tool-input-delta for "${e.callId}" at seq ${e.seq} is in turn "${e.turnId}", but that call streamed in another turn ("${streamed.turnId}")`);
+                        assert(streamed.name === e.name, `tool-input-delta for "${e.callId}" at seq ${e.seq} names "${e.name}", but its earlier deltas named "${streamed.name}"`);
+                    } else {
+                        streamedIn.set(e.callId, { turnId: e.turnId, name: e.name });
+                    }
+                }
+                break;
             case 'tool-call':
                 assert(!calls.has(e.callId), `tool-call "${e.callId}" at seq ${e.seq} reuses a callId already announced`);
+                {
+                    const streamed = streamedIn.get(e.callId);
+                    if (streamed) {
+                        assert(streamed.turnId === e.turnId, `tool-call "${e.callId}" at seq ${e.seq} is in turn "${e.turnId}", but that call streamed in another turn ("${streamed.turnId}")`);
+                        // The deltas opened the part under their name and the
+                        // settle does not rewrite it, so disagreeing here
+                        // leaves the wrong tool named on the card.
+                        assert(streamed.name === e.name, `tool-call "${e.callId}" at seq ${e.seq} names "${e.name}", but its input deltas named "${streamed.name}"`);
+                    }
+                }
                 calls.set(e.callId, 'pending');
                 break;
             case 'tool-update':
