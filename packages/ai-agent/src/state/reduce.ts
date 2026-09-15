@@ -114,7 +114,12 @@ export function createReducer(options: CreateReducerOptions = {}): AgentReducer 
                 // first delta.
                 const open = findTool(t, e.callId);
                 if (open && open.status === 'streaming') {
+                    // The call says how it was actually made. When it names no
+                    // input the part must end up exactly as the non-streaming
+                    // path leaves it — a repaired prefix is a reading of what
+                    // was being written, not the arguments the call confirmed.
                     if (e.input !== undefined) open.input = e.input;
+                    else delete open.input;
                     if (e.title !== undefined) open.title = e.title;
                     if (e.annotations !== undefined) open.annotations = e.annotations;
                     if (e.category !== undefined) open.category = e.category;

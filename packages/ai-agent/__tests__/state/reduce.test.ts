@@ -372,6 +372,23 @@ describe('reduceAgentEvent: tool-input-delta', () => {
         expect('input' in toolParts(t)[0]!).toBe(false);
     });
 
+    it('settles with no input when the call names none — a repaired prefix is not the arguments it was made with', () => {
+        seq = 0;
+        const t = reduceAll([
+            ev({ type: 'tool-input-delta', turnId: 't1', callId: 'c1', name: 'weather', delta: '{"ci' }),
+            // The deltas left a REPAIRED `{}` behind. The `tool-call` is what
+            // says how the call was actually made, and it names no input — so
+            // the part must end up exactly as the non-streaming path leaves
+            // it, rather than keeping a guess the call did not confirm.
+            ev({ type: 'tool-call', turnId: 't1', callId: 'c1', name: 'weather' })
+        ]);
+
+        const part = toolParts(t)[0]!;
+        expect(part.status).toBe('pending');
+        expect('input' in part).toBe(false);
+        expect('inputText' in part).toBe(false);
+    });
+
     it('ignores a delta that arrives after the call it describes — never reopens a settled part', () => {
         seq = 0;
         const t = reduceAll([

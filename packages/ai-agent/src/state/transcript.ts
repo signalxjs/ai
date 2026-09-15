@@ -62,10 +62,16 @@ export interface ToolPartState {
     readonly callId: string;
     readonly name: string;
     /**
-     * The call's arguments. While `status` is `streaming` this is the best
-     * partial read of `inputText` and may be ABSENT — nothing parses out of
-     * `{"ci` — so `'input' in part` is the honest test for "an argument can be
-     * read". Never absent once a `tool-call` landed carrying one.
+     * The call's arguments.
+     *
+     * While `status` is `streaming` this is the best partial read of
+     * `inputText`, repaired structurally: `{"ci` is a dangling key and reads
+     * as `{}`, `{"city":"Pa` as `{ city: 'Pa' }`. It is ABSENT when there is
+     * nothing to read at all — no text yet, or arguments that are not JSON —
+     * so `'input' in part` is the honest test for "an argument can be read",
+     * and an early `{}` means "nothing named yet", not "called with nothing".
+     * Once a `tool-call` has settled the part, this is the input the call was
+     * made with, and absent if it named none.
      */
     input?: unknown;
     /**

@@ -341,8 +341,10 @@ never two:
 ```tsx
 if (part.type === 'tool' && part.status === 'streaming') {
     // `inputText` is the raw JSON so far; `input` is the best partial read of
-    // it and is ABSENT when nothing parses yet (`{"ci` is not a value), or
-    // when the arguments are not JSON at all.
+    // it, repaired structurally — `{"ci` is a dangling key and reads as `{}`,
+    // `{"city":"Pa` as `{ city: 'Pa' }`. It is ABSENT when there is nothing to
+    // read at all: no text yet, or arguments that are not JSON. So an early
+    // `{}` means "nothing named yet", not "called with nothing".
     return <code>{part.name}({part.inputText}…)</code>;
 }
 ```

@@ -12,8 +12,11 @@ follow [SemVer](https://semver.org/).
   arguments as raw JSON text before its `tool-call`, which then settles the
   part they opened IN PLACE — one part per call, never two. `ToolPartState`
   gains `inputText` (the raw text) and the reducer-only `status: 'streaming'`
-  (`ToolPartStatus`); `input` is the best partial read of the text and is
-  ABSENT while nothing parses, so `'input' in part` is the honest test. The
+  (`ToolPartStatus`); `input` is the best partial read of the text, repaired
+  structurally (`{"ci` is a dangling key and reads as `{}`), and is ABSENT
+  when there is nothing to read at all — no text yet, or arguments that are
+  not JSON — so `'input' in part` is the honest test. A `tool-call` that names
+  no input settles the part with none, exactly as the non-streaming path. The
   text is capped at 100 000 characters, the same cap `applyChunk` uses, and
   the call still settles with the real input regardless. `toChatStream` maps
   it to the `tool-input` `UIChunk` `useChat` already renders, `toUIMessages`
