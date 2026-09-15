@@ -115,8 +115,9 @@ export function createPlayground(api: PlaygroundApi = serverApi): Playground {
         })();
     }
 
-    async function attach(info: SessionInfo): Promise<void> {
-        if (clients.has(info.sessionId)) return;
+    /** Join a session; `false` when nothing was joined (already joined, or the page has gone). */
+    async function attach(info: SessionInfo): Promise<boolean> {
+        if (clients.has(info.sessionId)) return false;
         const client = await connectSession(transportFor(info.sessionId), {
             from: { epoch: 0, seq: 0 },
             // A reload of a long session replays everything into this buffer
@@ -129,12 +130,13 @@ export function createPlayground(api: PlaygroundApi = serverApi): Playground {
         // long enough): the session stays on the server, this connection does not.
         if (disconnected) {
             client.disconnect();
-            return;
+            return false;
         }
         clients.set(info.sessionId, client);
         state.rows = [...state.rows, info];
         if (!state.selected) state.selected = info.sessionId;
         watch(info.sessionId, client);
+        return true;
     }
 
     return {
@@ -188,9 +190,11 @@ export function createPlayground(api: PlaygroundApi = serverApi): Playground {
                     state.catalog = await api.catalog().catch(() => state.catalog);
                     return;
                 }
-                await attach(result.session);
-                // Unless the operator moved on to another session meanwhile.
-                if (state.selected === OPENING) state.selected = result.session.sessionId;
+                const attached = await attach(result.session);
+                // Unless the operator moved on to another session meanwhile —
+                // or the page has gone and there is no row to select.
+                if (attached && state.selected === OPENING) state.selected = result.session.sessionId;
+                else if (!attached) unselectOpening(previous);
             } catch (e) {
                 state.error = `Could not open a ${request.agent} session: ${e instanceof Error ? e.message : String(e)}`;
                 console.error('[agent] open failed', e);

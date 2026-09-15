@@ -349,6 +349,8 @@ describe('the shell', () => {
         expect(served.has('s2')).toBe(true);
         expect(pg.client('s2')).toBeUndefined();
         expect(pg.state.rows.map((r) => r.sessionId)).not.toContain('s2');
+        // And nothing selects a session no row has.
+        expect(pg.state.selected).not.toBe('s2');
     });
 
     it('a failed open drops the pending pane, shows the reason and goes back to the previous session', async () => {
