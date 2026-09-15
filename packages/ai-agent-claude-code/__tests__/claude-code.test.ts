@@ -1285,6 +1285,22 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
         await collecting;
     });
 
+    it('refuses a permissionMode the adapter does not have, before it can reach a query', async () => {
+        const fake = fakeQuery(() => [messageStart(), ...textBlocks('hi'), ...messageStop(), RESULT()]);
+        const agent = claudeCode({ query: fake.query, listen: fakeListen });
+        const session = await agent.session({ cwd, interactive: false });
+
+        // Recording an unchecked value would carry it into the first query and
+        // out to the CLI — and a mistyped `bypassPermissions` would sail past
+        // the guard that exists to catch exactly that.
+        await expect(session.configure!({ permissionMode: 'bypassPermission' })).rejects.toThrow(/permissionMode must be one of/);
+        await expect(session.configure!({ permissionMode: 'Plan' })).rejects.toThrow(/permissionMode must be one of/);
+
+        await drain(session.prompt('hi'));
+        expect(fake.calls[0]).toMatchObject({ permissionMode: 'default' });
+        await agent.dispose();
+    });
+
     it('a setting the session took survives the restart a new output schema forces', async () => {
         const fake = fakeQuery(() => [messageStart(), ...textBlocks('hi'), ...messageStop(), RESULT()]);
         const agent = claudeCode({ query: fake.query, listen: fakeListen });

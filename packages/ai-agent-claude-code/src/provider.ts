@@ -21,7 +21,7 @@ import type { Agent, AgentCapabilities, AgentSession, CancelTarget, PromptInput,
 import { listenMcp, resolveExecutable, spawnAgentProcess, type AgentProcess } from '@sigx/ai-agent-node';
 import type { ClaudeCodeOptions, ClaudeCodeSessionOptions } from './options.js';
 import { createCanUseTool, type PermissionTarget } from './permissions.js';
-import { THINKING_DISPLAYS, createConfigState, resolvePermissionMode, thinkingBudgetOf, thinkingDisplayOf, toOutputFormat, toQueryOptions, toUserMessage, type PendingConfig, type ThinkingDisplay } from './request.js';
+import { PERMISSION_MODES, THINKING_DISPLAYS, createConfigState, resolvePermissionMode, thinkingBudgetOf, thinkingDisplayOf, toOutputFormat, toQueryOptions, toUserMessage, type PendingConfig, type ThinkingDisplay } from './request.js';
 import { createTurnMapper, mapSessionMessage, type TurnMapper } from './stream.js';
 import { createAgentTracker } from './tasks.js';
 import { startToolServer, type ToolServer } from './tools.js';
@@ -390,6 +390,15 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
                     config.update({ model: patch.model });
                 }
                 if (patch.permissionMode !== undefined) {
+                    // Checked before anything is recorded or sent: `patch` is a
+                    // bare `Record<string, string>`, and an unchecked value now
+                    // rides into every query this session starts. A mistyped
+                    // `bypassPermissions` would also slip past the guard below
+                    // — it compares for equality — and reach the CLI as a mode
+                    // nobody meant.
+                    if (!(PERMISSION_MODES as readonly string[]).includes(patch.permissionMode)) {
+                        throw new AgentError('protocol_error', `[sigx ai-agent-claude-code] permissionMode must be one of ${PERMISSION_MODES.join(', ')}, not "${patch.permissionMode}"`);
+                    }
                     if (patch.permissionMode === 'bypassPermissions' && !options.allowDangerouslySkipPermissions) throw new AgentError('protocol_error', '[sigx ai-agent-claude-code] bypassPermissions needs allowDangerouslySkipPermissions');
                     if (running) await running.setPermissionMode(patch.permissionMode as never);
                     configured = { ...configured, permissionMode: patch.permissionMode as PendingConfig['permissionMode'] };
