@@ -128,23 +128,47 @@ describe('createActionRunner', () => {
         expect(calls[0]![1].body).toBe('{"a":1}');
     });
 
-    it('`else` runs when `if` is false — and is what a calculator digit needs, since the second `if` of an X / !X pair sees the first step\'s write', async () => {
-        // The pattern GPT-5 wrote: two steps guarded by `overwrite` and `!overwrite`. Sequential semantics run both once `overwrite` flips.
+    it('consecutive guarded steps are one decision: the calculator digit chains GPT-5 writes press one digit, not two', async () => {
+        // Two cases guarded by `overwrite` / `!overwrite`: the first flips `overwrite`, the second must not see that.
         const twoIfs = [
             { do: 'state.patch', if: { $: 'overwrite' }, value: { input: { $: '$args.d' }, overwrite: false } },
             { do: 'state.set', if: { $: '!overwrite' }, path: 'input', value: { $: "input == '0' ? $args.d : input + $args.d" } }
         ];
-        const withElse = [
-            { do: 'state.patch', if: { $: 'overwrite' }, value: { input: { $: '$args.d' }, overwrite: false }, else: [{ do: 'state.set', path: 'input', value: { $: "input == '0' ? $args.d : input + $args.d" } }] }
+        // The three-way chain from a real spec, followed by an unguarded step that must see the writes.
+        const pressDigit = [
+            { do: 'state.patch', if: { $: 'error' }, value: { display: { $: '$args.d' }, current: { $: '$args.d' }, overwrite: false, error: false } },
+            { do: 'state.patch', if: { $: '!error && overwrite' }, value: { current: { $: '$args.d' }, overwrite: false } },
+            { do: 'state.set', if: { $: '!error && !overwrite' }, path: 'current', value: { $: "current == '0' ? $args.d : current + $args.d" } },
+            { do: 'state.set', path: 'display', value: { $: 'current' } }
         ];
-        for (const [steps, expected] of [[twoIfs, '22'], [withElse, '2']] as const) {
+        {
             const { state, runner } = setup({ input: '1', overwrite: true });
-            await runner.run(steps, childScope(undefined, { $args: { d: '2' } }));
-            expect(state.input).toBe(expected);
+            await runner.run(twoIfs, childScope(undefined, { $args: { d: '2' } }));
+            expect(state.input).toBe('2');
         }
-        const { state, runner } = setup({ n: 0 });
-        await runner.run([{ do: 'state.set', if: { $: 'n > 0' }, path: 'a', value: 1, else: [{ do: 'state.set', path: 'b', value: 2 }] }]);
-        expect(state).toEqual({ n: 0, b: 2 });
+        {
+            const { state, runner } = setup({ display: '0', current: '0', overwrite: true, error: false });
+            const press = (d: string) => runner.run(pressDigit, childScope(undefined, { $args: { d } }));
+            await press('1');
+            expect(state).toMatchObject({ current: '1', display: '1', overwrite: false });
+            await press('2');
+            expect(state).toMatchObject({ current: '12', display: '12' });
+            state.error = true;
+            await press('7');
+            expect(state).toMatchObject({ current: '7', display: '7', error: false });
+        }
+    });
+
+    it('a guard after an unguarded step sees its write; `as` results are live inside a group; `else` runs when `if` is false', async () => {
+        const { state, runner } = setup({ n: 0, flag: false }, { actions: { probe: () => ({ ok: true }) } });
+        await runner.run([
+            { do: 'state.set', path: 'flag', value: true },
+            { do: 'state.set', if: { $: 'flag' }, path: 'sawFlag', value: true },
+            { do: 'probe', if: { $: 'flag' }, as: 'r' },
+            { do: 'state.set', if: { $: 'r.ok' }, path: 'sawResult', value: true },
+            { do: 'state.set', if: { $: 'n > 0' }, path: 'a', value: 1, else: [{ do: 'state.set', path: 'b', value: 2 }] }
+        ]);
+        expect(state).toEqual({ n: 0, flag: true, sawFlag: true, sawResult: true, b: 2 });
     });
 
     it('a step that is not an object is an error', async () => {

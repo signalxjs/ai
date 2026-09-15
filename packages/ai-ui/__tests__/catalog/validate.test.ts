@@ -48,12 +48,12 @@ describe('validateSpec', () => {
         ]);
     });
 
-    it('warns about two adjacent steps guarded by X and !X, and accepts else', () => {
+    it('accepts guard chains and else, and checks else steps', () => {
         const pair = { root: { type: 'button', props: { label: 'x' }, on: { press: [
             { do: 'state.set', if: { $: 'overwrite' }, path: 'a', value: 1 },
             { do: 'state.set', if: { $: '!(overwrite)' }, path: 'a', value: 2 }
         ] } } };
-        expect(messages(pair)).toEqual(['warning root.on.press.1.if: negates the previous step\'s "if", but is evaluated AFTER that step ran — if that step changes what the condition reads, both run. Put these steps in the previous step\'s "else" instead.']);
+        expect(messages(pair)).toEqual([]);
         const withElse = { root: { type: 'button', props: { label: 'x' }, on: { press: [
             { do: 'state.set', if: { $: 'overwrite' }, path: 'a', value: 1, else: [{ do: 'state.set', path: 'a', value: 2 }] }
         ] } } };

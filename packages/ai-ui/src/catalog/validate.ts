@@ -282,24 +282,6 @@ class Validator {
             return;
         }
         value.forEach((step, i) => this.step(step, [...path, i]));
-        if (this.final) this.negatedPairs(value, path);
-    }
-
-    /**
-     * Two adjacent steps guarded by `X` and `!X` look like if/else but are
-     * not: the second `if` is evaluated after the first step ran, so when the
-     * first step changes what `X` reads, both run. The fix is `else`.
-     */
-    private negatedPairs(steps: unknown[], path: Path): void {
-        const source = (s: unknown): string | undefined => (isPlainObject(s) && isExprValue(s.if) ? s.if.$.replace(/\s+/g, '') : undefined);
-        const negated = (a: string, b: string): boolean => b === `!(${a})` || b === `!${a}` || a === `!(${b})` || a === `!${b}`;
-        for (let i = 1; i < steps.length; i++) {
-            const a = source(steps[i - 1]);
-            const b = source(steps[i]);
-            if (a && b && negated(a, b)) {
-                this.warn([...path, i, 'if'], 'negates the previous step\'s "if", but is evaluated AFTER that step ran — if that step changes what the condition reads, both run. Put these steps in the previous step\'s "else" instead.');
-            }
-        }
     }
 
     step(value: unknown, path: Path): void {

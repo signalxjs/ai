@@ -89,9 +89,12 @@ keys of data objects are unreachable.
 ### Actions
 
 Steps run in order, each awaited: `{ "do", "if"?, "else"?, "as"?, "catch"?, …args }`.
-An `if` is evaluated right before its step, so it sees what earlier steps
-wrote; either/or logic is one step with `if` and `else`, never two steps
-guarded by `X` and `!X` (the validator warns about that pair).
+Consecutive steps that carry `if` form one decision, like a switch: all
+their conditions are judged against the state as it was before the first
+of them ran, so `if: overwrite` / `if: !overwrite` on adjacent steps are
+two cases, never both. A step without `if` ends the group and sees the
+writes. Step values are always resolved live. `else` runs when `if` is
+false.
 Built-ins: `state.set | patch | push | remove | toggle`, `ui.patch`, `http`
 (same-origin by default, `http.allowHosts` for more), `delay`, `emit` (to
 the host), `call` (a named spec action, with `$args`), `seq`, `all`, `log`.
