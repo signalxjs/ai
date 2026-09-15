@@ -26,16 +26,18 @@
             .pane[hidden] { display: none; }
             main.compare .pane { min-height: 0; border: 1px solid color-mix(in srgb, CanvasText 15%, Canvas); border-radius: 0.6rem; padding: 0 0.8rem; }
             .session-row { display: flex; align-items: stretch; gap: 0.2rem; border: 1px solid color-mix(in srgb, CanvasText 15%, Canvas); border-radius: 0.5rem; overflow: hidden; }
-            .session-row.selected { border-color: Highlight; }
+            .session-row.selected { border-color: Highlight; background: color-mix(in srgb, Highlight 12%, Canvas); }
             .session-row.running, .session-row.awaiting { border-left: 3px solid Highlight; }
             .session-row.error { border-left: 3px solid crimson; }
+            .session-row.opening { border-style: dashed; }
             .session-pick { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 0.1rem; border: 0; border-radius: 0; background: none; padding: 0.4rem 0.6rem; text-align: left; }
             .session-name { font-size: 0.88em; }
             .session-meta { font-size: 0.72em; opacity: 0.65; overflow-wrap: anywhere; }
             .session-close { border: 0; border-radius: 0; background: none; padding: 0 0.5rem; opacity: 0.5; }
             .session-close:hover { opacity: 1; color: crimson; }
             .compare-toggle { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8em; opacity: 0.8; }
-            .new-session { display: flex; flex-direction: column; gap: 0.4rem; padding: 0.6rem; border: 1px dashed GrayText; border-radius: 0.5rem; margin-top: 0.3rem; }
+            .new-session { padding: 0.6rem; border: 1px dashed GrayText; border-radius: 0.5rem; margin-top: 0.3rem; }
+            .new-session fieldset { display: flex; flex-direction: column; gap: 0.4rem; border: 0; padding: 0; margin: 0; min-width: 0; }
             .new-session label, .config label { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.78em; }
             .new-session select, .new-session input, .config select { font: inherit; font-size: 0.95em; padding: 0.25rem 0.35rem; border-radius: 0.35rem; border: 1px solid GrayText; background: Field; color: FieldText; max-width: 100%; }
             .new-session button { padding: 0.35rem 0.7rem; font-size: 0.85em; }
