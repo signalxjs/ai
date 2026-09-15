@@ -102,9 +102,9 @@ adapter.**
 
 Two honest details the panel shows rather than hides:
 
-- Claude Code announces its settings only with the first turn, so a fresh
-  pane says *“reports its settings after its first message”* instead of
-  drawing a panel that cannot work yet (signalxjs/ai#139).
+- An agent that announces its settings only with the first turn — the
+  scripted mock does — gets a fresh pane saying *“reports its settings after
+  its first message”* instead of a panel that cannot work yet.
 - An option with one value renders **disabled**, showing what is running. A
   dropdown offering one choice is a lie.
 

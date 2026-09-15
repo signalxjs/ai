@@ -42,8 +42,17 @@ await agent.dispose();
 | `canUseTool` | `request` / `request-resolved` through `resolveRequest` — allow with the input unchanged, or deny with a message the model sees |
 | `AskUserQuestion` | `request { kind: 'input' }` carrying a `schema` (one property per question — an array for a multi-select, the labels as an `enum` branch beside an open string, since the tool always allows a free-text "Other"), the options flattened as `q<n>:<label>`, and the questions as `message`. `respond(id, { type: 'input', answers: { q1, q2, … } })` answers them: the answers ride back on `updatedInput`, keyed by question text, so the model sees "The user answered: …" — a question the operator did answer is never reported as a denial. Nobody to ask (a headless session, or a policy that declines) denies with "The questions were not answered." |
 | `result` | `usage` (turn, and the session's cumulative cost) + `turn-end` (`end_turn`, `max_tokens`, `max_turns`, `cancelled`, `error` incl. `context_exceeded`). The billed `reasoningTokens` (`output_tokens_details.thinking_tokens`, summed from `modelUsage` for the session) rides the session-scope event and `turn-end`, which ASSIGN and so replace the streamed estimate — never the turn-scope event, which would add it twice. |
-| `system/init` | `config` (a switchable model list — `CLAUDE_CODE_MODELS`, or `claudeCode({ models })`, always including the session's own — the permission mode, and `thinkingDisplay` when the session knows it); `configure({ model, permissionMode, thinkingDisplay })` calls `setModel` / `setPermissionMode` / `setMaxThinkingTokens` and re-announces every advertised setting, not just the one it changed |
+| `system/init` | `config` (a switchable model list — `CLAUDE_CODE_MODELS`, or `claudeCode({ models })`, always including the session's own — the permission mode, and `thinkingDisplay` when the session knows it); `configure({ model, permissionMode, thinkingDisplay })` calls `setModel` / `setPermissionMode` / `setMaxThinkingTokens` and re-announces every advertised setting, not just the one it changed. A session does not wait for this frame to say anything: it announces `permissionMode` and `thinkingDisplay` when it OPENS, from the options it was opened with, and `system/init` then reports what the CLI actually resolved. `model` is the one setting only the CLI can name (an alias, a settings file, a gateway id), so it appears only once `init` has spoken. |
 | auth and rate-limit frames | `error { code: 'auth_required' \| 'rate_limited' }`; everything else `ext { ns: 'claude-code' }` |
+
+`configure()` works before the first prompt. There is no CLI to apply a
+setting to yet, so the patch is recorded and the first `query()` starts with
+it — a client that wants to open a session in plan mode and then prompt does
+not have to send a message first to say so. The advertised state moves
+immediately: before a query that is not a claim the CLI took the setting, it
+is a commitment the first query keeps. The same record is re-applied whenever
+a query restarts (a `prompt(input, { output })` with a new schema does), so a
+setting the session has taken cannot quietly evaporate.
 
 Capabilities: `resume: 'local'`, `fork`, `cancel`, `config`, `structuredOutput`,
 `promptParts: 'text+image'`, `tools: 'mcp'`, `permissions: 'harness-filtered'`

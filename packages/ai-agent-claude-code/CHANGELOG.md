@@ -56,6 +56,22 @@ versions follow [SemVer](https://semver.org/).
 
 ### Fixed
 
+- A session advertised nothing until its first turn, and `configure()` before
+  that threw `configure() needs a running session (prompt first)` — so a client
+  rendering its controls from `view.config` had nothing to show and nothing to
+  set until a turn had already run, and opening a session in plan mode and then
+  prompting was not something a UI could offer. A session now announces
+  `permissionMode` and `thinkingDisplay` when it OPENS, resolved from the
+  options it was opened with through the same `resolvePermissionMode` the query
+  uses, so the advertised value and the value sent cannot drift. `model` still
+  waits for `system/init`: the CLI resolves aliases, settings and fallbacks, and
+  it is the first honest word on which model is running. `configure()` before
+  the first query records the patch and `toQueryOptions` folds it into that
+  query rather than refusing it.
+- A `configure()` the session had taken quietly evaporated when a query
+  restarted — a `prompt(input, { output })` with a new output schema rebuilt
+  its options from the session options alone. The recorded patch is now applied
+  to every query the session starts.
 - `configure()` announced only the settings it changed, so a client driving
   its controls off `transcript.config` lost the others until the next
   `system/init`: `configure({ permissionMode: 'plan' })` left a single-option
