@@ -100,3 +100,8 @@ export function modeOf(config: readonly ConfigOption[]): string | undefined {
     // model rather than keeping a list of ids in step with four adapters.
     return config.find((o) => o.id !== 'model')?.current;
 }
+
+/** `09:18:37` — enough to tell two sessions of the same agent apart, which their headings otherwise cannot. */
+export function openedAt(createdAt: number): string {
+    return new Date(createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+}

@@ -12,7 +12,7 @@ import { spawnedAgent, type ConfigOption } from '@sigx/ai-agent';
 import type { AgentSessionClient } from '@sigx/ai-agent/wire';
 import { useAgentSession } from '@sigx/ai-agent/app';
 import { AgentCard, Ask, Message, nonBlank, type Answers } from './Thread';
-import type { SessionInfo } from './catalog';
+import { openedAt, type SessionInfo } from './catalog';
 
 /**
  * The settings a session advertises, as controls — and the whole reason the
@@ -139,6 +139,9 @@ export const Session = component<{ session: AgentSessionClient; info: SessionInf
                 </h1>
                 <small>
                     {view.state}
+                    {/* Two sessions of one agent have the same heading; the time they
+                        were opened is what tells a switch between them apart. */}
+                    {` · opened ${openedAt(ctx.props.info.createdAt)}`}
                     {tokens() ? ` · ${tokens()} tokens` : ''}
                     {view.costUsd !== undefined ? ` · $${view.costUsd.toFixed(4)}` : ''}
                     {view.live ? '' : ' · offline'}

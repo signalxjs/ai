@@ -12,33 +12,43 @@
  * setup, so an unkeyed pane reused for a different session would keep folding
  * the old one; keeping every pane mounted also means switching costs nothing
  * and side-by-side comparison is one class away.
+ *
+ * One pane shows at a time (unless *Show all side by side* is on) — and that
+ * includes the session that does not exist yet: a click on New session
+ * selects a "Creating session…" pane at once, because a harness can take ten
+ * seconds to start and the previous conversation staying on screen reads as
+ * the click having done nothing.
  */
 import { component, useHead, onMounted, onUnmounted, signal } from 'sigx';
 import { Session } from './Session';
-import { createPlayground } from './sessions';
-import { modeOf, type AgentChoice, type CatalogEntry } from './catalog';
+import { createPlayground, OPENING, type Playground } from './sessions';
+import { modeOf, openedAt, type AgentChoice, type CatalogEntry, type OpenRequest } from './catalog';
 
-/** One row in the sidebar: what it is, what it is doing, and how to close it. */
+/** One row in the sidebar: what it is, what it is doing, and how to close it (none for a session that does not exist yet). */
 const SessionRow = component<{
     label: string;
     model: string | undefined;
     mode: string | undefined;
     state: string;
+    /** When it was opened; a pending row has none yet. */
+    opened?: string;
     selected: boolean;
     onSelect: () => void;
-    onClose: () => void;
+    onClose?: () => void;
 }>((ctx) => {
     return () => (
         <div class={`session-row ${ctx.props.selected ? 'selected' : ''} ${ctx.props.state}`}>
             <button type="button" class="session-pick" onClick={ctx.props.onSelect}>
                 <span class="session-name">{ctx.props.label}</span>
                 <span class="session-meta">
-                    {[ctx.props.model, ctx.props.mode, ctx.props.state].filter(Boolean).join(' · ')}
+                    {[ctx.props.model, ctx.props.mode, ctx.props.state, ctx.props.opened].filter(Boolean).join(' · ')}
                 </span>
             </button>
-            <button type="button" class="session-close" aria-label="Close session" onClick={ctx.props.onClose}>
-                ×
-            </button>
+            {ctx.props.onClose && (
+                <button type="button" class="session-close" aria-label="Close session" onClick={ctx.props.onClose}>
+                    ×
+                </button>
+            )}
         </div>
     );
 });
@@ -52,6 +62,7 @@ export const NewSession = component<{
     agents: readonly CatalogEntry[];
     defaults: { agent: AgentChoice; model?: string; cwd: string };
     full: boolean;
+    /** A session is being created: one at a time, so the whole form waits. */
     busy: boolean;
     onOpen: (agent: AgentChoice, model: string | undefined, cwd: string | undefined) => void;
 }>((ctx) => {
@@ -85,11 +96,16 @@ export const NewSession = component<{
 
     function submit(e: Event): void {
         e.preventDefault();
+        // The fieldset is disabled meanwhile, but `requestSubmit()` is not.
+        if (ctx.props.busy) return;
         ctx.props.onOpen(draft.agent, draft.model, entry()?.needsCwd ? draft.cwd : undefined);
     }
 
+    // One `disabled` for the whole form: the selects too, so nothing suggests
+    // a change made now reaches the request already under way.
     return () => (
         <form class="new-session" onSubmit={submit}>
+            <fieldset disabled={ctx.props.busy}>
             <label>
                 <span>Agent</span>
                 <select
@@ -130,17 +146,39 @@ export const NewSession = component<{
                     <input type="text" value={draft.cwd} onInput={(e) => (draft.cwd = (e.currentTarget as HTMLInputElement).value)} />
                 </label>
             )}
-            <button type="submit" disabled={ctx.props.full || ctx.props.busy}>
-                {ctx.props.busy ? 'Opening…' : 'New session'}
+            <button type="submit" disabled={ctx.props.full}>
+                {ctx.props.busy ? 'Creating session…' : 'New session'}
             </button>
             {ctx.props.full && <p class="hint">The session limit is reached — close one first.</p>}
+            </fieldset>
         </form>
     );
 });
 
-export const App = component(() => {
-    useHead({ title: 'sigx ai — agent playground' });
-    const pg = createPlayground();
+/** The pane a session has until the server answers: what was asked for, and that it is on its way. */
+const OpeningPane = component<{ label: string; request: OpenRequest }>((ctx) => {
+    return () => (
+        <div class="opening">
+            <header>
+                <h1>
+                    {ctx.props.label}
+                    {ctx.props.request.model ? <small class="model"> {ctx.props.request.model}</small> : null}
+                </h1>
+                <small>opening</small>
+            </header>
+            <p class="hint" role="status">
+                Creating session… A harness starts its own process first, which can take a while.
+            </p>
+        </div>
+    );
+});
+
+/**
+ * The shell, over a playground it is handed. `App` builds the real one; a
+ * test builds one on scripted endpoints and mounts this.
+ */
+export const Shell = component<{ pg: Playground }>((ctx) => {
+    const pg = ctx.props.pg;
     const { state } = pg;
 
     // Everything happens on MOUNT. A server render must open no session and no
@@ -176,11 +214,22 @@ export const App = component(() => {
                         model={row.model}
                         mode={modeOf(row.config)}
                         state={row.state}
+                        opened={openedAt(row.createdAt)}
                         selected={row.sessionId === state.selected}
                         onSelect={() => pg.select(row.sessionId)}
                         onClose={() => void pg.close(row.sessionId)}
                     />
                 ))}
+                {state.opening && (
+                    <SessionRow
+                        label={label(state.opening.agent)}
+                        model={state.opening.model}
+                        mode={undefined}
+                        state="opening"
+                        selected={state.selected === OPENING}
+                        onSelect={() => pg.select(OPENING)}
+                    />
+                )}
                 {state.rows.length > 1 && (
                     <label class="compare-toggle">
                         <input type="checkbox" checked={state.compare} onChange={(e) => (state.compare = (e.currentTarget as HTMLInputElement).checked)} />
@@ -192,7 +241,7 @@ export const App = component(() => {
                         agents={state.catalog.agents}
                         defaults={state.catalog.defaults}
                         full={state.rows.length >= state.catalog.maxSessions}
-                        busy={state.opening}
+                        busy={state.opening !== undefined}
                         onOpen={(agent, model, cwd) => void pg.open({ agent, ...(model ? { model } : {}), ...(cwd ? { cwd } : {}) })}
                     />
                 )}
@@ -201,11 +250,22 @@ export const App = component(() => {
             <section class="panes">
                 {!state.ready && <p class="hint">Connecting…</p>}
                 {state.rows.map((row) => (
-                    <div class="pane" key={row.sessionId} hidden={!state.compare && row.sessionId !== state.selected}>
+                    <div class="pane" key={`session:${row.sessionId}`} hidden={!state.compare && row.sessionId !== state.selected}>
                         <Session session={pg.client(row.sessionId)!} info={row} />
                     </div>
                 ))}
+                {state.opening && (
+                    <div class="pane" key="opening" hidden={!state.compare && state.selected !== OPENING}>
+                        <OpeningPane label={label(state.opening.agent)} request={state.opening} />
+                    </div>
+                )}
             </section>
         </main>
     );
+});
+
+export const App = component(() => {
+    useHead({ title: 'sigx ai — agent playground' });
+    const pg = createPlayground();
+    return () => <Shell pg={pg} />;
 });

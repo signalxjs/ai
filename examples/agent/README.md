@@ -35,7 +35,11 @@ Type while a turn runs: our engine can steer (`capabilities.steer`), so Send
 stays next to Cancel and the message lands inside the running turn.
 
 Now press **New session** and pick a different agent — or the same one on a
-different model. Both appear in the sidebar with their state and mode; tick
+different model. The new pane shows *Creating session…* at once and the form
+waits: a harness starts its own process first, and Copilot's ACP server takes
+about 13 seconds in `session/new`. When it comes up, the same pane becomes the
+conversation. Both appear in the sidebar with their state, mode and the time
+they were opened; one pane shows at a time, and you switch with the rows. Tick
 **Show all side by side** to watch them answer the same question at once.
 
 Every harness runs on your own login and needs its CLI installed and signed
@@ -124,8 +128,11 @@ Two honest details the panel shows rather than hides:
   state for the sidebar and, in its `finally`, reaps it — which is why there is
   no close endpoint.
 - **`src/agent.server.ts`** — five endpoints and nothing else.
-- **`src/App.tsx`** — the sidebar, the New-session form, and a pane per
-  session. **`src/Session.tsx`** — one pane, and the config panel.
+- **`src/App.tsx`** — the sidebar, the New-session form, a pane per session
+  and the *Creating session…* pane a request has until the server answers;
+  `Shell` takes the playground as a prop, so the test mounts it over
+  scripted endpoints (`createPlayground(api)`). **`src/Session.tsx`** — one
+  pane, and the config panel.
   **`src/Thread.tsx`** — the transcript itself, unchanged by the split.
 - **`smoke.mjs`** — the playground as a test, no browser: importing the
   endpoints opens nothing, two sessions stay independent, `configure()` goes

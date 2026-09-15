@@ -20,6 +20,11 @@ import { createTranscript, type AgentState, type AgentPart, type AgentTranscript
 // either. Both used to be necessary.
 import { ConfigPanel } from '../src/Session';
 import { Part } from '../src/Thread';
+import { Shell } from '../src/App';
+import { createPlayground, type Playground, type PlaygroundApi } from '../src/sessions';
+import type { AgentCatalog, OpenRequest, OpenResult, SessionInfo } from '../src/catalog';
+import { mockAgent } from '@sigx/ai-agent/testing';
+import { serveSession, type ServedSession } from '@sigx/ai-agent/wire';
 
 const closers: (() => void)[] = [];
 afterEach(() => {
@@ -213,5 +218,195 @@ describe('config panel', () => {
         const dom = panel([], false);
         expect(dom.querySelector('select')).toBeNull();
         expect(dom.textContent).toContain('no live settings');
+    });
+});
+
+/**
+ * The shell over scripted endpoints. `open` answers when the test says so —
+ * that is the 13 seconds a harness takes to start, held still — and a session
+ * it answers with is a real `mockAgent` served in memory, so the pane that
+ * takes the placeholder's spot is a live one.
+ */
+describe('the shell', () => {
+    const catalog: AgentCatalog = {
+        agents: [{ id: 'mock', label: 'Scripted mock', kind: 'mock', models: [{ id: 'mock-1' }, { id: 'mock-2' }], needsCwd: false }],
+        defaults: { agent: 'mock', model: 'mock-1', cwd: '.' },
+        maxSessions: 4
+    };
+
+    /** The pending `open()` calls, in order; a test settles them by hand. */
+    let pending: { request: OpenRequest; settle: (result: OpenResult) => void }[] = [];
+    let served: Map<string, ServedSession>;
+
+    async function openMock(request: OpenRequest, sessionId: string): Promise<SessionInfo> {
+        const agent = mockAgent({ id: 'mock' });
+        const session = await agent.session();
+        served.set(sessionId, serveSession(session, { agentId: agent.id, capabilities: agent.capabilities }));
+        return { sessionId, agent: request.agent, agentId: agent.id, model: request.model, capabilities: agent.capabilities, config: [], state: 'idle', createdAt: Date.now() };
+    }
+
+    const api: PlaygroundApi = {
+        catalog: async () => catalog,
+        sessions: async () => [],
+        open: (request) => new Promise<OpenResult>((settle) => pending.push({ request, settle })),
+        command: (sessionId, command) => served.get(sessionId)!.handleCommand(command),
+        events: (sessionId, from) => served.get(sessionId)!.events(from)
+    };
+
+    /** The DOM settles a tick after each server answer. */
+    const tick = () => new Promise((r) => setTimeout(r, 0));
+
+    /** Mount the shell; on mount it opens the default session, which the test then settles. */
+    async function mountShell(): Promise<{ dom: HTMLDivElement; pg: Playground }> {
+        pending = [];
+        served = new Map();
+        const pg = createPlayground(api);
+        const One = component(() => () => <Shell pg={pg} />, { name: 'One' });
+        const container = document.createElement('div');
+        document.body.appendChild(container);
+        const app = defineApp(jsx(One, {})).mount(container);
+        closers.push(() => {
+            app.unmount();
+            container.remove();
+            for (const s of served.values()) void s.close();
+        });
+        await tick();
+        return { dom: container, pg };
+    }
+
+    /** Settle the oldest pending open with a live session. */
+    async function arrive(sessionId: string): Promise<void> {
+        const next = pending.shift()!;
+        next.settle({ ok: true, session: await openMock(next.request, sessionId) });
+        await tick();
+        await tick();
+    }
+
+    const rows = (dom: HTMLElement) => [...dom.querySelectorAll('.session-row')];
+    const visiblePanes = (dom: HTMLElement) => [...dom.querySelectorAll<HTMLElement>('.pane')].filter((p) => !p.hidden);
+    /** The form's one `disabled`: the fieldset around every control. */
+    const newSession = (dom: HTMLElement) => dom.querySelector<HTMLFieldSetElement>('.new-session fieldset')!;
+    const clickNew = (dom: HTMLElement) => dom.querySelector('form.new-session')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    const pick = (dom: HTMLElement, row: number) => rows(dom)[row]!.querySelector<HTMLButtonElement>('.session-pick')!.click();
+
+    it('shows the session being created — a row, a pane, a disabled form — before the server has answered (#160)', async () => {
+        const { dom } = await mountShell();
+        // Mount opened the default session; it has not come back yet.
+        expect(pending).toHaveLength(1);
+        expect(rows(dom)).toHaveLength(1);
+        expect(rows(dom)[0]!.classList.contains('opening')).toBe(true);
+        expect(rows(dom)[0]!.classList.contains('selected')).toBe(true);
+        expect(rows(dom)[0]!.querySelector('.session-close')).toBeNull();
+        expect(visiblePanes(dom)).toHaveLength(1);
+        expect(visiblePanes(dom)[0]!.textContent).toContain('Creating session');
+        expect(visiblePanes(dom)[0]!.textContent).toContain('Scripted mock');
+        expect(newSession(dom).disabled).toBe(true);
+    });
+
+    it('the pending pane becomes the live session in the same spot, and the form comes back', async () => {
+        const { dom } = await mountShell();
+        await arrive('s1');
+        expect(pending).toHaveLength(0);
+        expect(rows(dom)).toHaveLength(1);
+        expect(rows(dom)[0]!.classList.contains('opening')).toBe(false);
+        expect(rows(dom)[0]!.classList.contains('selected')).toBe(true);
+        expect(visiblePanes(dom)).toHaveLength(1);
+        expect(visiblePanes(dom)[0]!.querySelector('textarea')).not.toBeNull();
+        expect(visiblePanes(dom)[0]!.textContent).not.toContain('Creating session');
+        expect(newSession(dom).disabled).toBe(false);
+    });
+
+    it('a second New session hides the current conversation behind the pending pane — one pane at a time', async () => {
+        const { dom } = await mountShell();
+        await arrive('s1');
+        clickNew(dom);
+        await tick();
+        expect(pending).toHaveLength(1);
+        expect(rows(dom)).toHaveLength(2);
+        expect(rows(dom)[1]!.classList.contains('opening')).toBe(true);
+        expect(rows(dom).map((r) => r.classList.contains('selected'))).toEqual([false, true]);
+        expect(visiblePanes(dom)).toHaveLength(1);
+        expect(visiblePanes(dom)[0]!.textContent).toContain('Creating session');
+        // The form waits — the fieldset is the one `disabled`, so its selects
+        // wait with it; a double-click cannot open two.
+        expect(newSession(dom).disabled).toBe(true);
+        expect(dom.querySelector('.new-session select')!.closest('fieldset')).toBe(newSession(dom));
+        clickNew(dom);
+        await tick();
+        expect(pending).toHaveLength(1);
+    });
+
+    it('an open that lands after the page has gone leaves no connection behind', async () => {
+        const { dom, pg } = await mountShell();
+        await arrive('s1');
+        clickNew(dom);
+        await tick();
+        // Navigate away with the harness still starting.
+        closers.splice(0).reverse().forEach((close) => close());
+        expect(pg.client('s1')).toBeUndefined();
+        await arrive('s2');
+        // The session is on the server, as it should be; the page holds no client to it.
+        expect(served.has('s2')).toBe(true);
+        expect(pg.client('s2')).toBeUndefined();
+        expect(pg.state.rows.map((r) => r.sessionId)).not.toContain('s2');
+    });
+
+    it('a failed open drops the pending pane, shows the reason and goes back to the previous session', async () => {
+        const { dom } = await mountShell();
+        await arrive('s1');
+        clickNew(dom);
+        await tick();
+        pending.shift()!.settle({ ok: false, reason: 'copilot: not signed in' });
+        await tick();
+        await tick();
+        expect(rows(dom)).toHaveLength(1);
+        expect(rows(dom)[0]!.classList.contains('selected')).toBe(true);
+        expect(visiblePanes(dom)).toHaveLength(1);
+        expect(visiblePanes(dom)[0]!.querySelector('textarea')).not.toBeNull();
+        expect(dom.querySelector('.sidebar .error')?.textContent).toContain('not signed in');
+        expect(newSession(dom).disabled).toBe(false);
+    });
+
+    it('an operator who moved on while a session was being created is left where they went', async () => {
+        const { dom } = await mountShell();
+        await arrive('s1');
+        clickNew(dom);
+        await tick();
+        pick(dom, 0);
+        await tick();
+        await arrive('s2');
+        expect(rows(dom).map((r) => r.classList.contains('selected'))).toEqual([true, false]);
+        expect([...dom.querySelectorAll<HTMLElement>('.pane')].map((p) => p.hidden)).toEqual([false, true]);
+    });
+
+    it('clicking a sidebar row switches the visible pane', async () => {
+        const { dom } = await mountShell();
+        await arrive('s1');
+        clickNew(dom);
+        await tick();
+        await arrive('s2');
+        expect(rows(dom)).toHaveLength(2);
+        expect(rows(dom).map((r) => r.classList.contains('selected'))).toEqual([false, true]);
+        expect([...dom.querySelectorAll<HTMLElement>('.pane')].map((p) => p.hidden)).toEqual([true, false]);
+
+        pick(dom, 0);
+        await tick();
+        expect(rows(dom).map((r) => r.classList.contains('selected'))).toEqual([true, false]);
+        expect([...dom.querySelectorAll<HTMLElement>('.pane')].map((p) => p.hidden)).toEqual([false, true]);
+        // Two sessions of one agent look the same; the pane says WHICH one it is.
+        expect(visiblePanes(dom)[0]!.querySelector('header')!.textContent).toContain('opened ');
+
+        // And while another is being created the rows still switch — to a
+        // live session, and back to the pending one.
+        clickNew(dom);
+        await tick();
+        expect(visiblePanes(dom)[0]!.textContent).toContain('Creating session');
+        pick(dom, 1);
+        await tick();
+        expect(visiblePanes(dom)).toHaveLength(1);
+        expect(visiblePanes(dom)[0]!.textContent).not.toContain('Creating session');
+        pick(dom, 2);
+        await tick();
+        expect(visiblePanes(dom)[0]!.textContent).toContain('Creating session');
     });
 });
