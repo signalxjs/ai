@@ -236,7 +236,12 @@ describe('the shell', () => {
 
     /** The pending `open()` calls, in order; a test settles them by hand. */
     let pending: { request: OpenRequest; settle: (result: OpenResult) => void }[] = [];
-    let served: Map<string, ServedSession>;
+    /** Every session served to the page — closed after each test, whether or not the page was still there when it arrived. */
+    const served = new Map<string, ServedSession>();
+    afterEach(async () => {
+        for (const s of served.values()) await s.close();
+        served.clear();
+    });
 
     async function openMock(request: OpenRequest, sessionId: string): Promise<SessionInfo> {
         const agent = mockAgent({ id: 'mock' });
@@ -259,7 +264,6 @@ describe('the shell', () => {
     /** Mount the shell; on mount it opens the default session, which the test then settles. */
     async function mountShell(): Promise<{ dom: HTMLDivElement; pg: Playground }> {
         pending = [];
-        served = new Map();
         const pg = createPlayground(api);
         const One = component(() => () => <Shell pg={pg} />, { name: 'One' });
         const container = document.createElement('div');
@@ -268,7 +272,6 @@ describe('the shell', () => {
         closers.push(() => {
             app.unmount();
             container.remove();
-            for (const s of served.values()) void s.close();
         });
         await tick();
         return { dom: container, pg };
