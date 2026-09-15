@@ -1,6 +1,6 @@
 /** Transcript state — the reducer and the bridges to `@sigx/ai` messages and chunks. */
 
-export type { TextPartState, ReasoningPartState, ToolPartState, AgentPart, AgentMessage, OpenRequest, TurnState, TranscriptError, AgentState, AgentTranscript } from './transcript.js';
+export type { TextPartState, ReasoningPartState, ToolPartState, ToolPartStatus, AgentPart, AgentMessage, OpenRequest, TurnState, TranscriptError, AgentState, AgentTranscript } from './transcript.js';
 export { createTranscript } from './transcript.js';
 export type { ReducerExtension, AgentReducer, CreateReducerOptions } from './reduce.js';
 export { createReducer, reduceAgentEvent } from './reduce.js';

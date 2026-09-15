@@ -106,10 +106,17 @@ export function createChunkMapper(driver: TurnDriver, options: ChunkMapperOption
                     break;
                 }
                 case 'tool-input':
-                    // A call's arguments arriving progressively. The agent
-                    // protocol has no event for it yet (`part-start.kind` is
-                    // text or reasoning only), so the call is announced once
-                    // it is assembled. Tracked as its own change.
+                    // A call's arguments arriving progressively. Close any open
+                    // text or reasoning part first, exactly as the assembled
+                    // call does, so the tool part lands after the prose rather
+                    // than splitting it. The call itself is still announced by
+                    // `tool-call`, which settles this part in place — and
+                    // `openCalls` is deliberately untouched: a call that was
+                    // written but never made is not an open call, and
+                    // `settleOpenCalls` must not invent a `tool-update` for a
+                    // callId no `tool-call` ever announced.
+                    closePart();
+                    driver.emit({ type: 'tool-input-delta', callId: chunk.id, name: chunk.name, delta: chunk.delta, messageId });
                     break;
                 case 'tool-call': {
                     closePart();

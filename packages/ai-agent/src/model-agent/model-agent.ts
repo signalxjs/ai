@@ -74,6 +74,11 @@ export const MODEL_AGENT_CAPABILITIES: AgentCapabilities = capabilities({
     promptParts: 'text+image+file',
     tools: 'native',
     permissions: 'every-call',
+    // `streamText` forwards the provider's argument deltas, and Anthropic and
+    // OpenAI both send them. A provider that assembles server-side simply
+    // emits the call whole — which is why this says the adapter can carry
+    // them, not that every call will have them.
+    streamingToolInput: true,
     importTranscript: true,
     // Delegates opened by `agentTool` are attached to the session: `respond()`
     // reaches their requests and `cancel({ agentId })` stops one of them.

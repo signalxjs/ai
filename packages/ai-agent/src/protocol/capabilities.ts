@@ -20,6 +20,15 @@ export interface AgentCapabilities {
     readonly tools: 'native' | 'mcp' | 'none';
     /** `every-call`: every tool call reaches the policy; `harness-filtered`: the harness auto-runs some. */
     readonly permissions: 'every-call' | 'harness-filtered' | 'none';
+    /**
+     * A call's arguments may arrive as `tool-input-delta` events before its
+     * `tool-call`. `false` means they never do, so a client showing a "writing
+     * arguments…" affordance can leave it out entirely. `true` is a statement
+     * about the ADAPTER, not a promise about every call: a harness that has the
+     * whole input at once (a cached tool block, a non-streaming round) emits
+     * `tool-call` alone, and the transcript is the same either way.
+     */
+    readonly streamingToolInput: boolean;
     /** `fromUIMessages` transcripts can seed a session. */
     readonly importTranscript: boolean;
     readonly listSessions: boolean;
@@ -44,6 +53,7 @@ export const NO_CAPABILITIES: AgentCapabilities = {
     promptParts: 'text',
     tools: 'none',
     permissions: 'none',
+    streamingToolInput: false,
     importTranscript: false,
     listSessions: false,
     subagents: 'none',

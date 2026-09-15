@@ -62,6 +62,18 @@ export function checkEventInvariants(events: readonly AgentEvent[], options: Eve
                 assert(e.turnId !== undefined, `turn-end at seq ${e.seq} has no turnId`);
                 turnEnds.set(e.turnId, (turnEnds.get(e.turnId) ?? 0) + 1);
                 break;
+            case 'tool-input-delta':
+                // The deltas come BEFORE the call they describe — that is the
+                // whole point of them. One arriving after is a harness
+                // reopening a call it already made.
+                // Deliberately NOT tracked alongside `calls`: a streaming
+                // call has not been announced, so it must not trip the
+                // "reuses a callId" assert when its `tool-call` lands, nor
+                // join the terminal-status sweep. Nor is a `tool-call`
+                // required to follow — a cancelled turn legitimately leaves a
+                // call written but never made.
+                assert(!calls.has(e.callId), `tool-input-delta for "${e.callId}" at seq ${e.seq} arrived after its tool-call`);
+                break;
             case 'tool-call':
                 assert(!calls.has(e.callId), `tool-call "${e.callId}" at seq ${e.seq} reuses a callId already announced`);
                 calls.set(e.callId, 'pending');

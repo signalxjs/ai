@@ -10,6 +10,8 @@ function scriptFor(scenario: ConformanceScenario): MockStep[] {
         case 'headless-deny':
         case 'request-timeout':
             return [{ tool: { name: 'guarded', input: {}, output: { ok: true }, source: 'client' } }, { text: 'Done.' }];
+        case 'streaming-tool-input':
+            return [{ tool: { name: 'guarded', input: { city: 'Paris' }, inputDeltas: ['{"ci', 'ty":"Pa', 'ris"}'], output: { ok: true }, source: 'client' } }, { text: 'Done.' }];
         case 'session-grant':
             return [{ tool: { name: 'guarded', input: {}, output: { ok: true }, source: 'client' } }, { tool: { name: 'guarded', input: {}, output: { ok: true }, source: 'client' } }, { text: 'Done twice.' }];
         case 'configure':

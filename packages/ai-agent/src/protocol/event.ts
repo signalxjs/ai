@@ -70,6 +70,32 @@ export type AgentEventPayload =
           readonly category?: string;
       }
     | {
+          /**
+           * A call's arguments arriving as raw JSON text, BEFORE its
+           * `tool-call`. Concatenated the deltas are the call's input, and the
+           * reducer re-reads the whole text on every one, so a view bound to
+           * the part sees the object fill in.
+           *
+           * A delta never ANNOUNCES the call — `tool-call` does, and it settles
+           * the part these opened in place, with the assembled input. One part
+           * per call, never two. Deltas for a call whose `tool-call` already
+           * landed are stale and ignored; deltas with no `tool-call` after them
+           * leave the part unsettled, which is the truth about an interrupted
+           * turn: a call that was written but never made.
+           *
+           * Optional for every harness (`capabilities.streamingToolInput`) and
+           * per call even where it is offered — a harness that has the whole
+           * input at once simply emits `tool-call` alone.
+           */
+          readonly type: 'tool-input-delta';
+          readonly callId: string;
+          /** The tool being called — known from the first delta, so a UI can name the call before it lands. */
+          readonly name: string;
+          readonly delta: string;
+          /** The assistant message the call will belong to; the reducer falls back to the turn's current one, as for `tool-call`. */
+          readonly messageId?: string;
+      }
+    | {
           readonly type: 'tool-update';
           readonly callId: string;
           readonly status: ToolStatus;
@@ -164,6 +190,7 @@ const EVENT_TYPES: ReadonlySet<string> = new Set<AgentEventType>([
     'part-delta',
     'part-end',
     'tool-call',
+    'tool-input-delta',
     'tool-update',
     'agent-start',
     'agent-update',

@@ -67,6 +67,8 @@
                waiting — the permission prompt, in place. */
             .tool { display: block; margin: 0.4rem 0; padding: 0.5rem 0.7rem; border-left: 3px solid GrayText; border-radius: 0.4rem; background: color-mix(in srgb, CanvasText 5%, Canvas); white-space: normal; }
             .tool.in_progress { border-color: Highlight; }
+            /* Still being written — dashed, so it reads as unfinished rather than as running. */
+            .tool.streaming { border-color: Highlight; border-left-style: dashed; }
             .tool.completed { border-color: seagreen; }
             .tool.failed, .tool.denied, .tool.cancelled { border-color: crimson; }
             .tool-head { display: block; font-family: ui-monospace, monospace; font-size: 0.82em; overflow-wrap: anywhere; }

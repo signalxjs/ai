@@ -314,3 +314,111 @@ describe('reduceAgentEvent', () => {
         expect(t.turn?.stopReason).toBe('end_turn');
     });
 });
+
+/**
+ * Progressive tool input (#134).
+ *
+ * The contract is one part per call, never two: the deltas open the part and
+ * the `tool-call` settles it IN PLACE. Everything else here follows from a
+ * view being bound to that part while the arguments are still being written.
+ */
+describe('reduceAgentEvent: tool-input-delta', () => {
+    const toolParts = (t: AgentTranscript) => t.messages.flatMap((m) => m.parts).filter((p) => p.type === 'tool');
+
+    it('opens ONE part, fills it in, and the tool-call settles it in place', () => {
+        seq = 0;
+        const t = reduceAll([
+            ev({ type: 'turn-start', turnId: 't1', input: [] }),
+            ev({ type: 'tool-input-delta', turnId: 't1', messageId: 'a1', callId: 'c1', name: 'weather', delta: '{"ci' }),
+            ev({ type: 'tool-input-delta', turnId: 't1', messageId: 'a1', callId: 'c1', name: 'weather', delta: 'ty":"Pa' }),
+            ev({ type: 'tool-input-delta', turnId: 't1', messageId: 'a1', callId: 'c1', name: 'weather', delta: 'ris"}' }),
+            ev({ type: 'tool-call', turnId: 't1', messageId: 'a1', callId: 'c1', name: 'weather', input: { city: 'Paris' }, category: 'read' })
+        ]);
+
+        const parts = toolParts(t);
+        expect(parts).toHaveLength(1);
+        expect(parts[0]).toMatchObject({ callId: 'c1', name: 'weather', status: 'pending', input: { city: 'Paris' }, category: 'read' });
+        // The raw text is gone once there is nothing partial left to show.
+        expect('inputText' in parts[0]!).toBe(false);
+    });
+
+    it('reads the best partial value out of what has arrived, and leaves input ABSENT when nothing parses', () => {
+        seq = 0;
+        const t = createTranscript('s');
+        const part = () => toolParts(t)[0]!;
+
+        reduceAgentEvent(t, ev({ type: 'tool-input-delta', turnId: 't1', callId: 'c1', name: 'weather', delta: '{"ci' }));
+        expect(part().status).toBe('streaming');
+        expect(part().inputText).toBe('{"ci');
+        // A half-written KEY is dropped rather than guessed at, so the best
+        // reading of `{"ci` is the empty object — `parsePartialJson` repairs
+        // structurally, exactly as `applyChunk` does one level down.
+        expect(part().input).toEqual({});
+
+        reduceAgentEvent(t, ev({ type: 'tool-input-delta', turnId: 't1', callId: 'c1', name: 'weather', delta: 'ty":"Pa' }));
+        // Now the key is whole, so the half-written VALUE reads as itself.
+        expect(part().input).toEqual({ city: 'Pa' });
+        expect(part().inputText).toBe('{"city":"Pa');
+    });
+
+    it('keeps the text and leaves input ABSENT when the arguments are not JSON at all', () => {
+        seq = 0;
+        // Not every harness streams JSON — a custom tool may stream raw text.
+        const t = reduceAll([ev({ type: 'tool-input-delta', turnId: 't1', callId: 'c1', name: 'shell', delta: 'ls -la' })]);
+
+        expect(toolParts(t)[0]!.inputText).toBe('ls -la');
+        // ABSENT, not `undefined`: `'input' in part` is what a view branches on,
+        // and `inputText` is what it shows meanwhile.
+        expect('input' in toolParts(t)[0]!).toBe(false);
+    });
+
+    it('ignores a delta that arrives after the call it describes — never reopens a settled part', () => {
+        seq = 0;
+        const t = reduceAll([
+            ev({ type: 'tool-input-delta', turnId: 't1', callId: 'c1', name: 'weather', delta: '{"a":1}' }),
+            ev({ type: 'tool-call', turnId: 't1', callId: 'c1', name: 'weather', input: { a: 1 } }),
+            ev({ type: 'tool-update', turnId: 't1', callId: 'c1', status: 'completed', output: 'ok' }),
+            ev({ type: 'tool-input-delta', turnId: 't1', callId: 'c1', name: 'weather', delta: 'junk' })
+        ]);
+
+        expect(toolParts(t)).toHaveLength(1);
+        expect(toolParts(t)[0]).toMatchObject({ status: 'completed', input: { a: 1 }, output: 'ok' });
+        expect('inputText' in toolParts(t)[0]!).toBe(false);
+    });
+
+    it('stops growing at the cap, and the call still settles with the real input', () => {
+        seq = 0;
+        const t = createTranscript('s');
+        const chunk = 'x'.repeat(60_000);
+        for (const delta of [chunk, chunk, chunk]) reduceAgentEvent(t, ev({ type: 'tool-input-delta', turnId: 't1', callId: 'c1', name: 'big', delta }));
+
+        // A display degrades; it does not grow without bound over a stream we
+        // do not control.
+        expect(toolParts(t)[0]!.inputText!.length).toBe(100_000);
+        reduceAgentEvent(t, ev({ type: 'tool-call', turnId: 't1', callId: 'c1', name: 'big', input: { ok: true } }));
+        expect(toolParts(t)[0]).toMatchObject({ status: 'pending', input: { ok: true } });
+    });
+
+    it('falls back to the turn’s current assistant message when the delta names none', () => {
+        seq = 0;
+        const t = reduceAll([
+            ev({ type: 'turn-start', turnId: 't1', input: [] }),
+            ev({ type: 'part-start', turnId: 't1', messageId: 'a1', partId: 'p1', kind: 'text' }),
+            ev({ type: 'tool-input-delta', turnId: 't1', callId: 'c1', name: 'weather', delta: '{}' })
+        ]);
+
+        expect(t.messages).toHaveLength(1);
+        expect(t.messages[0]!.parts.map((p) => p.type)).toEqual(['text', 'tool']);
+    });
+
+    it('leaves a part unsettled when the turn ends mid-argument — a call written but never made', () => {
+        seq = 0;
+        const t = reduceAll([
+            ev({ type: 'turn-start', turnId: 't1', input: [] }),
+            ev({ type: 'tool-input-delta', turnId: 't1', callId: 'c1', name: 'weather', delta: '{"ci' }),
+            ev({ type: 'turn-end', turnId: 't1', stopReason: 'cancelled' })
+        ]);
+
+        expect(toolParts(t)[0]).toMatchObject({ status: 'streaming', inputText: '{"ci' });
+    });
+});

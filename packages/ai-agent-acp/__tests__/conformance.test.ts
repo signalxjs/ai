@@ -81,6 +81,9 @@ describe('agentConformance: acp over a fake ACP agent', () => {
             'conformance: support-agent',
             'conformance: session-grant',
             'conformance: request-timeout',
+            // ACP refines a call's `rawInput` as a whole object; there is no
+            // appendable argument text to stream.
+            'conformance: streaming-tool-input',
             'conformance: portable-resume',
             'conformance: delegate-tree',
             'conformance: delegate-cancel',

@@ -116,3 +116,28 @@ describe('toUIMessages', () => {
         expect(contentToOutput([{ type: 'text', text: 'x' }, { type: 'json', value: 1 }])).toEqual(['x', 1]);
     });
 });
+
+describe('toUIMessages: a call whose arguments are still arriving', () => {
+    it('is a streaming UI tool part carrying the raw text, with input ABSENT until it parses', () => {
+        seq = 0;
+        const t = transcriptOf([ev({ type: 'tool-input-delta', turnId: 't1', messageId: 'a1', callId: 'c1', name: 'shell', delta: 'ls -la' })]);
+
+        const [part] = toUIMessages(t)[0]!.parts;
+        // NOT `input: null` — that would read as "the call takes null", which
+        // is a different thing from "nobody can say yet".
+        expect(part).toEqual({ type: 'tool', id: 'c1', name: 'shell', state: 'streaming', inputText: 'ls -la' });
+    });
+
+    it('is dropped from model messages — a half-written call was never made', () => {
+        seq = 0;
+        const t = transcriptOf([
+            ev({ type: 'part-start', turnId: 't1', messageId: 'a1', partId: 'p1', kind: 'text' }),
+            ev({ type: 'part-delta', turnId: 't1', partId: 'p1', delta: 'thinking about it' }),
+            ev({ type: 'tool-input-delta', turnId: 't1', messageId: 'a1', callId: 'c1', name: 'weather', delta: '{"ci' })
+        ]);
+
+        // `toModelMessages` is what would send it back to a provider.
+        const model = toModelMessages(toUIMessages(t));
+        expect(JSON.stringify(model)).not.toContain('weather');
+    });
+});

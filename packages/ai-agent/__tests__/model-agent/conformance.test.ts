@@ -12,6 +12,10 @@ function respondFor(scenario: ConformanceScenario) {
             case 'headless-deny':
             case 'request-timeout':
                 return round === 0 ? { toolCalls: [{ name: 'guarded', input: {}, id: 'g1' }] } : { text: 'Done.' };
+            case 'streaming-tool-input':
+                // Split mid-key and mid-value on purpose: a client that only
+                // parses on whole chunks would still look right.
+                return round === 0 ? { toolCalls: [{ name: 'guarded', input: { city: 'Paris' }, inputDeltas: ['{"ci', 'ty":"Pa', 'ris"}'], id: 'g1' }] } : { text: 'Done.' };
             case 'session-grant':
                 return round < 2 ? { toolCalls: [{ name: 'guarded', input: {}, id: `g${round + 1}` }] } : { text: 'Done twice.' };
             case 'usage':

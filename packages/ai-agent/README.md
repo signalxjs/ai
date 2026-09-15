@@ -331,6 +331,38 @@ if (part.type === 'reasoning') {
 }
 ```
 
+### A call whose arguments are still arriving
+
+Some harnesses stream a call's arguments as the model writes them. Those arrive
+as `tool-input-delta` events BEFORE the `tool-call`, and the reducer folds them
+into one part that the `tool-call` then settles in place — one card per call,
+never two:
+
+```tsx
+if (part.type === 'tool' && part.status === 'streaming') {
+    // `inputText` is the raw JSON so far; `input` is the best partial read of
+    // it and is ABSENT when nothing parses yet (`{"ci` is not a value), or
+    // when the arguments are not JSON at all.
+    return <code>{part.name}({part.inputText}…)</code>;
+}
+```
+
+Whether they arrive at all is `capabilities.streamingToolInput`. `false` means
+they never do, so a client can leave the affordance out entirely. `true` is a
+statement about the **adapter**, not a promise about every call: a harness that
+has the whole input at once — a cached tool block, a non-streaming round —
+emits `tool-call` alone, and the folded transcript is the same either way. So
+never wait for a `streaming` part before showing a call.
+
+A part still `streaming` when a turn ends is not a bug: the model was writing
+arguments when it was interrupted. It is a call that was written but never
+made, and it is preserved as such — `fromUIMessages` drops it rather than
+importing a call that never happened.
+
+Today `modelAgent` and `@sigx/ai-agent-claude-code` declare it; ACP refines a
+call's input as a whole object rather than as appendable text, and the Codex
+app-server protocol has no argument deltas at all.
+
 ### Sub-agents in the transcript
 
 Every sub-agent an `agent-start` announced lives under `transcript.agents`

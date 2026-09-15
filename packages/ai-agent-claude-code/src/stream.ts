@@ -41,6 +41,8 @@ interface OpenBlock {
     signature?: string;
     id?: string;
     name?: string;
+    /** The MAPPED tool name, resolved when the block opens so a delta and the call it belongs to agree. */
+    toolName?: string;
     json?: string;
 }
 
@@ -154,7 +156,10 @@ export function createTurnMapper(options: TurnMapperOptions): TurnMapper {
                 } else if (block.type === 'redacted_thinking') {
                     emitTextPart('reasoning', '', block, parent);
                 } else if (block.type === 'tool_use') {
-                    open.set(index, { kind: 'tool_use', id: String(block.id), name: String(block.name), json: '' });
+                    // `splitToolName` here, not at `content_block_stop`: the
+                    // deltas below carry the name too, and it must be the same
+                    // one the `tool-call` will announce.
+                    open.set(index, { kind: 'tool_use', id: String(block.id), name: String(block.name), toolName: splitToolName(String(block.name), serverName).name, json: '' });
                 }
                 break;
             }
@@ -175,7 +180,15 @@ export function createTurnMapper(options: TurnMapperOptions): TurnMapper {
                     b.thinking = (b.thinking ?? '') + text;
                     if (text) driver.emit({ type: 'part-delta', partId: b.partId!, delta: text, ...pc });
                 } else if (delta.type === 'signature_delta' && b.kind === 'thinking') b.signature = (b.signature ?? '') + String(delta.signature);
-                else if (delta.type === 'input_json_delta' && b.kind === 'tool_use') b.json = (b.json ?? '') + String(delta.partial_json);
+                else if (delta.type === 'input_json_delta' && b.kind === 'tool_use') {
+                    // The arguments as the model writes them. The call itself
+                    // is still announced once, at `content_block_stop`, and
+                    // settles the part these open. Empty deltas are not events
+                    // (the same rule as `thinking_delta` above, #77).
+                    const text = String(delta.partial_json);
+                    b.json = (b.json ?? '') + text;
+                    if (text) driver.emit({ type: 'tool-input-delta', callId: b.id!, name: b.toolName!, delta: text, messageId, ...pc });
+                }
                 break;
             }
             case 'content_block_stop': {

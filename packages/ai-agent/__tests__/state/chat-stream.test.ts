@@ -60,3 +60,28 @@ describe('toChatStream', () => {
         expect(c2.at(-1)).toEqual({ type: 'finish', reason: 'other' });
     });
 });
+
+describe('toChatStream: progressive tool input', () => {
+    it('becomes the `tool-input` chunk useChat already understands, and folds to ONE part', async () => {
+        const agent = mockAgent({
+            script: [[{ tool: { name: 'weather', input: { city: 'Paris' }, inputDeltas: ['{"ci', 'ty":"Pa', 'ris"}'], output: 'sunny' } }]]
+        });
+        const session = await agent.session({ policy: allowAll });
+        const chunks = await collect(toChatStream(session.prompt('go')));
+
+        const inputs = chunks.filter((c): c is Extract<UIChunk, { type: 'tool-input' }> => c.type === 'tool-input');
+        expect(inputs.map((c) => c.delta)).toEqual(['{"ci', 'ty":"Pa', 'ris"}']);
+        expect(inputs.every((c) => c.name === 'weather')).toBe(true);
+
+        // The two protocols agreeing is the whole point: assembling the chunks
+        // the @sigx/ai way gives one settled part, not two.
+        const { message } = await assembleMessage(
+            (async function* () {
+                yield* chunks;
+            })()
+        );
+        const tools = message.parts.filter((p) => p.type === 'tool');
+        expect(tools).toHaveLength(1);
+        expect(tools[0]).toMatchObject({ name: 'weather', input: { city: 'Paris' }, state: 'done' });
+    });
+});

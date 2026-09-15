@@ -22,7 +22,7 @@
  * `transcript.ext[ns]`.
  */
 
-import { addUsage } from '@sigx/ai';
+import { addUsage, parsePartialJson } from '@sigx/ai';
 import type { AgentEvent, EventOf } from '../protocol/index.js';
 import { findToolMessage, spawnedAgent } from './agents.js';
 import type { AgentMessage, AgentTranscript, ToolPartState } from './transcript.js';
@@ -91,7 +91,37 @@ export function createReducer(options: CreateReducerOptions = {}): AgentReducer 
                 }
                 break;
             }
+            case 'tool-input-delta': {
+                const open = findTool(t, e.callId);
+                if (open) {
+                    // A delta for a call that already landed is stale — never reopen it.
+                    if (open.status === 'streaming') growInput(open, e.delta);
+                    break;
+                }
+                const message = e.messageId !== undefined ? assistantMessage(t, e.messageId, e) : currentAssistant(t, e);
+                message.parts.push({ type: 'tool', callId: e.callId, name: e.name, status: 'streaming', inputText: '' });
+                // Read it back OUT: the literal aliases around the reactive
+                // proxy, and writes to it notify nobody (see the header).
+                const part = findTool(t, e.callId);
+                if (part) growInput(part, e.delta);
+                break;
+            }
             case 'tool-call': {
+                // Settle the part the input deltas opened, IN PLACE, so a view
+                // keeps one card rather than gaining a second. Deliberately
+                // does NOT move the part to `e.messageId`'s message or rewrite
+                // `name`: every adapter that streams input knows both from the
+                // first delta.
+                const open = findTool(t, e.callId);
+                if (open && open.status === 'streaming') {
+                    if (e.input !== undefined) open.input = e.input;
+                    if (e.title !== undefined) open.title = e.title;
+                    if (e.annotations !== undefined) open.annotations = e.annotations;
+                    if (e.category !== undefined) open.category = e.category;
+                    delete open.inputText;
+                    open.status = 'pending';
+                    break;
+                }
                 const message = e.messageId !== undefined ? assistantMessage(t, e.messageId, e) : currentAssistant(t, e);
                 message.parts.push({
                     type: 'tool',
@@ -269,6 +299,27 @@ function findPart(t: AgentTranscript, partId: string) {
         }
     }
     return undefined;
+}
+
+/**
+ * How much raw argument text a streaming part accumulates before it stops
+ * growing. Every delta re-reads the whole text, so an uncapped part is
+ * unbounded memory and quadratic work over a stream we do not control. Past
+ * the cap the part keeps what it has and further deltas are dropped: a DISPLAY
+ * degrades, and the `tool-call` settles the part with the real input
+ * regardless. The same cap, for the same reason, as `applyChunk`.
+ */
+const MAX_STREAMING_INPUT_TEXT = 100_000;
+
+/** Grow a streaming part's raw text and re-read the arguments from the whole of it. */
+function growInput(part: ToolPartState, delta: string): void {
+    const soFar = part.inputText ?? '';
+    if (soFar.length >= MAX_STREAMING_INPUT_TEXT) return;
+    part.inputText = (soFar + delta).slice(0, MAX_STREAMING_INPUT_TEXT);
+    const parsed = parsePartialJson(part.inputText);
+    // ABSENT, not `undefined`: `'input' in part` is what a view branches on.
+    if (parsed === undefined) delete part.input;
+    else part.input = parsed;
 }
 
 function findTool(t: AgentTranscript, callId: string): ToolPartState | undefined {

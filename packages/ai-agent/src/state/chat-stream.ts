@@ -34,6 +34,9 @@ export async function* toChatStream(events: AsyncIterable<AgentEvent>): AsyncGen
             case 'part-end':
                 if (kinds.get(e.partId) === 'reasoning') yield e.providerData !== undefined ? { type: 'reasoning-end', providerData: e.providerData } : { type: 'reasoning-end' };
                 break;
+            case 'tool-input-delta':
+                yield { type: 'tool-input', id: e.callId, name: e.name, delta: e.delta };
+                break;
             case 'tool-call':
                 yield { type: 'tool-call', id: e.callId, name: e.name, input: e.input ?? null };
                 break;

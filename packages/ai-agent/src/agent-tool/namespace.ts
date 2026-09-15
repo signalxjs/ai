@@ -38,6 +38,7 @@ export function namespaceEvent(prefix: string, event: UnstampedEvent, callId: st
         case 'part-end':
             return { ...event, parentCallId, partId: ns(event.partId) };
         case 'tool-call':
+        case 'tool-input-delta':
             return { ...event, parentCallId, callId: ns(event.callId), ...(event.messageId !== undefined ? { messageId: ns(event.messageId) } : {}) };
         case 'tool-update':
             return { ...event, parentCallId, callId: ns(event.callId) };

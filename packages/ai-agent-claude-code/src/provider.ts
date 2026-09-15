@@ -43,6 +43,9 @@ export const CLAUDE_CODE_CAPABILITIES: AgentCapabilities = capabilities({
     tools: 'mcp',
     // Mode `default` runs read-only builtins without asking: not every call reaches the policy.
     permissions: 'harness-filtered',
+    // `input_json_delta` — the SDK streams a call's arguments as the model
+    // writes them (`includePartialMessages` is always on).
+    streamingToolInput: true,
     listSessions: true,
     // Task frames are `agent-start` / `agent-update`; `cancel({ agentId })` is `stopTask`;
     // a sub-agent's permission questions come through the same `canUseTool` and `respond()`.
