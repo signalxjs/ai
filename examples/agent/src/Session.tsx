@@ -34,9 +34,10 @@ export const ConfigPanel = component<{
         const { options, supported } = ctx.props;
         if (!supported) return <p class="config-note">This agent has no live settings.</p>;
         if (options.length === 0) {
-            // Claude Code (and the scripted mock) only announce their settings
-            // with the first turn's `system/init`, and `configure()` before
-            // that throws. Say so rather than render a panel that cannot work.
+            // The scripted mock only announces its settings with the first
+            // turn. Say so rather than render a panel that cannot work.
+            // (Claude Code used to be the example here — it now announces at
+            // open, signalxjs/ai#139.)
             return <p class="config-note">This agent reports its settings after its first message.</p>;
         }
         return (

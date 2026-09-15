@@ -3,7 +3,7 @@
  * process, no network.
  */
 
-import type { AgentDefinition as SdkAgentDefinition, Options, OutputFormat, SDKUserMessage, ThinkingConfig } from '@anthropic-ai/claude-agent-sdk';
+import type { AgentDefinition as SdkAgentDefinition, Options, OutputFormat, PermissionMode, SDKUserMessage, ThinkingConfig } from '@anthropic-ai/claude-agent-sdk';
 import { jsonSchemaOf, type JsonSchema, type StandardSchemaV1 } from '@sigx/ai';
 import { AgentError, type AgentDefinition, type ConfigOption, type ConfigValue, type PromptPart, type ToolAnnotations } from '@sigx/ai-agent';
 import { categoryOf } from '@sigx/ai-agent/coding';
@@ -108,6 +108,47 @@ export interface ConfigTracker {
      * values cannot silently unadvertise a setting.
      */
     update(patch: ConfigState): ConfigState;
+}
+
+/**
+ * What `configure()` asked for, in the SDK's own vocabulary.
+ *
+ * `configure()` before the first `query()` has nothing live to apply a setting
+ * to (#139), so it RECORDS the patch here and `toQueryOptions` folds it into
+ * the options the query starts with. Kept apart from `ConfigState` on purpose:
+ * that tracks what the session ADVERTISES, which `system/init` also writes to
+ * — folding the whole of it back into `query()` would start sending the CLI's
+ * own resolved id (a gateway or Bedrock id behind an alias) back as `model`.
+ *
+ * The same record survives a RESTART: a `prompt(input, { output })` with a new
+ * schema starts a fresh query, which would otherwise rebuild its options from
+ * the session options alone and quietly undo every `configure()` the session
+ * has taken.
+ */
+export interface PendingConfig {
+    readonly model?: string;
+    readonly permissionMode?: PermissionMode;
+    readonly thinkingDisplay?: ThinkingDisplay;
+}
+
+/**
+ * The permission mode a query runs under: what `configure()` asked for, then
+ * the session's, then the agent's. ONE resolution, shared by `toQueryOptions`
+ * and by what a session advertises when it opens — so the value advertised and
+ * the value actually sent cannot drift.
+ */
+export function resolvePermissionMode(agent: ClaudeCodeOptions, session: ClaudeCodeSessionOptions, pending: PendingConfig = {}): PermissionMode {
+    return pending.permissionMode ?? session.permissionMode ?? agent.permissionMode ?? 'default';
+}
+
+/**
+ * The session's thinking with the display `configure()` chose. The MODE is
+ * untouched, exactly as `setMaxThinkingTokens(budget, display)` leaves it
+ * mid-session.
+ */
+function withDisplay(thinking: ThinkingConfig | undefined, display: ThinkingDisplay | undefined): ThinkingConfig | undefined {
+    if (!thinking || display === undefined || thinking.type === 'disabled') return thinking;
+    return { ...thinking, display };
 }
 
 export function createConfigState(initial: ConfigState = {}, models?: readonly ConfigValue[]): ConfigTracker {
@@ -242,20 +283,24 @@ export interface QueryOptionsInput {
     readonly stderr: (data: string) => void;
     readonly spawn?: Options['spawnClaudeCodeProcess'];
     readonly pathToClaudeCodeExecutable?: string;
+    /** What `configure()` has asked for so far — applied to every query this session starts (#139). */
+    readonly pending?: PendingConfig;
 }
 
 export function toQueryOptions(input: QueryOptionsInput): Options {
     const { agent, session } = input;
-    const mode = session.permissionMode ?? agent.permissionMode ?? 'default';
+    const pending = input.pending ?? {};
+    const mode = resolvePermissionMode(agent, session, pending);
     if (mode === 'bypassPermissions' && !agent.allowDangerouslySkipPermissions) {
         throw new AgentError('protocol_error', '[sigx ai-agent-claude-code] permissionMode "bypassPermissions" needs allowDangerouslySkipPermissions: true — every tool would run unasked');
     }
     const system = session.system;
-    const thinking = resolveThinking(session.thinking);
+    const thinking = withDisplay(resolveThinking(session.thinking), pending.thinkingDisplay);
+    const model = pending.model ?? session.model;
     return {
         cwd: session.cwd,
         ...(thinking ? { thinking } : {}),
-        ...(session.model !== undefined ? { model: session.model } : {}),
+        ...(model !== undefined ? { model } : {}),
         ...(system !== undefined ? { systemPrompt: session.systemPromptPreset ? { type: 'preset', preset: 'claude_code', append: system } : system } : {}),
         settingSources: [...(session.settingSources ?? agent.settingSources ?? [])],
         permissionMode: mode,

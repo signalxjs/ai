@@ -21,7 +21,7 @@ import type { Agent, AgentCapabilities, AgentSession, CancelTarget, PromptInput,
 import { listenMcp, resolveExecutable, spawnAgentProcess, type AgentProcess } from '@sigx/ai-agent-node';
 import type { ClaudeCodeOptions, ClaudeCodeSessionOptions } from './options.js';
 import { createCanUseTool, type PermissionTarget } from './permissions.js';
-import { THINKING_DISPLAYS, createConfigState, thinkingBudgetOf, thinkingDisplayOf, toOutputFormat, toQueryOptions, toUserMessage, type ThinkingDisplay } from './request.js';
+import { PERMISSION_MODES, THINKING_DISPLAYS, createConfigState, resolvePermissionMode, thinkingBudgetOf, thinkingDisplayOf, toOutputFormat, toQueryOptions, toUserMessage, type PendingConfig, type ThinkingDisplay } from './request.js';
 import { createTurnMapper, mapSessionMessage, type TurnMapper } from './stream.js';
 import { createAgentTracker } from './tasks.js';
 import { startToolServer, type ToolServer } from './tools.js';
@@ -211,6 +211,18 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
             })(),
             options.models
         );
+        // What `configure()` has asked for, whether or not a query was live to
+        // take it — folded into every query this session starts (#139).
+        let configured: PendingConfig = {};
+        // What this session WILL run with, said before the first prompt. The
+        // permission mode and the thinking display are settled by the options
+        // it was opened with, so there is nothing to wait for — a client that
+        // renders its controls from `view.config` used to have nothing to show
+        // and nothing to set until a turn had already run. The MODEL is left
+        // out on purpose: the CLI resolves aliases, settings and fallbacks,
+        // and `system/init` is the first honest word on which one is running.
+        config.update({ permissionMode: resolvePermissionMode(options, sessionOptions) });
+        core.emit({ type: 'config', options: config.options() });
         let current: { driver: TurnDriver; ctx: TurnContext; mapper: TurnMapper; done: (r: SDKResultMessage | undefined, error?: Error) => void } | undefined;
         // The first query resumes (or forks) the ref's session; later ones resume the live id.
         let firstQuery = true;
@@ -236,6 +248,10 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
             const opts = toQueryOptions({
                 agent: options,
                 session: sessionOptions,
+                // Every query, not just the first: a restart forced by a new
+                // output schema rebuilt its options from the session options
+                // alone, quietly undoing every configure() taken so far.
+                pending: configured,
                 ...(resumeId !== undefined ? { resumeId } : {}),
                 ...(forkNow ? { fork: true } : {}),
                 ...(format ? { outputFormat: format } : {}),
@@ -358,16 +374,34 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
                 }
             },
             async configure(patch) {
-                if (!q) throw new AgentError('protocol_error', '[sigx ai-agent-claude-code] configure() needs a running session (prompt first)');
+                // Before the first query there is nothing live to apply a
+                // setting TO. The patch is RECORDED and folded into the options
+                // the first `query()` starts with (#139) rather than refused: a
+                // client that wants to open in plan mode should not have to
+                // send a message first to say so. The advertised state moves
+                // either way — before a query that is not a claim the CLI took
+                // the setting, it is a commitment `toQueryOptions` keeps.
+                const running = q;
                 // Applied one by one, so a patch that fails half way leaves the
                 // advertised state matching what the CLI actually took.
                 if (patch.model !== undefined) {
-                    await q.setModel(patch.model);
+                    if (running) await running.setModel(patch.model);
+                    configured = { ...configured, model: patch.model };
                     config.update({ model: patch.model });
                 }
                 if (patch.permissionMode !== undefined) {
+                    // Checked before anything is recorded or sent: `patch` is a
+                    // bare `Record<string, string>`, and an unchecked value now
+                    // rides into every query this session starts. A mistyped
+                    // `bypassPermissions` would also slip past the guard below
+                    // — it compares for equality — and reach the CLI as a mode
+                    // nobody meant.
+                    if (!(PERMISSION_MODES as readonly string[]).includes(patch.permissionMode)) {
+                        throw new AgentError('protocol_error', `[sigx ai-agent-claude-code] permissionMode must be one of ${PERMISSION_MODES.join(', ')}, not "${patch.permissionMode}"`);
+                    }
                     if (patch.permissionMode === 'bypassPermissions' && !options.allowDangerouslySkipPermissions) throw new AgentError('protocol_error', '[sigx ai-agent-claude-code] bypassPermissions needs allowDangerouslySkipPermissions');
-                    await q.setPermissionMode(patch.permissionMode as never);
+                    if (running) await running.setPermissionMode(patch.permissionMode as never);
+                    configured = { ...configured, permissionMode: patch.permissionMode as PendingConfig['permissionMode'] };
                     config.update({ permissionMode: patch.permissionMode });
                 }
                 if (patch.thinkingDisplay !== undefined) {
@@ -383,7 +417,8 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
                     }
                     // The display is the only thing that changes: the budget
                     // argument carries the session's own thinking mode back in.
-                    await q.setMaxThinkingTokens(thinkingBudgetOf(sessionOptions.thinking), next);
+                    if (running) await running.setMaxThinkingTokens(thinkingBudgetOf(sessionOptions.thinking), next);
+                    configured = { ...configured, thinkingDisplay: next };
                     config.update({ thinkingDisplay: next });
                 }
                 // The WHOLE list, not just what moved: a `config` event is the

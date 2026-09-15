@@ -54,8 +54,11 @@ const SESSION = 'sess-1';
 const base = { session_id: SESSION, uuid: 'u' } as const;
 const m = (v: unknown) => v as SDKMessage;
 
-const INIT = (cwd: string, model = 'claude-opus-5') =>
-    m({ type: 'system', subtype: 'init', ...base, cwd, model, permissionMode: 'default', tools: ['Read', 'Edit'], mcp_servers: [], apiKeySource: 'none', claude_code_version: '2.1.270', slash_commands: [], output_style: 'default', skills: [], plugins: [], agents: [] });
+// `model` and `permissionMode` are echoed from the options the query was
+// STARTED with, the way a real CLI reports what it actually resolved —
+// hard-coding them would let a test "confirm" a state the CLI never had.
+const INIT = (cwd: string, model = 'claude-opus-5', permissionMode = 'default') =>
+    m({ type: 'system', subtype: 'init', ...base, cwd, model, permissionMode, tools: ['Read', 'Edit'], mcp_servers: [], apiKeySource: 'none', claude_code_version: '2.1.270', slash_commands: [], output_style: 'default', skills: [], plugins: [], agents: [] });
 
 const ev = (event: unknown, parent: string | null = null) => m({ type: 'stream_event', ...base, event, parent_tool_use_id: parent });
 const MESSAGE = { model: 'claude-opus-5', id: 'msg_1', type: 'message', role: 'assistant', container: null, stop_reason: null, stop_sequence: null, stop_details: null, usage: { input_tokens: 2, output_tokens: 1 } } as const;
@@ -200,7 +203,7 @@ interface FakeQuery {
     readonly thinking: [number | null, string | null | undefined][];
 }
 
-function fakeQuery(turnScript: TurnScript, options: { init?: (cwd: string) => SDKMessage; exitAfterTurns?: number } = {}): FakeQuery {
+function fakeQuery(turnScript: TurnScript, options: { init?: (cwd: string, model?: string, permissionMode?: string) => SDKMessage; exitAfterTurns?: number } = {}): FakeQuery {
     const state = { calls: [] as Options[], interrupts: 0, closes: 0, models: [] as string[], stops: [] as string[], users: 0, thinking: [] as [number | null, string | null | undefined][] };
     const query: FakeQuery['query'] = ({ prompt, options: opts = {} }) => {
         state.calls.push(opts);
@@ -211,7 +214,7 @@ function fakeQuery(turnScript: TurnScript, options: { init?: (cwd: string) => SD
         let onStop = new Promise<string>((r) => (resolveStop = r));
         let closed = false;
         const gen = (async function* (): AsyncGenerator<SDKMessage, void> {
-            yield (options.init ?? INIT)(opts.cwd ?? '');
+            yield (options.init ?? INIT)(opts.cwd ?? '', opts.model, opts.permissionMode);
             let turn = 0;
             if (typeof prompt === 'string') return;
             for await (const user of prompt) {
@@ -1216,6 +1219,135 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
         const reduce = createReducer();
         for (const e of events) reduce(t, e);
         expect(t.config.map((o) => o.id)).toEqual(['model', 'permissionMode', 'thinkingDisplay']);
+
+        await agent.dispose();
+        await collecting;
+    });
+
+    it('advertises what it was opened with before any prompt — no CLI has run yet', async () => {
+        const fake = fakeQuery(() => [messageStart(), ...textBlocks('hi'), ...messageStop(), RESULT()]);
+        const agent = claudeCode({ query: fake.query, listen: fakeListen });
+        const session = await agent.session({ cwd, interactive: false, permissionMode: 'plan' });
+        const events: AgentEvent[] = [];
+        const collecting = (async () => {
+            for await (const e of session.subscribe({ epoch: 0, seq: 0 })) events.push(e);
+        })();
+        await new Promise((r) => setTimeout(r, 0));
+
+        // A client that renders its controls from `view.config` had nothing to
+        // render until a turn had already run (#139) — so opening a session IN
+        // plan mode and then prompting was not something a UI could offer.
+        const first = events.find((e): e is Extract<AgentEvent, { type: 'config' }> => e.type === 'config');
+        expect(first!.options.map((o) => [o.id, o.current])).toEqual([
+            ['permissionMode', 'plan'],
+            ['thinkingDisplay', 'summarized']
+        ]);
+        // The MODEL is absent on purpose: the CLI resolves aliases, settings
+        // and fallbacks, and `system/init` is the first honest word on it.
+        expect(first!.options.some((o) => o.id === 'model')).toBe(false);
+        // And nothing was spawned to say any of it.
+        expect(fake.calls).toHaveLength(0);
+
+        await agent.dispose();
+        await collecting;
+    });
+
+    it('configure() before the first prompt is recorded and folded into the first query(), not refused', async () => {
+        const fake = fakeQuery(() => [messageStart(), ...textBlocks('hi'), ...messageStop(), RESULT()]);
+        const agent = claudeCode({ query: fake.query, listen: fakeListen });
+        const session = await agent.session({ cwd, interactive: false });
+        const events: AgentEvent[] = [];
+        const collecting = (async () => {
+            for await (const e of session.subscribe({ epoch: 0, seq: 0 })) events.push(e);
+        })();
+        const configs = () => events.filter((e): e is Extract<AgentEvent, { type: 'config' }> => e.type === 'config');
+
+        // It used to throw `configure() needs a running session (prompt first)`.
+        await session.configure!({ permissionMode: 'plan', thinkingDisplay: 'omitted', model: 'claude-sonnet-5' });
+        await new Promise((r) => setTimeout(r, 0)); // let the subscription deliver
+
+        // Configuring starts no CLI and calls no live setter — there is none yet.
+        expect(fake.calls).toHaveLength(0);
+        expect(fake.models).toEqual([]);
+        expect(fake.thinking).toEqual([]);
+        // …but the advertised state moves at once, because the first query is
+        // now committed to starting with exactly this.
+        expect(configs().at(-1)!.options.map((o) => [o.id, o.current])).toEqual([
+            ['model', 'claude-sonnet-5'],
+            ['permissionMode', 'plan'],
+            ['thinkingDisplay', 'omitted']
+        ]);
+
+        await drain(session.prompt('hi'));
+        expect(fake.calls[0]).toMatchObject({ permissionMode: 'plan', model: 'claude-sonnet-5', thinking: { type: 'adaptive', display: 'omitted' } });
+
+        await agent.dispose();
+        await collecting;
+    });
+
+    it('refuses a permissionMode the adapter does not have, before it can reach a query', async () => {
+        const fake = fakeQuery(() => [messageStart(), ...textBlocks('hi'), ...messageStop(), RESULT()]);
+        const agent = claudeCode({ query: fake.query, listen: fakeListen });
+        const session = await agent.session({ cwd, interactive: false });
+
+        // Recording an unchecked value would carry it into the first query and
+        // out to the CLI — and a mistyped `bypassPermissions` would sail past
+        // the guard that exists to catch exactly that.
+        await expect(session.configure!({ permissionMode: 'bypassPermission' })).rejects.toThrow(/permissionMode must be one of/);
+        await expect(session.configure!({ permissionMode: 'Plan' })).rejects.toThrow(/permissionMode must be one of/);
+
+        await drain(session.prompt('hi'));
+        expect(fake.calls[0]).toMatchObject({ permissionMode: 'default' });
+        await agent.dispose();
+    });
+
+    it('a setting the session took survives the restart a new output schema forces', async () => {
+        const fake = fakeQuery(() => [messageStart(), ...textBlocks('hi'), ...messageStop(), RESULT()]);
+        const agent = claudeCode({ query: fake.query, listen: fakeListen });
+        const session = await agent.session({ cwd, interactive: false });
+        await drain(session.prompt('one'));
+        await session.configure!({ permissionMode: 'plan' });
+        expect(fake.stops).toEqual([]); // the live setter took it
+
+        // A new output schema restarts the query, which rebuilt its options
+        // from the SESSION options alone — quietly undoing every configure()
+        // the session had taken.
+        await drain(session.prompt('two', { output: { schema: { type: 'object' } as JsonSchema } }));
+        expect(fake.calls).toHaveLength(2);
+        expect(fake.calls[1]).toMatchObject({ permissionMode: 'plan' });
+
+        await agent.dispose();
+    });
+
+    it('system/init still has the last word on the model — and permissionMode no longer flips, because the query ran with what was advertised', async () => {
+        const fake = fakeQuery(() => [messageStart(), ...textBlocks('hi'), ...messageStop(), RESULT()], {
+            // The CLI resolves an alias to a full id, as a gateway or a
+            // settings file would.
+            init: (c, _model, mode) => INIT(c, 'claude-opus-5-20260101', mode)
+        });
+        const agent = claudeCode({ query: fake.query, listen: fakeListen });
+        const session = await agent.session({ cwd, interactive: false, permissionMode: 'plan' });
+        const events: AgentEvent[] = [];
+        const collecting = (async () => {
+            for await (const e of session.subscribe({ epoch: 0, seq: 0 })) events.push(e);
+        })();
+        const configs = () => events.filter((e): e is Extract<AgentEvent, { type: 'config' }> => e.type === 'config');
+
+        await session.configure!({ model: 'opus' });
+        await new Promise((r) => setTimeout(r, 0)); // let the subscription deliver
+        expect(configs().at(-1)!.options.find((o) => o.id === 'model')!.current).toBe('opus');
+
+        await drain(session.prompt('go'));
+
+        // `init` wins on the model — it is the CLI reporting what it actually
+        // resolved — and both ids stay in `values`, so the dropdown never
+        // shows a `current` it has no entry for.
+        const model = configs().at(-1)!.options.find((o) => o.id === 'model')!;
+        expect(model.current).toBe('claude-opus-5-20260101');
+        expect(model.values.some((v) => v.id === 'claude-opus-5-20260101')).toBe(true);
+        // The mode cannot flip any more: the query started with `plan`.
+        expect(fake.calls[0]).toMatchObject({ permissionMode: 'plan' });
+        expect(configs().at(-1)!.options.find((o) => o.id === 'permissionMode')!.current).toBe('plan');
 
         await agent.dispose();
         await collecting;
