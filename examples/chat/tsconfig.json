@@ -31,7 +31,10 @@
             "@sigx/ai-agent-codex": ["../../packages/ai-agent-codex/src/index.ts"],
             "@sigx/ai-agent-copilot": ["../../packages/ai-agent-copilot/src/index.ts"],
             "@sigx/ai-anthropic": ["../../packages/ai-anthropic/src/index.ts"],
-            "@sigx/ai-openai": ["../../packages/ai-openai/src/index.ts"]
+            "@sigx/ai-openai": ["../../packages/ai-openai/src/index.ts"],
+            "@sigx/ai-ui": ["../../packages/ai-ui/src/index.ts"],
+            "@sigx/ai-ui/app": ["../../packages/ai-ui/src/app/index.ts"],
+            "@sigx/ai-ui/web": ["../../packages/ai-ui/src/web/index.ts"]
         }
     },
     // `env.d.ts` from the package source declares `__DEV__`, the

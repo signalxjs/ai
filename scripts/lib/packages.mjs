@@ -15,6 +15,7 @@ import { join } from 'path';
 
 export const PACKAGES = [
     'packages/ai',
+    'packages/ai-ui',
     'packages/ai-agent',
     'packages/ai-agent-node',
     'packages/ai-agent-acp',
@@ -30,6 +31,9 @@ export const ENTRIES = [
     '@sigx/ai/server',
     '@sigx/ai/app',
     '@sigx/ai/testing',
+    '@sigx/ai-ui',
+    '@sigx/ai-ui/app',
+    '@sigx/ai-ui/web',
     '@sigx/ai-agent',
     '@sigx/ai-agent/testing',
     '@sigx/ai-agent/coding',

@@ -50,6 +50,9 @@ export default defineConfig({
             { find: '@sigx/ai/testing', replacement: resolve(__dirname, 'packages/ai/src/testing/index.ts') },
             { find: '@sigx/ai-anthropic', replacement: resolve(__dirname, 'packages/ai-anthropic/src/index.ts') },
             { find: '@sigx/ai-openai', replacement: resolve(__dirname, 'packages/ai-openai/src/index.ts') },
+            { find: '@sigx/ai-ui/app', replacement: resolve(__dirname, 'packages/ai-ui/src/app/index.ts') },
+            { find: '@sigx/ai-ui/web', replacement: resolve(__dirname, 'packages/ai-ui/src/web/index.ts') },
+            { find: /^@sigx\/ai-ui$/, replacement: resolve(__dirname, 'packages/ai-ui/src/index.ts') },
             { find: /^@sigx\/ai$/, replacement: resolve(__dirname, 'packages/ai/src/index.ts') }
         ]
     }

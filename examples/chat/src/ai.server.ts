@@ -17,9 +17,12 @@ import { CATALOG, PROVIDERS, defaultFor, isOffered, type ChatCatalog, type Provi
 import { mockModel } from '@sigx/ai/testing';
 import { anthropic } from '@sigx/ai-anthropic';
 import { openai } from '@sigx/ai-openai';
+import { uiTool, type UISpec } from '@sigx/ai-ui';
 import { z } from 'zod';
 
-const SYSTEM = 'You are a concise assistant in a SignalX demo app. Use the tools when they help; keep answers short.';
+const SYSTEM =
+    'You are a concise assistant in a SignalX demo app. Use the tools when they help; keep answers short. ' +
+    'When the user asks for something visual or interactive — a form, a list, a counter, a calculator, a small app — build it with render_ui instead of describing it.';
 
 // ── Tools ───────────────────────────────────────────────────────────────────
 
@@ -63,6 +66,71 @@ const sendEmail = defineTool({
     annotations: { openWorld: true },
     execute: ({ to }) => ({ sent: true, to })
 });
+
+/**
+ * The UI tool: the model builds an interface from the base catalog and the
+ * browser renders it while the arguments stream. Its description is the
+ * catalog itself, so the model knows the components without extra prompt.
+ */
+const renderUi = uiTool();
+
+/**
+ * What the mock "writes" when asked for a UI: a small todo app, streamed as
+ * tool-input deltas so the interface visibly appears piece by piece.
+ */
+const DEMO_UI: UISpec = {
+    version: 1,
+    state: { draft: '', todos: [{ id: 'a', title: 'Try the scripted mock', done: true }, { id: 'b', title: 'Add a todo below', done: false }] },
+    computed: { remaining: { $: 'count(todos, !it.done)' } },
+    actions: {
+        add: [
+            { do: 'state.push', path: 'todos', value: { $: '{ id: uid(), title: trim(draft), done: false }' }, if: { $: 'trim(draft) != ""' } },
+            { do: 'state.set', path: 'draft', value: '' }
+        ]
+    },
+    root: {
+        type: 'card',
+        props: { title: 'Todos' },
+        children: [
+            { type: 'text', props: { text: '{{remaining}} of {{todos.length}} left', variant: 'caption' } },
+            {
+                type: 'stack',
+                props: { direction: 'row', gap: 8 },
+                children: [
+                    { type: 'input', bind: 'draft', props: { placeholder: 'What needs doing?' }, on: { submit: [{ do: 'call', action: 'add' }] } },
+                    { type: 'button', props: { label: 'Add', disabled: { $: 'trim(draft) == ""' } }, on: { press: [{ do: 'call', action: 'add' }] } }
+                ]
+            },
+            {
+                type: 'list',
+                for: { items: { $: 'todos' }, as: 'todo', key: { $: 'todo.id' } },
+                props: { gap: 4 },
+                children: [
+                    {
+                        type: 'stack',
+                        props: { direction: 'row', gap: 8, align: 'center' },
+                        children: [
+                            { type: 'button', props: { label: { $: 'todo.done ? "✓" : "○"' }, variant: 'ghost', size: 'sm' }, on: { press: [{ do: 'state.toggle', path: 'todo.done' }] } },
+                            { type: 'text', props: { text: '{{todo.title}}', style: { $: 'todo.done ? { textDecoration: "line-through", opacity: 0.6 } : {}' } } },
+                            { type: 'button', props: { label: 'Remove', variant: 'danger', size: 'sm' }, on: { press: [{ do: 'state.remove', path: 'todos', where: { $: 'it.id == todo.id' } }] } }
+                        ]
+                    }
+                ]
+            },
+            { type: 'text', if: { $: 'todos.length == 0' }, props: { text: 'All done. Nice.', variant: 'caption' } },
+            { type: 'divider' },
+            { type: 'button', props: { label: 'Tell the assistant how many are left', variant: 'secondary' }, on: { press: [{ do: 'emit', name: 'send', payload: { text: 'I have {{remaining}} todos left. Any advice?' } }] } }
+        ]
+    }
+};
+
+/** The spec as the model would stream it: JSON in small pieces. */
+function deltas(spec: UISpec, size: number): string[] {
+    const text = JSON.stringify({ spec });
+    const out: string[] = [];
+    for (let i = 0; i < text.length; i += size) out.push(text.slice(i, i + size));
+    return out;
+}
 
 // ── Model ───────────────────────────────────────────────────────────────────
 
@@ -115,12 +183,17 @@ function modelFor(selection: Selection): LanguageModel {
                         if (result?.toolName === 'send_email') {
                             return { text: result.isError ? `The mock says: not sent — ${String(result.output)}` : 'The mock says: email sent (well, pretended).', delayMs: 40 };
                         }
+                        if (result?.toolName === 'render_ui') {
+                            return { text: 'There is your todo list — add one, tick one off, or press the last button to talk to me from inside it.', delayMs: 40 };
+                        }
                         return { text: 'The mock says: Oslo looks fine today. (Pick a real model above, once a key is set.)', delayMs: 40 };
                     }
                     const asks = last?.role === 'user' && typeof last.content === 'string' ? last.content : '';
                     if (/weather/i.test(asks)) return { toolCalls: [{ name: 'get_weather', input: { city: 'Oslo' }, inputDeltas: ['{"city":', ' "Os', 'lo"}'] }], delayMs: 40 };
                     if (/email/i.test(asks)) return { toolCalls: [{ name: 'send_email', input: { to: 'someone@example.com', body: asks } }], delayMs: 40 };
-                    return { text: 'Hello from the scripted mock model. Ask about the weather to see a tool call, say "email" to see one that asks for approval, or pick a real model above once a key is set.', delayMs: 40 };
+                    if (/\b(ui|todo|app|form|list|counter)\b/i.test(asks)) return { toolCalls: [{ name: 'render_ui', input: { spec: DEMO_UI }, inputDeltas: deltas(DEMO_UI, 24) }], delayMs: 25 };
+                    if (/left|advice/i.test(asks)) return { text: 'Advice from the mock: do the top one first. (That message came from a button inside the generated UI.)', delayMs: 40 };
+                    return { text: 'Hello from the scripted mock model. Ask about the weather to see a tool call, say "email" to see one that asks for approval, say "build me a todo app" to watch a UI stream in, or pick a real model above once a key is set.', delayMs: 40 };
                 }
             });
     }
@@ -195,7 +268,7 @@ export const chat = serverStream({
         yield* chatStream({
             model: modelFor(input.selection),
             system: SYSTEM,
-            tools: [weather, time, sendEmail],
+            tools: [weather, time, sendEmail, renderUi],
             messages: input.messages,
             maxSteps: 4,
             // A closed tab aborts the model call and any running tool.

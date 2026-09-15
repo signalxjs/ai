@@ -97,5 +97,23 @@
     "path": "packages/ai-openai/dist/index.prod.js",
     "limit": "4 KB",
     "ignore": ["openai", "@sigx/ai"]
+  },
+  {
+    "name": "@sigx/ai-ui",
+    "path": "packages/ai-ui/dist/index.prod.js",
+    "limit": "16 KB",
+    "ignore": ["@sigx/ai", "@sigx/reactivity"]
+  },
+  {
+    "name": "@sigx/ai-ui/app",
+    "path": "packages/ai-ui/dist/app.prod.js",
+    "limit": "16 KB",
+    "ignore": ["@sigx/ai", "@sigx/reactivity", "@sigx/runtime-core"]
+  },
+  {
+    "name": "@sigx/ai-ui/web",
+    "path": "packages/ai-ui/dist/web.prod.js",
+    "limit": "4 KB",
+    "ignore": ["@sigx/ai", "@sigx/reactivity", "@sigx/runtime-core"]
   }
 ]

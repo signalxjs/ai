@@ -32,6 +32,7 @@ body:
         - "@sigx/ai-agent-copilot"
         - "@sigx/ai-anthropic"
         - "@sigx/ai-openai"
+        - "@sigx/ai-ui"
         - Not sure / multiple
     validations:
       required: true
