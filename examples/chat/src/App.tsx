@@ -28,10 +28,29 @@ export const Part = component<{ part: UIPart; role: UIMessage['role']; live: boo
         const p = ctx.props.part;
         if (p.type === 'tool' && p.name === 'render_ui') {
             const spec = (p.input as { spec?: UISpec } | undefined)?.spec;
+            const issues = p.state === 'done' ? ((p.output as { issues?: { path: (string | number)[]; message: string }[] } | undefined)?.issues ?? []) : [];
             return (
                 <div class={`ui ${p.state}`}>
                     <UIView spec={spec} done={p.state !== 'streaming'} registry={uiRegistry} onEmit={(name, payload) => ctx.props.onEmit?.(name, payload)} placeholder={<code class="tool streaming">render_ui(…)</code>} />
                     {p.state === 'error' && <code class="tool error">{JSON.stringify(p.output)}</code>}
+                    {/* What the model wrote, and what the catalog had to say about it — the POC's debugging aid. */}
+                    {p.state !== 'streaming' && (
+                        <details class="spec">
+                            <summary>
+                                spec{issues.length ? ` · ${issues.length} warning${issues.length === 1 ? '' : 's'}` : ''}
+                            </summary>
+                            {issues.length > 0 && (
+                                <ul class="issues">
+                                    {issues.map((i) => (
+                                        <li>
+                                            <code>{i.path.join('.')}</code> {i.message}
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                            <pre>{JSON.stringify(spec, null, 2)}</pre>
+                        </details>
+                    )}
                 </div>
             );
         }
