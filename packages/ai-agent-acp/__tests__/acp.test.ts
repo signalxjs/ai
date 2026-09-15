@@ -688,14 +688,23 @@ describe('toConfigView()', () => {
     });
 
     it('emits no id twice, whatever the agent declares', () => {
-        const view = toConfigView({ currentModeId: 'a', availableModes: [{ id: 'a', name: 'A' }] }, [
-            { id: 'mode', name: 'One', type: 'boolean', currentValue: false },
-            { id: 'acp:mode', name: 'Two', type: 'boolean', currentValue: false }
-        ]);
+        const modes = { currentModeId: 'a', availableModes: [{ id: 'a', name: 'A' }] };
+        const mine = { id: 'mode', name: 'One', type: 'boolean', currentValue: false } as const;
+        const squatter = { id: 'acp:mode', name: 'Two', type: 'boolean', currentValue: false } as const;
 
-        const ids = view.options.map((o) => o.id);
-        expect(new Set(ids).size).toBe(ids.length);
-        expect(ids).toEqual(['mode', 'acp:mode', 'acp:acp:mode']);
+        // The id a client must send cannot depend on the order the agent
+        // happened to declare its options in: the real collision takes
+        // `acp:mode` either way, and the option that squatted on that name is
+        // the one pushed further out.
+        for (const declared of [[mine, squatter], [squatter, mine]] as const) {
+            const view = toConfigView(modes, declared);
+            const ids = view.options.map((o) => o.id);
+            expect(new Set(ids).size).toBe(ids.length);
+            expect(view.origins.get('acp:mode')).toEqual({ kind: 'option', option: mine });
+            expect(view.origins.get('acp:acp:mode')).toEqual({ kind: 'option', option: squatter });
+            // Emission order stays the agent's own.
+            expect(ids[1]).toBe(declared[0] === mine ? 'acp:mode' : 'acp:acp:mode');
+        }
     });
 
     it('says nothing when the session has neither', () => {

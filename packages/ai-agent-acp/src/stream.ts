@@ -196,8 +196,9 @@ export function toConfigView(modes: AcpSessionModeState | null | undefined, opti
         });
         origins.set(ACP_MODE_ID, { kind: 'mode', modes });
     }
-    for (const o of declared) {
-        const id = uniqueId(o.id, origins);
+    const ids = assignIds(declared, origins);
+    declared.forEach((o, i) => {
+        const id = ids[i]!;
         out.push(
             o.type === 'select'
                 ? {
@@ -209,16 +210,40 @@ export function toConfigView(modes: AcpSessionModeState | null | undefined, opti
                 : { id, label: o.name, values: [{ id: 'true' }, { id: 'false' }], current: String(o.currentValue) }
         );
         origins.set(id, { kind: 'option', option: o });
-    }
+    });
     return { options: out, origins };
 }
 
-/** A taken id is namespaced, never dropped: two settings mean two controls. */
-function uniqueId(id: string, taken: ReadonlyMap<string, unknown>): string {
-    if (!taken.has(id)) return id;
-    let candidate = `${ACP_NS}:${id}`;
-    for (let n = 2; taken.has(candidate); n++) candidate = `${ACP_NS}:${id}:${n}`;
-    return candidate;
+/**
+ * The id to advertise each agent-declared option under, in declaration order.
+ *
+ * Two passes, so the id a client must send does not depend on the order the
+ * agent happened to declare its options in. Pass one settles every option that
+ * collides with an id WE reserved (`mode`): those always become `acp:<id>`, so
+ * an agent that also ships an option literally called `acp:mode` cannot take
+ * that name first and push the real collision to `acp:mode:2`. Pass two gives
+ * everything else its own id, namespacing only what is by then taken.
+ */
+function assignIds(declared: readonly AcpSessionConfigOption[], reserved: ReadonlyMap<string, unknown>): string[] {
+    const taken = new Set(reserved.keys());
+    const ids = new Array<string | undefined>(declared.length);
+    declared.forEach((o, i) => {
+        if (reserved.has(o.id)) ids[i] = claim(namespaced(o.id), taken, o.id);
+    });
+    declared.forEach((o, i) => {
+        if (ids[i] === undefined) ids[i] = claim(taken.has(o.id) ? namespaced(o.id) : o.id, taken, o.id);
+    });
+    return ids as string[];
+}
+
+const namespaced = (id: string) => `${ACP_NS}:${id}`;
+
+/** A taken id is counted off, never dropped: two settings mean two controls. */
+function claim(wanted: string, taken: Set<string>, source: string): string {
+    let id = wanted;
+    for (let n = 2; taken.has(id); n++) id = `${namespaced(source)}:${n}`;
+    taken.add(id);
+    return id;
 }
 
 /** The permission option a decision selects, or `cancelled`. */
