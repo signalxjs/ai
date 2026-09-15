@@ -35,4 +35,5 @@ export type {
     AcpSessionConfigOption,
     AcpContentBlock
 } from './schema.js';
-export { ACP_NS, toAcpBlocks, toStopReason, toUsage, toToolStatus, toCategory, toConfigOptions, toPermissionOutcome } from './stream.js';
+export { ACP_NS, ACP_MODE_ID, toAcpBlocks, toStopReason, toUsage, toToolStatus, toCategory, toConfigView, toPermissionOutcome } from './stream.js';
+export type { AcpConfigOrigin, AcpConfigView } from './stream.js';

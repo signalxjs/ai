@@ -42,8 +42,9 @@ await agent.dispose();                             // kills the agent process tr
   HTTP MCP servers. What is not advertised is refused up front, never sent
   and silently misread: a prompt part outside the negotiated `promptParts`,
   `prompt(input, { output })` (ACP has no structured output —
-  `structuredOutput: false`) and `configure({ mode })` on a session that was
-  offered no modes all end with a `protocol_error`. `steer` and sub-agents
+  `structuredOutput: false`) and `configure()` on a key the session never
+  advertised all end with a `protocol_error` — which names what it does
+  advertise. `steer` and sub-agents
   are `false` / `'none'`: the protocol has no surface for them.
 - **Client tools** (`session({ tools })`) are served over MCP by
   `createMcpToolHandler` + `listenMcp` — loopback, a per-session bearer token —
@@ -56,7 +57,14 @@ await agent.dispose();                             // kills the agent process tr
 - **Coding events.** Tool calls carry the ACP `kind` as their `category`;
   `diff` content becomes `coding.diff`, plans become `coding.plan`, usage
   updates become session `usage`, mode and config changes become `config`
-  (drive them with `session.configure({ mode, ...options })`).
+  (drive them with `session.configure({ mode, ...options })`). `mode` always
+  means the ACP *session* mode; an agent that declares a config option of its
+  own called `mode` gets it under `acp:mode`. Two options are never advertised
+  under one id — `id` is what `configure()` addresses. Our own label is the
+  only one we rewrite: when an agent declares an option it also calls "Mode",
+  ours becomes "Session mode", so those two are not both labelled `Mode`.
+  Labels an agent gives its *own* options are left alone, so it can still
+  render two of them alike if it chooses to.
 - **Resume and history.** The `SessionRef` names the ACP session and its
   `cwd`; resuming uses `session/resume` when advertised and otherwise
   `session/load`, whose replayed history lands in the new epoch as plain

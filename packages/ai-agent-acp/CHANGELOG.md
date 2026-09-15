@@ -37,6 +37,21 @@ follow [SemVer](https://semver.org/).
 
 ### Fixed
 
+- A session mode and an agent-declared config option could both be advertised
+  as `mode`, and the second was unreachable: `configure()` routed on the
+  literal key, so every attempt to set the agent's option called
+  `session/set_mode` instead — two controls, one silently driving the other.
+  `toConfigOptions` is now `toConfigView`, which returns the options **and**
+  where each one came from, and `configure()` dispatches on that origin. The
+  session mode keeps the `mode` id (it is what `configure({ mode })` has
+  always meant); a colliding agent option is namespaced to `acp:mode`, and
+  when both would render as "Mode" it is our own label that becomes
+  "Session mode". An agent that does not collide is unaffected. Consequences:
+  `session/set_config_option` now carries the agent's own `configId` rather
+  than the id we advertised; `configure({ mode })` on a session with no modes
+  but a `mode` config option works instead of throwing; and an unknown key is
+  now refused with the list of what the session does advertise, replacing the
+  `has no modes to set` message.
 - `prompt(input, { output })` was silently ignored (the turn ended `end_turn`
   with no output); it now ends with `protocol_error` before anything is sent.
 - Prompt parts outside the negotiated `promptParts` (an image for an agent
