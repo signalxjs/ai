@@ -30,7 +30,7 @@ Full guides, API reference and live examples → **<https://sigx.dev/ai/>**
 | [`@sigx/ai-agent-copilot`](./packages/ai-agent-copilot) | **Experimental.** GitHub Copilot CLI as an `Agent` on the official `@github/copilot-sdk` — sessions with resume and list, the runtime's permission asks through your policy, `defineTool` tools run in-process, a switchable model list, sub-agents observed |
 | [`@sigx/ai-anthropic`](./packages/ai-anthropic) | Claude on the official `@anthropic-ai/sdk` — streaming, tool use, adaptive thinking, refusal handling |
 | [`@sigx/ai-openai`](./packages/ai-openai) | OpenAI on the official `openai` SDK — Responses API streaming and function calling |
-| [`@sigx/ai-ui`](./packages/ai-ui) | **Proof of concept** — generative UI: a streamable JSON UI spec, a catalog that validates it, safe expressions, reactive state, async actions, and a platform-neutral renderer (`UIView`) with a web component pack |
+| [`@sigx/json-ui`](./packages/json-ui) | **Proof of concept** — UI from JSON: a streamable JSON UI spec, a catalog that validates it, safe expressions, reactive state, async actions, and a platform-neutral renderer (`UIView`) with a web component pack. No AI dependency; `@sigx/ai/ui` hands it to a model as a tool |
 
 Examples:
 

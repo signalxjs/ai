@@ -159,9 +159,9 @@ importers:
       '@sigx/ai-openai':
         specifier: workspace:*
         version: link:../../packages/ai-openai
-      '@sigx/ai-ui':
+      '@sigx/json-ui':
         specifier: workspace:*
-        version: link:../../packages/ai-ui
+        version: link:../../packages/json-ui
       '@sigx/reactivity':
         specifier: 'catalog:'
         version: 0.15.6
@@ -217,6 +217,9 @@ importers:
 
   packages/ai:
     devDependencies:
+      '@sigx/json-ui':
+        specifier: workspace:*
+        version: link:../json-ui
       '@sigx/reactivity':
         specifier: 'catalog:'
         version: 0.15.6
@@ -449,7 +452,7 @@ importers:
         specifier: ^8.0.3
         version: 8.3.0(@types/node@26.5.1)(jiti@2.7.0)
 
-  packages/ai-ui:
+  packages/json-ui:
     devDependencies:
       '@sigx/ai':
         specifier: workspace:*

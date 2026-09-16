@@ -10,7 +10,8 @@ const base = defineLibConfig({
         index: 'src/index.ts',
         server: 'src/server/index.ts',
         app: 'src/app/index.ts',
-        testing: 'src/testing/index.ts'
+        testing: 'src/testing/index.ts',
+        ui: 'src/ui/index.ts'
     },
     external: [/@sigx\/.*/, /^node:/],
     root: import.meta.url

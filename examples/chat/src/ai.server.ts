@@ -17,7 +17,8 @@ import { CATALOG, PROVIDERS, defaultFor, isOffered, type ChatCatalog, type Provi
 import { mockModel } from '@sigx/ai/testing';
 import { anthropic } from '@sigx/ai-anthropic';
 import { openai } from '@sigx/ai-openai';
-import { uiTool, type UISpec } from '@sigx/ai-ui';
+import { uiTool } from '@sigx/ai/ui';
+import type { UISpec } from '@sigx/json-ui';
 import { z } from 'zod';
 
 const SYSTEM =

@@ -7,7 +7,7 @@ engine (`streamText` / `generateText` / `streamObject` / `generateObject`)
 that runs the tool loop once for every vendor. Zero dependencies, no `node:`
 imports — Node, workerd and the edge alike.
 
-Four entries:
+Five entries:
 
 | Entry | What |
 |---|---|
@@ -15,6 +15,7 @@ Four entries:
 | `@sigx/ai/app` | `useChat`, `useCompletion`, `useObject` — composables on `@sigx/runtime-core` |
 | `@sigx/ai/server` | `chatStream` for `serverStream` handlers, `ChatInput` wire schema |
 | `@sigx/ai/testing` | `mockModel` — a scripted model for tests, docs and CI |
+| `@sigx/ai/ui` | `uiTool` — a [`@sigx/json-ui`](../json-ui) spec as a tool the model calls, so it can build interfaces (optional peer) |
 
 ## Asking before a tool runs
 

@@ -190,11 +190,11 @@ describe('a render_ui tool part', () => {
         });
         const One = component(() => () => <Part part={part as never} role="assistant" live={true} onEmit={(name, payload) => emitted.push([name, payload])} />, { name: 'One' });
         const dom = mount(jsx(One, {}));
-        expect(dom.querySelector('.ai-ui-text')?.textContent).toBe('Count: 1');
+        expect(dom.querySelector('.json-ui-text')?.textContent).toBe('Count: 1');
         // The core's reducer replaces `input` wholesale on every delta; the view merges it in place.
         part.input = { spec: { state: { n: 1 }, root: { type: 'stack', children: [{ type: 'text', props: { text: 'Count: {{n}}' } }, { type: 'button', props: { label: 'Say hi' }, on: { press: [{ do: 'emit', name: 'send', payload: { text: 'hi from n={{n}}' } }] } }] } } };
         await tick();
-        expect(dom.querySelector('.ai-ui-text')?.textContent).toBe('Count: 1');
+        expect(dom.querySelector('.json-ui-text')?.textContent).toBe('Count: 1');
         dom.querySelector('button')!.click();
         await tick();
         expect(emitted).toEqual([['send', { text: 'hi from n=1' }]]);

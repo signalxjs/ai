@@ -7,8 +7,8 @@
  */
 import { component, useHead, onMounted, signal } from 'sigx';
 import { useChat, type UIMessage, type UIPart } from '@sigx/ai/app';
-import { UIView, type UISpec } from '@sigx/ai-ui/app';
-import { webRegistry, webStyles } from '@sigx/ai-ui/web';
+import { UIView, type UISpec } from '@sigx/json-ui/app';
+import { webRegistry, webStyles } from '@sigx/json-ui/web';
 import { RichTextView } from '@sigx/richtext/dom';
 import { markdownFormat } from '@sigx/richtext-markdown';
 import { catalog, chat } from './ai.server';

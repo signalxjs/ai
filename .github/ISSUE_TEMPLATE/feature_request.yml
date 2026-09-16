@@ -49,7 +49,7 @@ body:
         - "@sigx/ai-agent-copilot"
         - "@sigx/ai-anthropic"
         - "@sigx/ai-openai"
-        - "@sigx/ai-ui"
+        - "@sigx/json-ui"
         - Not sure
     validations:
       required: true
