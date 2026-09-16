@@ -103,7 +103,7 @@
     "path": "packages/ai-openai/dist/index.prod.js",
     "limit": "4 KB",
     "ignore": ["openai", "@sigx/ai"]
-  },
+  },
   {
     "name": "@sigx/json-ui",
     "path": "packages/json-ui/dist/index.prod.js",

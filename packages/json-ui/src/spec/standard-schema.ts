@@ -2,11 +2,9 @@
  * A copy of `@sigx/ai`'s vendored Standard Schema types
  * (packages/ai/src/schema/standard-schema.ts) — the same contract, kept here
  * so `uiSpecSchema()` plugs into `defineTool` / `serverFn` without a dependency.
- *
- * A copy of `@sigx/ai`'s vendored Standard Schema types
- * (packages/ai/src/schema/standard-schema.ts) — the same contract, kept here
- * so `uiSpecSchema()` plugs into `defineTool` / `serverFn` without a dependency.
- *
+ */
+
+/**
  * Standard Schema (https://standardschema.dev) — the validator contract every
  * schema library implements (Zod, Valibot, ArkType, …), vendored as a type so
  * this package keeps zero dependencies. The same contract `@sigx/server`
@@ -28,15 +26,7 @@ export declare namespace StandardSchemaV1 {
         readonly vendor: string;
         readonly validate: (value: unknown) => Result<Output> | Promise<Result<Output>>;
         readonly types?: Types<Input, Output> | undefined;
-        /**
- * A copy of `@sigx/ai`'s vendored Standard Schema types
- * (packages/ai/src/schema/standard-schema.ts) — the same contract, kept here
- * so `uiSpecSchema()` plugs into `defineTool` / `serverFn` without a dependency.
- *
- * A copy of `@sigx/ai`'s vendored Standard Schema types
- * (packages/ai/src/schema/standard-schema.ts) — the same contract, kept here
- * so `uiSpecSchema()` plugs into `defineTool` / `serverFn` without a dependency.
- * Standard JSON Schema — present when the library can render one. */
+        /** Standard JSON Schema — present when the library can render one. */
         readonly jsonSchema?: JsonSchemaConverter | undefined;
     }
 
@@ -78,13 +68,5 @@ export declare namespace StandardSchemaV1 {
     export type InferOutput<Schema extends StandardSchemaV1> = NonNullable<Schema['~standard']['types']>['output'];
 }
 
-/**
- * A copy of `@sigx/ai`'s vendored Standard Schema types
- * (packages/ai/src/schema/standard-schema.ts) — the same contract, kept here
- * so `uiSpecSchema()` plugs into `defineTool` / `serverFn` without a dependency.
- *
- * A copy of `@sigx/ai`'s vendored Standard Schema types
- * (packages/ai/src/schema/standard-schema.ts) — the same contract, kept here
- * so `uiSpecSchema()` plugs into `defineTool` / `serverFn` without a dependency.
- * A JSON Schema document — kept structural; the providers only pass it through. */
+/** A JSON Schema document — kept structural; the providers only pass it through. */
 export type JsonSchema = Record<string, unknown>;

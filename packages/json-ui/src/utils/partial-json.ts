@@ -2,11 +2,9 @@
  * A copy of `@sigx/ai`'s `parsePartialJson` (packages/ai/src/utils/partial-json.ts):
  * `@sigx/json-ui` is a general UI-from-JSON runtime that must not depend on
  * the AI package for one function. The two stay in step by hand.
- *
- * A copy of `@sigx/ai`'s `parsePartialJson` (packages/ai/src/utils/partial-json.ts):
- * `@sigx/json-ui` is a general UI-from-JSON runtime that must not depend on
- * the AI package for one function. The two stay in step by hand.
- *
+ */
+
+/**
  * `parsePartialJson` — the best complete value a JSON prefix can be read as.
  *
  * A streaming model emits a document one token at a time; a UI that wants to
