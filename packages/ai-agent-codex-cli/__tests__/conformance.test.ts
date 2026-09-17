@@ -81,7 +81,7 @@ function programFor(scenario: ConformanceScenario): TurnProgram {
  * fixed thread, never the ones it started.
  */
 const skip = (s: ConformanceScenario) => {
-    if (s.name === 'support-agent') return 'Codex emits no agent.handoff extension (its ext namespace is codex)';
+    if (s.name === 'support-agent') return 'Codex emits no agent.handoff extension (its ext namespace is codex-cli)';
     if (s.name === 'list-sessions') return 'the fake app-server answers thread/list with a fixed thread, not the ones it started';
     return undefined;
 };
