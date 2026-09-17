@@ -196,21 +196,21 @@ async function harness(choice: HarnessChoice): Promise<Agent<CodingSessionOption
             // The SDK bundles its own binary, so the override is an option on the adapter, not a PATH lookup.
             return claudeCode(command ? { pathToClaudeCodeExecutable: command } : {});
         }
-        case 'codex': {
-            const { codex } = await import('@sigx/ai-agent-codex');
-            return codex(command ? { command } : {});
+        case 'codex-cli': {
+            const { codexCli } = await import('@sigx/ai-agent-codex-cli');
+            return codexCli(command ? { command } : {});
         }
-        case 'copilot': {
-            const { copilot } = await import('@sigx/ai-agent-copilot');
+        case 'copilot-cli': {
+            const { copilotCli } = await import('@sigx/ai-agent-copilot-cli');
             // The SDK spawns its bundled runtime itself, with `process.env` unless told
             // otherwise — so it is told: the same allowlist every other harness child gets,
             // plus the variables Copilot reads. The override is a path, not a PATH lookup.
             const env = buildChildEnv({ allow: [...DEFAULT_ENV_ALLOWLIST, 'COPILOT_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'COPILOT_HOME'] });
-            return copilot({ env, ...(command ? { cliPath: command } : {}) });
+            return copilotCli({ env, ...(command ? { cliPath: command } : {}) });
         }
         default: {
             const { acp, gemini, cursor, claudeCodeAcp, codexAcp, copilotAcp } = await import('@sigx/ai-agent-acp');
-            const presets = { 'acp:gemini': gemini, 'acp:cursor': cursor, 'acp:claude-code': claudeCodeAcp, 'acp:codex': codexAcp, 'acp:copilot': copilotAcp } as const;
+            const presets = { 'acp:gemini': gemini, 'acp:cursor': cursor, 'acp:claude-code': claudeCodeAcp, 'acp:codex-cli': codexAcp, 'acp:copilot-cli': copilotAcp } as const;
             return acp({ ...presets[choice](), ...(command ? { command } : {}) });
         }
     }
@@ -375,13 +375,13 @@ const LABELS: Record<AgentChoice, string> = {
     sigx: 'sigx (our engine)',
     mock: 'mock (scripted)',
     'claude-code': 'Claude Code',
-    codex: 'Codex',
-    copilot: 'GitHub Copilot CLI',
+    'codex-cli': 'Codex CLI',
+    'copilot-cli': 'GitHub Copilot CLI',
     'acp:gemini': 'Gemini CLI (ACP)',
     'acp:cursor': 'Cursor CLI (ACP)',
     'acp:claude-code': 'Claude Code (ACP bridge)',
-    'acp:codex': 'Codex (ACP bridge)',
-    'acp:copilot': 'GitHub Copilot CLI (ACP)'
+    'acp:codex-cli': 'Codex CLI (ACP bridge)',
+    'acp:copilot-cli': 'GitHub Copilot CLI (ACP)'
 };
 
 /**

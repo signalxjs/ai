@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to `@sigx/ai-agent-codex` are documented here. The format
+All notable changes to `@sigx/ai-agent-codex-cli` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 follow [SemVer](https://semver.org/).
 
@@ -8,7 +8,7 @@ follow [SemVer](https://semver.org/).
 
 ### Added
 
-- `codex({ command?, args?, env?, cwd?, transport?, passEnv?, clientInfo? })` —
+- `codexCli({ command?, args?, env?, cwd?, transport?, passEnv?, clientInfo? })` —
   Codex as an `Agent` over `codex app-server`: threads as sessions
   (`resume: 'local'`, `fork`, `listSessions`), turns as prompts, approvals and
   questions through the session policy, `defineTool` tools as dynamic tools,

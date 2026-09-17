@@ -73,7 +73,7 @@ describe('acp(): initialize and capabilities', () => {
         expect(cursor({ command: '/opt/cursor/agent' })).toMatchObject({ id: 'acp:cursor', command: '/opt/cursor/agent', args: ['acp'] });
         expect(claudeCodeAcp().command).toBe('claude-agent-acp');
         expect(codexAcp().command).toBe('codex-acp');
-        expect(copilotAcp()).toMatchObject({ id: 'acp:copilot', command: 'copilot', args: ['--acp'], passEnv: ['COPILOT_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'COPILOT_HOME'] });
+        expect(copilotAcp()).toMatchObject({ id: 'acp:copilot-cli', command: 'copilot', args: ['--acp'], passEnv: ['COPILOT_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'COPILOT_HOME'] });
         expect(acp(gemini()).id).toBe('acp:gemini');
     });
 });

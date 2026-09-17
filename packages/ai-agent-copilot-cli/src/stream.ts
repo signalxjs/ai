@@ -5,7 +5,7 @@
  * `tool-update` with `coding.terminal` for shell output, `assistant.usage`
  * is summed into turn and session usage, sub-agents become `agent-start` /
  * `agent-update` with their own events nested under the spawning call, and
- * anything we do not model is passed through as `ext { ns: 'copilot' }`.
+ * anything we do not model is passed through as `ext { ns: 'copilot-cli' }`.
  *
  * The turn ends at `session.idle` (cancelled when we asked for it), or
  * shortly after a `session.error` the runtime never follows with idle.
@@ -15,7 +15,7 @@ import type { SessionEvent } from '@github/copilot-sdk';
 import type { Usage } from '@sigx/ai';
 import type { AgentErrorCode, AgentStatus, ErrorInfo, StopReason, ToolStatus, UnstampedEvent } from '@sigx/ai-agent';
 import { categoryOf, codingEvent } from '@sigx/ai-agent/coding';
-import { COPILOT_NS } from './options.js';
+import { COPILOT_CLI_NS } from './options.js';
 import { toErrorCode, toToolStatus } from './request.js';
 
 export interface TurnOutcome {
@@ -323,7 +323,7 @@ export function createTurnMapper(driver: EventSink, options: TurnMapperOptions):
                 case 'tool.execution_partial_result': {
                     const d = event.data;
                     if (terminals.has(d.toolCallId)) emit(codingEvent('terminal', { terminalId: d.toolCallId, stream: 'stdout', delta: d.partialOutput }, { parentCallId: d.toolCallId }));
-                    else if (calls.has(d.toolCallId)) emit({ type: 'ext', ns: COPILOT_NS, name: event.type, data: d, parentCallId: d.toolCallId });
+                    else if (calls.has(d.toolCallId)) emit({ type: 'ext', ns: COPILOT_CLI_NS, name: event.type, data: d, parentCallId: d.toolCallId });
                     break;
                 }
                 case 'tool.execution_complete': {
@@ -397,7 +397,7 @@ export function createTurnMapper(driver: EventSink, options: TurnMapperOptions):
                     break;
                 default:
                     if (isChatter(event.type)) break;
-                    emit({ type: 'ext', ns: COPILOT_NS, name: event.type, data: event.data ?? null, ...(nesting.parentCallId !== undefined ? { parentCallId: nesting.parentCallId } : {}) });
+                    emit({ type: 'ext', ns: COPILOT_CLI_NS, name: event.type, data: event.data ?? null, ...(nesting.parentCallId !== undefined ? { parentCallId: nesting.parentCallId } : {}) });
             }
         }
     };

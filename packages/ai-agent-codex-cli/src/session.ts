@@ -10,7 +10,7 @@ import type { AgentSession, ConfigOption, PromptInput, PromptOptions, PromptPart
 import { AgentError, createEventLog, createSessionCore } from '@sigx/ai-agent';
 import type { JsonRpcPeer, RequestContext } from '@sigx/ai-agent/harness';
 import { approveCommand, approveFileChange, approvePermissions, askUserInput } from './approvals.js';
-import type { CodexSessionOptions } from './options.js';
+import type { CodexCliSessionOptions } from './options.js';
 import { CODEX_METHODS } from './schema.js';
 import type {
     AskForApproval,
@@ -32,7 +32,7 @@ import type {
     TurnSteerResponse,
     UserInput
 } from './schema.js';
-import { AGENT_TERMINAL, CODEX_NS, createTurnMapper, settleSubAgents, toUsage, updateSubAgent, type SubAgents, type TurnMapper } from './stream.js';
+import { AGENT_TERMINAL, CODEX_CLI_NS, createTurnMapper, settleSubAgents, toUsage, updateSubAgent, type SubAgents, type TurnMapper } from './stream.js';
 import { callDynamicTool } from './tools.js';
 
 export interface CodexSessionDeps {
@@ -43,7 +43,7 @@ export interface CodexSessionDeps {
     readonly thread: ThreadStartResponse;
     readonly cwd: string;
     readonly tools: readonly AnyTool[];
-    readonly options: CodexSessionOptions;
+    readonly options: CodexCliSessionOptions;
     readonly models: readonly { readonly id: string; readonly label?: string }[];
     readonly epoch: number;
     /** Called when the session closes so the agent forgets it. */
@@ -103,7 +103,7 @@ function toUserInput(input: PromptInput): UserInput[] {
     for (const p of parts) {
         if (p.type === 'text') out.push({ type: 'text', text: p.text, text_elements: [] });
         else if (p.type === 'image') out.push({ type: 'image', url: p.url ?? `data:${p.mediaType};base64,${p.data ?? ''}` });
-        else if (p.type === 'file' || p.type === 'resource') throw new AgentError('protocol_error', `[sigx ai-agent-codex] Codex accepts text and image parts; got "${p.type}"`);
+        else if (p.type === 'file' || p.type === 'resource') throw new AgentError('protocol_error', `[sigx ai-agent-codex-cli] Codex accepts text and image parts; got "${p.type}"`);
     }
     return out;
 }
@@ -114,7 +114,7 @@ function outputSchemaOf(options: PromptOptions | undefined): { json: JsonSchema;
     if ('~standard' in schema) {
         const conv = (schema as StandardSchemaV1)['~standard'].jsonSchema;
         const json = conv?.input({ target: 'draft-2020-12' });
-        if (!json) throw new AgentError('protocol_error', '[sigx ai-agent-codex] structured output needs a JSON Schema; the Standard Schema has no converter');
+        if (!json) throw new AgentError('protocol_error', '[sigx ai-agent-codex-cli] structured output needs a JSON Schema; the Standard Schema has no converter');
         return { json, standard: schema as StandardSchemaV1 };
     }
     return { json: schema as JsonSchema };
@@ -224,7 +224,7 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
         // session-level notice, since the turn can no longer carry events.
         const undelivered = () => {
             if (driver.signal.aborted) return;
-            core.emit({ type: 'error', code: 'protocol_error', message: `[sigx ai-agent-codex] steering input arrived after turn "${driver.turnId}" ended and was not delivered`, recoverable: true });
+            core.emit({ type: 'error', code: 'protocol_error', message: `[sigx ai-agent-codex-cli] steering input arrived after turn "${driver.turnId}" ended and was not delivered`, recoverable: true });
         };
         let codexTurnId: string;
         try {
@@ -242,7 +242,7 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
             if (driver.ended) return undelivered();
             if (driver.signal.aborted) return;
             const message = e instanceof Error ? e.message : String(e);
-            driver.emit({ type: 'error', code: 'protocol_error', message: `[sigx ai-agent-codex] turn/steer was refused: ${message}`, recoverable: true });
+            driver.emit({ type: 'error', code: 'protocol_error', message: `[sigx ai-agent-codex-cli] turn/steer was refused: ${message}`, recoverable: true });
         }
     };
 
@@ -267,7 +267,7 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
                 });
             }
             default:
-                return Promise.reject(new AgentError('protocol_error', `[sigx ai-agent-codex] unsupported request "${method}"`));
+                return Promise.reject(new AgentError('protocol_error', `[sigx ai-agent-codex-cli] unsupported request "${method}"`));
         }
     };
 
@@ -307,7 +307,7 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
                 try {
                     const response = await peer.request<TurnStartResponse>(CODEX_METHODS.turnStart, params, { signal: driver.signal });
                     turn.codexTurnId = response.turn.id;
-                    driver.emit({ type: 'ext', ns: CODEX_NS, name: 'turn', data: { turnId: response.turn.id } });
+                    driver.emit({ type: 'ext', ns: CODEX_CLI_NS, name: 'turn', data: { turnId: response.turn.id } });
                     for (const n of turn.early.splice(0)) if (n.params.turnId === undefined || n.params.turnId === turn.codexTurnId) mapper.notify(n.method, n.params);
                     startedOk(response.turn.id);
                 } catch (e) {
@@ -346,7 +346,7 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
         async cancel(target) {
             if (target?.agentId === undefined || target.agentId === threadId) return core.cancel();
             const agent = agents.get(target.agentId);
-            if (!agent || AGENT_TERMINAL.has(agent.status)) throw new AgentError('protocol_error', `[sigx ai-agent-codex] thread "${threadId}" has no running sub-agent "${target.agentId}"`);
+            if (!agent || AGENT_TERMINAL.has(agent.status)) throw new AgentError('protocol_error', `[sigx ai-agent-codex-cli] thread "${threadId}" has no running sub-agent "${target.agentId}"`);
             const child = childOf(target.agentId);
             // One cancel targets one turn: the running one, or — for a child between turns
             // (not started yet, or waiting on the host) — the next one it starts.
@@ -424,14 +424,14 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
         },
         async handleChildRequest(childThreadId, method, params, ctx) {
             const turn = active;
-            if (!turn) throw new AgentError('protocol_error', `[sigx ai-agent-codex] "${method}" from sub-agent thread "${childThreadId}" arrived with no turn running on thread "${threadId}"`);
+            if (!turn) throw new AgentError('protocol_error', `[sigx ai-agent-codex-cli] "${method}" from sub-agent thread "${childThreadId}" arrived with no turn running on thread "${threadId}"`);
             const child = childOf(childThreadId);
             child.mapper ??= childMapper(childThreadId, child, child.turnId);
             return answer(turn, child.mapper, method, params, ctx, agents.get(childThreadId)?.callId);
         },
         handleNotification(method, params) {
             if (!active) {
-                if (method !== CODEX_METHODS.threadStarted && method !== CODEX_METHODS.threadStatusChanged) core.emit({ type: 'ext', ns: CODEX_NS, name: method, data: params });
+                if (method !== CODEX_METHODS.threadStarted && method !== CODEX_METHODS.threadStatusChanged) core.emit({ type: 'ext', ns: CODEX_CLI_NS, name: method, data: params });
                 return;
             }
             if (active.codexTurnId === undefined) {
@@ -444,7 +444,7 @@ export function createCodexSession(deps: CodexSessionDeps): CodexSession {
         },
         async handleRequest(method, params, ctx) {
             const turn = active;
-            if (!turn) throw new AgentError('protocol_error', `[sigx ai-agent-codex] "${method}" arrived with no turn running on thread "${threadId}"`);
+            if (!turn) throw new AgentError('protocol_error', `[sigx ai-agent-codex-cli] "${method}" arrived with no turn running on thread "${threadId}"`);
             return answer(turn, turn.mapper, method, params, ctx);
         },
         peerClosed(message) {

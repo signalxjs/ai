@@ -13,7 +13,7 @@ import type { ModelInfo, SessionEvent } from '@github/copilot-sdk';
 import type { AnyTool } from '@sigx/ai';
 import type { AgentSession, ConfigValue, SessionRef, TurnContext, TurnDriver, UnstampedEvent } from '@sigx/ai-agent';
 import { AgentError, createEventLog, createSessionCore, toPromptParts, partsText } from '@sigx/ai-agent';
-import { COPILOT_NS, type CopilotSessionLike, type CopilotSessionOptions } from './options.js';
+import { COPILOT_CLI_NS, type CopilotSessionLike, type CopilotCliSessionOptions } from './options.js';
 import { createPermissionHandler, createUserInputHandler, type PermissionTarget } from './permissions.js';
 import { REASONING_EFFORTS, configOptions, type ConfigState } from './request.js';
 import { AGENT_TERMINAL, createTurnMapper, emptyUsage, isChatter, settleSubAgents, type SessionUsage, type SubAgents, type TurnMapper } from './stream.js';
@@ -24,7 +24,7 @@ export interface CopilotSessionDeps {
     readonly sessionId: string;
     readonly cwd: string;
     readonly tools: readonly AnyTool[];
-    readonly options: CopilotSessionOptions;
+    readonly options: CopilotCliSessionOptions;
     /** The models to offer, and what the runtime said about them (efforts). */
     readonly models: readonly ConfigValue[];
     readonly modelInfos: readonly ModelInfo[];
@@ -126,7 +126,7 @@ export function createCopilotSession(deps: CopilotSessionDeps): CopilotSession {
         }
         if (track(event)) return;
         if (active) active.mapper.handle(event);
-        else if (!isTurnBound(event.type) && !isChatter(event.type)) core.emit({ type: 'ext', ns: COPILOT_NS, name: event.type, data: event.data ?? null });
+        else if (!isTurnBound(event.type) && !isChatter(event.type)) core.emit({ type: 'ext', ns: COPILOT_CLI_NS, name: event.type, data: event.data ?? null });
     };
 
     const permissionTarget = (): PermissionTarget | undefined => {
@@ -178,7 +178,7 @@ export function createCopilotSession(deps: CopilotSessionDeps): CopilotSession {
         },
         prompt(input, promptOptions) {
             return core.startTurn(input, promptOptions, async (driver, ctx) => {
-                if (!sdk) throw new AgentError('protocol_error', '[sigx ai-agent-copilot] the session is not attached to the runtime');
+                if (!sdk) throw new AgentError('protocol_error', '[sigx ai-agent-copilot-cli] the session is not attached to the runtime');
                 const parts = toPromptParts(input);
                 driver.emit({ type: 'user-message', messageId: `u:${driver.turnId}`, parts });
                 const mapper = createTurnMapper(driver, {
@@ -214,20 +214,20 @@ export function createCopilotSession(deps: CopilotSessionDeps): CopilotSession {
         cancel: (target) => {
             if (target?.agentId !== undefined && target.agentId !== sessionId) {
                 const agent = agents.get(target.agentId);
-                if (!agent || AGENT_TERMINAL.has(agent.status)) return Promise.reject(new AgentError('protocol_error', `[sigx ai-agent-copilot] session "${sessionId}" has no running sub-agent "${target.agentId}"`));
-                return Promise.reject(new AgentError('protocol_error', '[sigx ai-agent-copilot] Copilot cannot cancel one sub-agent; cancel() the turn'));
+                if (!agent || AGENT_TERMINAL.has(agent.status)) return Promise.reject(new AgentError('protocol_error', `[sigx ai-agent-copilot-cli] session "${sessionId}" has no running sub-agent "${target.agentId}"`));
+                return Promise.reject(new AgentError('protocol_error', '[sigx ai-agent-copilot-cli] Copilot cannot cancel one sub-agent; cancel() the turn'));
             }
             return core.cancel();
         },
         async configure(patch) {
-            if (!sdk) throw new AgentError('protocol_error', '[sigx ai-agent-copilot] the session is not attached to the runtime');
+            if (!sdk) throw new AgentError('protocol_error', '[sigx ai-agent-copilot-cli] the session is not attached to the runtime');
             const model = patch.model ?? config.model;
             const effort = patch.reasoningEffort;
             if (effort !== undefined && !(REASONING_EFFORTS as readonly string[]).includes(effort)) {
-                throw new AgentError('protocol_error', `[sigx ai-agent-copilot] reasoningEffort must be one of ${REASONING_EFFORTS.join(', ')}, not "${effort}"`);
+                throw new AgentError('protocol_error', `[sigx ai-agent-copilot-cli] reasoningEffort must be one of ${REASONING_EFFORTS.join(', ')}, not "${effort}"`);
             }
             if (patch.model === undefined && effort === undefined) return;
-            if (model === undefined) throw new AgentError('protocol_error', '[sigx ai-agent-copilot] the session has no model yet to set the effort on');
+            if (model === undefined) throw new AgentError('protocol_error', '[sigx ai-agent-copilot-cli] the session has no model yet to set the effort on');
             // Recorded before the call: the runtime's own `session.model_change` for it
             // arrives while `setModel` is in flight, and must not read as a second change.
             const previous = { ...config };
@@ -267,7 +267,7 @@ function sendError(e: unknown): AgentError {
     if (e instanceof AgentError) return e;
     const message = e instanceof Error ? e.message : String(e);
     const gone = /disconnect|connection.*(closed|lost)|exited|not connected|EPIPE/i.test(message);
-    return new AgentError(gone ? 'process_exited' : 'provider_error', `[sigx ai-agent-copilot] send failed: ${message}`, false, { cause: e });
+    return new AgentError(gone ? 'process_exited' : 'provider_error', `[sigx ai-agent-copilot-cli] send failed: ${message}`, false, { cause: e });
 }
 
 /** Event types that only mean something inside a turn — outside one they are noise, not `ext`. */

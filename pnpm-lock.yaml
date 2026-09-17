@@ -83,12 +83,12 @@ importers:
       '@sigx/ai-agent-claude-code':
         specifier: workspace:*
         version: link:../../packages/ai-agent-claude-code
-      '@sigx/ai-agent-codex':
+      '@sigx/ai-agent-codex-cli':
         specifier: workspace:*
-        version: link:../../packages/ai-agent-codex
-      '@sigx/ai-agent-copilot':
+        version: link:../../packages/ai-agent-codex-cli
+      '@sigx/ai-agent-copilot-cli':
         specifier: workspace:*
-        version: link:../../packages/ai-agent-copilot
+        version: link:../../packages/ai-agent-copilot-cli
       '@sigx/ai-agent-node':
         specifier: workspace:*
         version: link:../../packages/ai-agent-node
@@ -337,7 +337,7 @@ importers:
         specifier: ^8.0.3
         version: 8.3.0(@types/node@26.5.1)(jiti@2.7.0)
 
-  packages/ai-agent-codex:
+  packages/ai-agent-codex-cli:
     dependencies:
       '@sigx/ai-agent-node':
         specifier: ^0.1.0
@@ -365,7 +365,7 @@ importers:
         specifier: ^8.0.3
         version: 8.3.0(@types/node@26.5.1)(jiti@2.7.0)
 
-  packages/ai-agent-copilot:
+  packages/ai-agent-copilot-cli:
     devDependencies:
       '@github/copilot-sdk':
         specifier: 1.0.13

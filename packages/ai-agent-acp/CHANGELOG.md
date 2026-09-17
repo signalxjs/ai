@@ -31,7 +31,7 @@ follow [SemVer](https://semver.org/).
 - `copilotAcp()` — GitHub Copilot CLI's own ACP server (`copilot --acp`,
   public preview) as a preset, passing `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`,
   `GITHUB_TOKEN` and `COPILOT_HOME`. The full-fidelity adapter on the
-  official SDK is `@sigx/ai-agent-copilot`.
+  official SDK is `@sigx/ai-agent-copilot-cli`.
 - The protocol subset as types (`Acp*`) with an assignability check against
   the reference SDK.
 

@@ -5,7 +5,7 @@ import { defineTool, type JsonSchema, type StandardSchemaV1 } from '@sigx/ai';
 import { allowAll, denyAll, createTranscript, createReducer, type AgentEvent, type AgentSession, type AgentTurn, type SessionRef } from '@sigx/ai-agent';
 import { codingExtension, codingState } from '@sigx/ai-agent/coding';
 import { checkEventInvariants } from '@sigx/ai-agent/testing';
-import { copilot, COPILOT_CAPABILITIES, COPILOT_NS, configOptions, toClientOptions, toErrorCode, toPolicyRequest, toCopilotDecision, answerText, toModelValues, toUsage } from '@sigx/ai-agent-copilot';
+import { copilotCli, COPILOT_CLI_CAPABILITIES, COPILOT_CLI_NS, configOptions, toClientOptions, toErrorCode, toPolicyRequest, toCopilotDecision, answerText, toModelValues, toUsage } from '@sigx/ai-agent-copilot-cli';
 import { fakeClient, say, MODELS, type TurnProgram, type FakeClientOptions } from './fake-client';
 
 function schema<T>(check: (v: unknown) => v is T, json: JsonSchema): StandardSchemaV1<T, T> {
@@ -39,7 +39,7 @@ const configOf = (events: AgentEvent[]) => events.filter((e): e is Extract<Agent
 /** An agent over a fake, with the session-level events collected from the start. */
 async function open(program: TurnProgram, options: { fake?: FakeClientOptions; session?: Record<string, unknown>; agent?: Record<string, unknown> } = {}) {
     const fake = fakeClient(program, options.fake);
-    const agent = copilot({ client: fake.client, errorSettleMs: 20, ...options.agent });
+    const agent = copilotCli({ client: fake.client, errorSettleMs: 20, ...options.agent });
     const session = await agent.session({ cwd: '/repo', interactive: false, policy: allowAll, ...options.session });
     const all: AgentEvent[] = [];
     const sub = session.subscribe({ epoch: 0, seq: 0 });
@@ -57,19 +57,19 @@ async function open(program: TurnProgram, options: { fake?: FakeClientOptions; s
     return { fake, agent, session, all, settle, finish };
 }
 
-describe('@sigx/ai-agent-copilot', () => {
+describe('@sigx/ai-agent-copilot-cli', () => {
     it('advertises its capabilities', () => {
-        expect(copilot().capabilities).toEqual(COPILOT_CAPABILITIES);
-        expect(COPILOT_CAPABILITIES).toMatchObject({ resume: 'local', fork: false, cancel: true, steer: false, config: true, tools: 'native', permissions: 'harness-filtered', subagents: 'observe', defineAgents: true, promptParts: 'text' });
-        expect(copilot({ id: 'cp2' }).id).toBe('cp2');
+        expect(copilotCli().capabilities).toEqual(COPILOT_CLI_CAPABILITIES);
+        expect(COPILOT_CLI_CAPABILITIES).toMatchObject({ resume: 'local', fork: false, cancel: true, steer: false, config: true, tools: 'native', permissions: 'harness-filtered', subagents: 'observe', defineAgents: true, promptParts: 'text' });
+        expect(copilotCli({ id: 'cp2' }).id).toBe('cp2');
     });
 
     it('needs a cwd, and refuses a ref of another agent and a fork', async () => {
         const { client } = fakeClient(say('hi'));
-        const agent = copilot({ client });
+        const agent = copilotCli({ client });
         await expect(agent.session({} as never)).rejects.toMatchObject({ code: 'protocol_error' });
-        await expect(agent.session({ cwd: '/repo', resume: { agent: 'codex', v: 1, id: 'x' } })).rejects.toMatchObject({ code: 'protocol_error' });
-        await expect(agent.session({ cwd: '/repo', resume: { agent: 'copilot', v: 1, id: 'x' }, fork: true })).rejects.toMatchObject({ code: 'protocol_error' });
+        await expect(agent.session({ cwd: '/repo', resume: { agent: 'codex-cli', v: 1, id: 'x' } })).rejects.toMatchObject({ code: 'protocol_error' });
+        await expect(agent.session({ cwd: '/repo', resume: { agent: 'copilot-cli', v: 1, id: 'x' }, fork: true })).rejects.toMatchObject({ code: 'protocol_error' });
     });
 
     it('streams a text reply as parts, ends the turn at session.idle, and the user message comes first', async () => {
@@ -88,7 +88,7 @@ describe('@sigx/ai-agent-copilot', () => {
         const { session, fake, all, settle } = await open(say('x'));
         expect(fake.sessions[0]!.sessionId).toBe(session.id);
         expect(session.id).toMatch(/^cp_/);
-        expect(session.ref).toEqual({ agent: 'copilot', v: 1, id: session.id, data: { cwd: '/repo', epoch: 1 } });
+        expect(session.ref).toEqual({ agent: 'copilot-cli', v: 1, id: session.id, data: { cwd: '/repo', epoch: 1 } });
         await session.close();
         await settle();
         // `session.start` arrived before `createSession` resolved and still produced the config.
@@ -373,7 +373,7 @@ describe('@sigx/ai-agent-copilot', () => {
             expect(config.options[1]).toEqual({ id: 'reasoningEffort', label: 'Reasoning effort', values: [{ id: 'low' }, { id: 'medium' }, { id: 'high' }], current: 'medium' });
         });
 
-        it('copilot({ models }) replaces the list; a model without reasoning support has no effort option', async () => {
+        it('copilotCli({ models }) replaces the list; a model without reasoning support has no effort option', async () => {
             const { all, session, settle } = await open(say('x'), { agent: { models: [{ id: 'claude-sonnet-4.5', label: 'Sonnet' }] }, session: { model: 'claude-sonnet-4.5' } });
             await session.close();
             await settle();
@@ -563,7 +563,7 @@ describe('@sigx/ai-agent-copilot', () => {
             });
             const { events } = await drain(session.prompt('go'));
             const ext = events.filter((e): e is Extract<AgentEvent, { type: 'ext' }> => e.type === 'ext');
-            expect(ext.map((e) => [e.ns, e.name])).toEqual([[COPILOT_NS, 'session.usage_info'], [COPILOT_NS, 'session.info']]);
+            expect(ext.map((e) => [e.ns, e.name])).toEqual([[COPILOT_CLI_NS, 'session.usage_info'], [COPILOT_CLI_NS, 'session.info']]);
             fake.sessions[0]!.emit('session.compaction_start', { trigger: 'x' } as never);
             fake.sessions[0]!.emit('assistant.message_delta', { messageId: 'stray', deltaContent: 'x' });
             fake.sessions[0]!.emit('session.background_tasks_changed', {} as never);
@@ -577,7 +577,7 @@ describe('@sigx/ai-agent-copilot', () => {
     describe('lifecycle', () => {
         it('starts the client lazily, once, and stops an owned client on dispose', async () => {
             const fake = fakeClient(say('x'));
-            const agent = copilot({ client: fake.client });
+            const agent = copilotCli({ client: fake.client });
             expect(fake.starts).toBe(0);
             const a = await agent.session({ cwd: '/repo' });
             const b = await agent.session({ cwd: '/repo' });
@@ -592,15 +592,15 @@ describe('@sigx/ai-agent-copilot', () => {
         });
 
         it('a runtime that does not start is process_exited; a refused session is provider_error', async () => {
-            const down = copilot({ client: fakeClient(say('x'), { failStart: new Error('spawn ENOENT') }).client });
+            const down = copilotCli({ client: fakeClient(say('x'), { failStart: new Error('spawn ENOENT') }).client });
             await expect(down.session({ cwd: '/repo' })).rejects.toMatchObject({ code: 'process_exited' });
-            const refusing = copilot({ client: fakeClient(say('x'), { failCreate: new Error('bad model') }).client });
+            const refusing = copilotCli({ client: fakeClient(say('x'), { failCreate: new Error('bad model') }).client });
             await expect(refusing.session({ cwd: '/repo' })).rejects.toMatchObject({ code: 'provider_error', message: expect.stringContaining('bad model') });
         });
 
         it('a runtime that is not signed in is auth_required, unless the session brings its own provider', async () => {
             const fake = fakeClient(say('x'), { auth: { isAuthenticated: false } });
-            const agent = copilot({ client: fake.client });
+            const agent = copilotCli({ client: fake.client });
             await expect(agent.session({ cwd: '/repo' })).rejects.toMatchObject({ code: 'auth_required', data: { hint: 'copilot login' } });
             const byok = await agent.session({ cwd: '/repo', provider: { baseUrl: 'http://localhost:11434/v1' }, model: 'local' });
             expect(fake.sessions[0]!.config).toMatchObject({ provider: { baseUrl: 'http://localhost:11434/v1' }, model: 'local' });
@@ -609,14 +609,14 @@ describe('@sigx/ai-agent-copilot', () => {
 
         it('resumes a session by ref with the epoch advanced, and lists sessions', async () => {
             const fake = fakeClient(say('again'));
-            const agent = copilot({ client: fake.client });
+            const agent = copilotCli({ client: fake.client });
             const first = await agent.session({ cwd: '/repo' });
             await drain(first.prompt('one'));
             const ref: SessionRef = first.ref;
             await first.close();
             const resumed = await agent.session({ cwd: '/repo', resume: ref });
             expect(fake.sessions[1]).toMatchObject({ sessionId: ref.id, resumed: true });
-            expect(resumed.ref).toEqual({ agent: 'copilot', v: 1, id: ref.id, data: { cwd: '/repo', epoch: 2 } });
+            expect(resumed.ref).toEqual({ agent: 'copilot-cli', v: 1, id: ref.id, data: { cwd: '/repo', epoch: 2 } });
             const { events } = await drain(resumed.prompt('two'));
             expect(events[0]!.epoch).toBe(2);
             expect(textOf(events)).toBe('again');
@@ -627,7 +627,7 @@ describe('@sigx/ai-agent-copilot', () => {
 
         it('passes the session options through: system prompt, tools filter, agents, effort, directories', async () => {
             const fake = fakeClient(say('x'));
-            const agent = copilot({ client: fake.client });
+            const agent = copilotCli({ client: fake.client });
             await agent.session({ cwd: '/repo', additionalDirectories: ['/lib'], system: 'Be brief.', availableTools: ['view'], excludedTools: ['bash'], reasoningEffort: 'low', agents: { reviewer: { description: 'Reviews.', prompt: 'Review.', tools: ['view'], model: 'gpt-5' }, plain: { description: 'Plain.' } }, streaming: false });
             expect(fake.sessions[0]!.config).toMatchObject({
                 workingDirectory: '/repo',
@@ -655,7 +655,7 @@ describe('@sigx/ai-agent-copilot', () => {
         });
 
         it('a gitHubToken turns the stored login off unless useLoggedInUser says otherwise', () => {
-            expect(toClientOptions({})).toEqual({ clientInfo: { integrationName: '@sigx/ai-agent-copilot', applicationVersion: '0.1.0' } });
+            expect(toClientOptions({})).toEqual({ clientInfo: { integrationName: '@sigx/ai-agent-copilot-cli', applicationVersion: '0.1.0' } });
             expect(toClientOptions({ gitHubToken: 'ghp_x' })).toMatchObject({ gitHubToken: 'ghp_x', useLoggedInUser: false });
             expect(toClientOptions({ gitHubToken: 'ghp_x', useLoggedInUser: true })).toMatchObject({ useLoggedInUser: true });
             expect(toClientOptions({ env: { A: '1' }, cwd: '/w', baseDirectory: '/home', logLevel: 'error' })).toMatchObject({ env: { A: '1' }, workingDirectory: '/w', baseDirectory: '/home', logLevel: 'error' });
@@ -663,7 +663,7 @@ describe('@sigx/ai-agent-copilot', () => {
         });
 
         it('requires the SDK when no client is given', async () => {
-            const agent = copilot({ cliPath: '/nonexistent/copilot', env: {} });
+            const agent = copilotCli({ cliPath: '/nonexistent/copilot', env: {} });
             // The bundled runtime is present in this checkout, so the failure is the missing executable, reported as process_exited.
             await expect(agent.session({ cwd: tmpdir() })).rejects.toMatchObject({ code: expect.stringMatching(/process_exited|protocol_error/) });
             await agent.dispose();
@@ -671,12 +671,12 @@ describe('@sigx/ai-agent-copilot', () => {
     });
 });
 
-describe('@sigx/ai-agent-copilot (live)', () => {
+describe('@sigx/ai-agent-copilot-cli (live)', () => {
     const liveReason = process.env.SIGX_LIVE_COPILOT ? undefined : 'SIGX_LIVE_COPILOT is not set';
     it.skipIf(!!liveReason)(
         'answers a short prompt, lists models, and runs a client tool',
         async () => {
-            const agent = copilot();
+            const agent = copilotCli();
             const session: AgentSession = await agent.session({ cwd: tmpdir(), interactive: false, policy: allowAll, tools: [echo] });
             const all: AgentEvent[] = [];
             const reading = (async () => {
@@ -698,5 +698,5 @@ describe('@sigx/ai-agent-copilot (live)', () => {
         },
         180_000
     );
-    if (liveReason) console.log(`[ai-agent-copilot] live smoke skipped: ${liveReason}`);
+    if (liveReason) console.log(`[ai-agent-copilot-cli] live smoke skipped: ${liveReason}`);
 });

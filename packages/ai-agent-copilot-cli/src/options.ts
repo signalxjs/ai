@@ -21,7 +21,7 @@ export type ReasoningEffort = NonNullable<SessionConfig['reasoningEffort']>;
 /** The SDK's legacy `ask_user` handler type, likewise unexported. */
 export type UserInputHandler = NonNullable<SessionConfig['onUserInputRequest']>;
 
-export const COPILOT_NS = 'copilot';
+export const COPILOT_CLI_NS = 'copilot-cli';
 
 /**
  * What the adapter needs from a `CopilotSession` — the real class satisfies
@@ -36,7 +36,7 @@ export interface CopilotSessionLike {
     disconnect(): Promise<void>;
 }
 
-/** What the adapter needs from a `CopilotClient`; `copilot({ client })` injects one. */
+/** What the adapter needs from a `CopilotClient`; `copilotCli({ client })` injects one. */
 export interface CopilotClientLike {
     start(): Promise<void>;
     stop(): Promise<Error[]>;
@@ -47,8 +47,8 @@ export interface CopilotClientLike {
     getAuthStatus(): Promise<GetAuthStatusResponse>;
 }
 
-export interface CopilotOptions {
-    /** Default `'copilot'`. */
+export interface CopilotCliOptions {
+    /** Default `'copilot-cli'`. */
     readonly id?: string;
     /** A client to use instead of constructing a `CopilotClient` — a scripted fake in tests, a shared client in an app. */
     readonly client?: CopilotClientLike;
@@ -78,7 +78,7 @@ export interface CopilotOptions {
     readonly errorSettleMs?: number;
 }
 
-export interface CopilotSessionOptions extends CodingSessionOptions {
+export interface CopilotCliSessionOptions extends CodingSessionOptions {
     readonly reasoningEffort?: ReasoningEffort;
     /** Restrict the runtime's built-in tools to these (names, or an SDK `ToolSet`). */
     readonly availableTools?: readonly string[] | ToolSet;

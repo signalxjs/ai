@@ -1,4 +1,4 @@
-# @sigx/ai-agent-copilot
+# @sigx/ai-agent-copilot-cli
 
 > **Experimental** — 0.x, part of the [`@sigx/ai-agent`](https://www.npmjs.com/package/@sigx/ai-agent) family.
 
@@ -13,10 +13,10 @@ adapter never collects or stores credentials.
 ```ts
 import { firstMatch, allowReadOnly } from '@sigx/ai-agent';
 import { allowCategories, denyOutside } from '@sigx/ai-agent/coding';
-import { copilot } from '@sigx/ai-agent-copilot';
+import { copilotCli } from '@sigx/ai-agent-copilot-cli';
 
 // A headless review bot: read and search inside the checkout, nothing else.
-const agent = copilot();
+const agent = copilotCli();
 const session = await agent.session({
     cwd,
     interactive: false,
@@ -39,10 +39,10 @@ await agent.dispose(); // stops the runtime the SDK spawned
 | your tools (`SessionOptions.tools`) | declared on the session from `AnyTool.spec` (the JSON Schema as-is), run through `AnyTool.run`; permission comes from the runtime's `custom-tool` ask — the handler asks itself only when nobody asked for that call |
 | `assistant.usage` | `usage { scope: 'turn' }` and `usage { scope: 'session' }` under the shared `Usage` keys (`cacheReadTokens` → `cacheReadInputTokens`, `cacheWriteTokens` → `cacheCreationInputTokens`). Its `cost` is the model's premium-request multiplier, not money, so there is no `costUsd` |
 | `subagent.started` / `completed` / `failed` | `agent-start { kind: 'subagent', callId }` bound to the spawning call (announced as `task` when the runtime did not), `agent-update`s (one terminal each), the call settled with the agent; the sub-agent's own events (`agentId` on the envelope) nest under that call with the agent as `actor`, and its usage is `agent-update.usage`, never the host's |
-| `session.start` / `session.resume` / `session.model_change`, `listModels()` | `config` events: a switchable `model` (the runtime's enabled models, or `copilot({ models })`; the session's own model is always offered) and `reasoningEffort` (what the model supports); `configure({ model, reasoningEffort })` → `setModel()` and re-announces the whole list |
+| `session.start` / `session.resume` / `session.model_change`, `listModels()` | `config` events: a switchable `model` (the runtime's enabled models, or `copilotCli({ models })`; the session's own model is always offered) and `reasoningEffort` (what the model supports); `configure({ model, reasoningEffort })` → `setModel()` and re-announces the whole list |
 | `session.error` | `error` (`statusCode` / message → `auth_required`, `rate_limited`, `context_exceeded`, `provider_error`); the turn ends `error` at the `session.idle` that follows, or after `errorSettleMs` (2000) when none does |
 | `session({ agents })` | `customAgents` (`defineAgents: true`) |
-| everything else | `ext { ns: 'copilot' }` — except the runtime's own chatter (`model.*` telemetry, `assistant.streaming_delta`, `assistant.tool_call_delta`, queue and background-task bookkeeping, `external_tool.*`, `sandbox.*`, the full `system.message`), which is dropped |
+| everything else | `ext { ns: 'copilot-cli' }` — except the runtime's own chatter (`model.*` telemetry, `assistant.streaming_delta`, `assistant.tool_call_delta`, queue and background-task bookkeeping, `external_tool.*`, `sandbox.*`, the full `system.message`), which is dropped |
 
 Capabilities: `resume: 'local'`, `cancel`, `config`, `tools: 'native'`,
 `permissions: 'harness-filtered'` (the runtime runs workspace reads without
@@ -61,14 +61,14 @@ runtime that is not signed in fails `session()` with
 session brings its own provider (`provider`, bring-your-own-key), which runs
 without a GitHub login. `gitHubToken` goes to the runtime as an environment
 variable; `env`, `cwd`, `baseDirectory` (`COPILOT_HOME`) and `logLevel` are
-the runtime's. `copilot({ client })` takes a ready `CopilotClient` — or, in
+the runtime's. `copilotCli({ client })` takes a ready `CopilotClient` — or, in
 tests, anything that satisfies `CopilotClientLike` (the SDK's own classes are
 checked against it).
 
 ## Install
 
 ```bash
-npm install @sigx/ai @sigx/ai-agent @sigx/ai-agent-copilot @github/copilot-sdk
+npm install @sigx/ai @sigx/ai-agent @sigx/ai-agent-copilot-cli @github/copilot-sdk
 ```
 
 Node only (the SDK spawns a process). The SDK is a peer dependency; it brings

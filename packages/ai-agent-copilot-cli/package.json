@@ -1,7 +1,7 @@
 {
-    "name": "@sigx/ai-agent-codex",
+    "name": "@sigx/ai-agent-copilot-cli",
     "version": "0.1.0",
-    "description": "Codex for @sigx/ai-agent — Codex as an Agent over the codex app-server JSON-RPC protocol: threads, turns, approvals, dynamic client tools",
+    "description": "GitHub Copilot CLI for @sigx/ai-agent — the Copilot CLI as an Agent on the official @github/copilot-sdk: sessions, streaming, permissions through your policy, in-process client tools, a switchable model list",
     "type": "module",
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",
@@ -20,18 +20,16 @@
     "sideEffects": false,
     "scripts": {
         "build": "vite build && vite build --mode prod-dist && tsc --emitDeclarationOnly",
-        "dev": "vite build --watch",
-        "codex:generate": "node scripts/codex-generate.mjs"
+        "dev": "vite build --watch"
     },
     "keywords": [
         "sigx",
         "signalx",
         "ai",
         "agent",
-        "codex",
-        "openai",
-        "app-server",
-        "json-rpc"
+        "copilot",
+        "github",
+        "copilot-sdk"
     ],
     "author": "Andreas Ekdahl",
     "license": "MIT",
@@ -41,20 +39,16 @@
     "repository": {
         "type": "git",
         "url": "git+https://github.com/signalxjs/ai.git",
-        "directory": "packages/ai-agent-codex"
+        "directory": "packages/ai-agent-copilot-cli"
     },
     "homepage": "https://sigx.dev/ai/",
     "bugs": {
         "url": "https://github.com/signalxjs/ai/issues"
     },
-    "dependencies": {
-        "@sigx/ai-agent-node": "^0.1.0"
-    },
     "devDependencies": {
-        "@pwrdrvr/codex-app-server-protocol": "0.153.4",
+        "@github/copilot-sdk": "1.0.13",
         "@sigx/ai": "workspace:*",
         "@sigx/ai-agent": "workspace:*",
-        "@sigx/ai-agent-node": "workspace:*",
         "@sigx/vite": "catalog:",
         "@types/node": "^26.5.1",
         "typescript": "^7.0.2",
@@ -64,6 +58,7 @@
         "access": "public"
     },
     "peerDependencies": {
+        "@github/copilot-sdk": ">=1.0.0 <2",
         "@sigx/ai": "^0.1.0",
         "@sigx/ai-agent": "^0.1.0"
     }

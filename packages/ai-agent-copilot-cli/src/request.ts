@@ -6,7 +6,7 @@
 
 import type { CopilotClientOptions, CustomAgentConfig, ModelInfo, SessionConfigBase } from '@github/copilot-sdk';
 import type { AgentDefinition, AgentErrorCode, ConfigOption, ConfigValue, ToolStatus } from '@sigx/ai-agent';
-import type { CopilotOptions, CopilotSessionOptions, ReasoningEffort } from './options.js';
+import type { CopilotCliOptions, CopilotCliSessionOptions, ReasoningEffort } from './options.js';
 
 export const REASONING_EFFORTS: readonly ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 
@@ -16,7 +16,7 @@ export const REASONING_EFFORTS: readonly ReasoningEffort[] = ['low', 'medium', '
  * unless `useLoggedInUser` says otherwise — the option's contract, spelled
  * out rather than left to the SDK's own defaulting.
  */
-export function toClientOptions(options: CopilotOptions): Omit<CopilotClientOptions, 'connection'> {
+export function toClientOptions(options: CopilotCliOptions): Omit<CopilotClientOptions, 'connection'> {
     const useLoggedInUser = options.useLoggedInUser ?? (options.gitHubToken !== undefined ? false : undefined);
     return {
         ...(options.env ? { env: { ...options.env } } : {}),
@@ -25,12 +25,12 @@ export function toClientOptions(options: CopilotOptions): Omit<CopilotClientOpti
         ...(options.logLevel !== undefined ? { logLevel: options.logLevel } : {}),
         ...(options.gitHubToken !== undefined ? { gitHubToken: options.gitHubToken } : {}),
         ...(useLoggedInUser !== undefined ? { useLoggedInUser } : {}),
-        clientInfo: { integrationName: '@sigx/ai-agent-copilot', applicationVersion: '0.1.0' }
+        clientInfo: { integrationName: '@sigx/ai-agent-copilot-cli', applicationVersion: '0.1.0' }
     };
 }
 
 /** The `SessionConfigBase` fields that come straight from the session options — the callbacks and tools are added by the session. */
-export function toSessionConfig(options: CopilotSessionOptions): SessionConfigBase {
+export function toSessionConfig(options: CopilotCliSessionOptions): SessionConfigBase {
     return {
         workingDirectory: options.cwd,
         ...(options.additionalDirectories?.length ? { additionalDirectories: [...options.additionalDirectories] } : {}),

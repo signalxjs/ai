@@ -2,7 +2,7 @@
 /** The conformance suite against the Copilot adapter over a scripted fake client. */
 import { describe, it, expect } from 'vitest';
 import { agentConformance, type ConformanceScenario } from '@sigx/ai-agent/testing';
-import { copilot, COPILOT_CAPABILITIES } from '@sigx/ai-agent-copilot';
+import { copilotCli, COPILOT_CLI_CAPABILITIES } from '@sigx/ai-agent-copilot-cli';
 import { fakeClient, say, type TurnProgram } from './fake-client';
 
 /** What the fake runtime does for each scenario; the client tools come from the scenario. */
@@ -53,11 +53,11 @@ function programFor(scenario: ConformanceScenario): TurnProgram {
 }
 
 /** Copilot has no handoff concept, so the non-coding support flow does not apply. */
-const skip = (s: ConformanceScenario) => (s.name === 'support-agent' ? 'Copilot emits no agent.handoff extension (its ext namespace is copilot)' : undefined);
+const skip = (s: ConformanceScenario) => (s.name === 'support-agent' ? 'Copilot emits no agent.handoff extension (its ext namespace is copilot-cli)' : undefined);
 
-describe('agentConformance: copilot(fake client)', () => {
-    const cases = agentConformance((s) => copilot({ client: fakeClient(programFor(s)).client, errorSettleMs: 20 }), {
-        capabilities: COPILOT_CAPABILITIES,
+describe('agentConformance: copilotCli(fake client)', () => {
+    const cases = agentConformance((s) => copilotCli({ client: fakeClient(programFor(s)).client, errorSettleMs: 20 }), {
+        capabilities: COPILOT_CLI_CAPABILITIES,
         skip,
         sessionOptions: { cwd: '/repo' }
     });

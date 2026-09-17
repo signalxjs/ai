@@ -4,7 +4,7 @@
  * or the first delta, closed on `item/completed`), command executions, file
  * changes and tool calls become `tool-call` / `tool-update` with the coding
  * extension events alongside, plans become `coding.plan`, and anything we do
- * not model is passed through as `ext { ns: 'codex' }`.
+ * not model is passed through as `ext { ns: 'codex-cli' }`.
  *
  * Sub-agents: Codex runs a sub-agent as a thread of its own and reports it
  * on the parent thread through `collabAgentToolCall` items (the spawn and
@@ -41,7 +41,7 @@ import type {
     TurnStatus
 } from './schema.js';
 
-export const CODEX_NS = 'codex';
+export const CODEX_CLI_NS = 'codex-cli';
 
 export interface TurnOutcome {
     readonly stopReason: StopReason;
@@ -448,7 +448,7 @@ export function createTurnMapper(driver: EventSink, options: TurnMapperOptions):
                 break;
             }
             default:
-                emit({ type: 'ext', ns: CODEX_NS, name: `item.${n.item.type}`, data: { phase, item: n.item } });
+                emit({ type: 'ext', ns: CODEX_CLI_NS, name: `item.${n.item.type}`, data: { phase, item: n.item } });
         }
     };
 
@@ -500,7 +500,7 @@ export function createTurnMapper(driver: EventSink, options: TurnMapperOptions):
                     break;
                 }
                 case CODEX_METHODS.turnDiff:
-                    emit({ type: 'ext', ns: CODEX_NS, name: 'turn-diff', data: { diff: (params as TurnDiffUpdatedNotification).diff } });
+                    emit({ type: 'ext', ns: CODEX_CLI_NS, name: 'turn-diff', data: { diff: (params as TurnDiffUpdatedNotification).diff } });
                     break;
                 case CODEX_METHODS.tokenUsage: {
                     // A sub-agent's tokens are its own, reported on the agent by the session.
@@ -534,7 +534,7 @@ export function createTurnMapper(driver: EventSink, options: TurnMapperOptions):
                 case CODEX_METHODS.mcpProgress:
                     break;
                 default:
-                    emit({ type: 'ext', ns: CODEX_NS, name: method, data: params ?? null });
+                    emit({ type: 'ext', ns: CODEX_CLI_NS, name: method, data: params ?? null });
             }
         }
     };

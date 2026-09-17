@@ -2,7 +2,7 @@
 /** The conformance suite against the Codex adapter over a scripted fake app-server. */
 import { describe, it, expect } from 'vitest';
 import { agentConformance, type ConformanceScenario } from '@sigx/ai-agent/testing';
-import { codex, CODEX_CAPABILITIES } from '@sigx/ai-agent-codex';
+import { codexCli, CODEX_CLI_CAPABILITIES } from '@sigx/ai-agent-codex-cli';
 import { fakeAppServer, say, type TurnProgram } from './fake-app-server';
 
 const activity = (id: string, kind: string, agentThreadId: string) => ({ type: 'subAgentActivity', id, kind, agentThreadId, agentPath: '/root/delegate' });
@@ -81,14 +81,14 @@ function programFor(scenario: ConformanceScenario): TurnProgram {
  * fixed thread, never the ones it started.
  */
 const skip = (s: ConformanceScenario) => {
-    if (s.name === 'support-agent') return 'Codex emits no agent.handoff extension (its ext namespace is codex)';
+    if (s.name === 'support-agent') return 'Codex emits no agent.handoff extension (its ext namespace is codex-cli)';
     if (s.name === 'list-sessions') return 'the fake app-server answers thread/list with a fixed thread, not the ones it started';
     return undefined;
 };
 
-describe('agentConformance: codex(fake app-server)', () => {
-    const cases = agentConformance((s) => codex({ transport: fakeAppServer({ onTurn: programFor(s) }).transport }), {
-        capabilities: CODEX_CAPABILITIES,
+describe('agentConformance: codexCli(fake app-server)', () => {
+    const cases = agentConformance((s) => codexCli({ transport: fakeAppServer({ onTurn: programFor(s) }).transport }), {
+        capabilities: CODEX_CLI_CAPABILITIES,
         skip,
         sessionOptions: { cwd: '/repo' }
     });

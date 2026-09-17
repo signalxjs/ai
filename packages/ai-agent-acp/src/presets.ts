@@ -33,15 +33,15 @@ export function claudeCodeAcp(overrides: Partial<AcpPreset> = {}): AcpPreset {
  * to install changed.
  */
 export function codexAcp(overrides: Partial<AcpPreset> = {}): AcpPreset {
-    return { id: 'acp:codex', command: 'codex-acp', args: [], passEnv: ['OPENAI_API_KEY', 'CODEX_HOME'], ...overrides };
+    return { id: 'acp:codex-cli', command: 'codex-acp', args: [], passEnv: ['OPENAI_API_KEY', 'CODEX_HOME'], ...overrides };
 }
 
 /**
  * GitHub Copilot CLI's own ACP server (`@github/copilot`, public preview):
  * `copilot --acp`. It runs on the CLI's login (`copilot login`) or a GitHub
- * token from the environment; `@sigx/ai-agent-copilot` is the full-fidelity
+ * token from the environment; `@sigx/ai-agent-copilot-cli` is the full-fidelity
  * adapter on the official SDK.
  */
 export function copilotAcp(overrides: Partial<AcpPreset> = {}): AcpPreset {
-    return { id: 'acp:copilot', command: 'copilot', args: ['--acp'], passEnv: ['COPILOT_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'COPILOT_HOME'], ...overrides };
+    return { id: 'acp:copilot-cli', command: 'copilot', args: ['--acp'], passEnv: ['COPILOT_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'COPILOT_HOME'], ...overrides };
 }

@@ -6,7 +6,7 @@
  * is for diffing that subset against the CLI version you run — nothing here
  * is imported at runtime.
  *
- * Usage: pnpm --filter @sigx/ai-agent-codex codex:generate [--out <dir>]
+ * Usage: pnpm --filter @sigx/ai-agent-codex-cli codex:generate [--out <dir>]
  */
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';

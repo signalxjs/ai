@@ -75,14 +75,14 @@
     "ignore": ["@anthropic-ai/claude-agent-sdk", "@sigx/ai", "@sigx/ai-agent", "@sigx/ai-agent-node", "node:crypto", "node:events", "node:stream"]
   },
   {
-    "name": "@sigx/ai-agent-codex",
-    "path": "packages/ai-agent-codex/dist/index.prod.js",
+    "name": "@sigx/ai-agent-codex-cli",
+    "path": "packages/ai-agent-codex-cli/dist/index.prod.js",
     "limit": "10 KB",
     "ignore": ["@sigx/ai", "@sigx/ai-agent", "@sigx/ai-agent/coding", "@sigx/ai-agent/harness", "@sigx/ai-agent-node"]
   },
   {
-    "name": "@sigx/ai-agent-copilot",
-    "path": "packages/ai-agent-copilot/dist/index.prod.js",
+    "name": "@sigx/ai-agent-copilot-cli",
+    "path": "packages/ai-agent-copilot-cli/dist/index.prod.js",
     "limit": "10 KB",
     "ignore": ["@github/copilot-sdk", "@sigx/ai", "@sigx/ai-agent", "@sigx/ai-agent/coding"]
   },

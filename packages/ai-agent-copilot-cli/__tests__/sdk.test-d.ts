@@ -2,7 +2,7 @@
  * The slice of the SDK the adapter uses (`CopilotClientLike`,
  * `CopilotSessionLike`) against the real classes of `@github/copilot-sdk`:
  * plain assignments prove the SDK's client and session satisfy what
- * `copilot({ client })` accepts, so the fake in tests and the real thing
+ * `copilotCli({ client })` accepts, so the fake in tests and the real thing
  * are interchangeable, and a breaking SDK release fails here rather than
  * at runtime.
  */

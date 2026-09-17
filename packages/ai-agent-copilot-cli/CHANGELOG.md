@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to `@sigx/ai-agent-copilot` are documented here. The format
+All notable changes to `@sigx/ai-agent-copilot-cli` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 follow [SemVer](https://semver.org/).
 
@@ -8,7 +8,7 @@ follow [SemVer](https://semver.org/).
 
 ### Added
 
-- `copilot({ id?, client?, cliPath?, env?, cwd?, baseDirectory?, logLevel?,
+- `copilotCli({ id?, client?, cliPath?, env?, cwd?, baseDirectory?, logLevel?,
   gitHubToken?, useLoggedInUser?, models?, errorSettleMs? })` — GitHub Copilot
   CLI as an `Agent` on the official `@github/copilot-sdk`: Copilot sessions as
   sessions (`resume: 'local'`, `listSessions`), `send()` … `session.idle` as a
@@ -21,8 +21,8 @@ follow [SemVer](https://semver.org/).
   `agent-update` with the sub-agent's own events nested under its spawning
   call, `session({ agents })` as `customAgents`.
 - A switchable `model` config option from the runtime's model list (or
-  `copilot({ models })`, the session's own model always offered) and a
+  `copilotCli({ models })`, the session's own model always offered) and a
   `reasoningEffort` option from what the model supports; `configure({ model,
   reasoningEffort })` calls `setModel` and re-announces the whole list.
-- `copilot({ client })` injects a `CopilotClientLike` — the SDK's classes are
+- `copilotCli({ client })` injects a `CopilotClientLike` — the SDK's classes are
   checked against it, and tests script one.
