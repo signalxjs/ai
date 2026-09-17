@@ -16,6 +16,12 @@
     "limit": "6 KB"
   },
   {
+    "name": "@sigx/ai/ui",
+    "path": "packages/ai/dist/ui.prod.js",
+    "limit": "2 KB",
+    "ignore": ["@sigx/json-ui"]
+  },
+  {
     "name": "@sigx/ai/testing",
     "path": "packages/ai/dist/testing.prod.js",
     "limit": "1 KB"
@@ -97,5 +103,23 @@
     "path": "packages/ai-openai/dist/index.prod.js",
     "limit": "4 KB",
     "ignore": ["openai", "@sigx/ai"]
+  },
+  {
+    "name": "@sigx/json-ui",
+    "path": "packages/json-ui/dist/index.prod.js",
+    "limit": "16 KB",
+    "ignore": ["@sigx/ai", "@sigx/reactivity"]
+  },
+  {
+    "name": "@sigx/json-ui/app",
+    "path": "packages/json-ui/dist/app.prod.js",
+    "limit": "16 KB",
+    "ignore": ["@sigx/ai", "@sigx/reactivity", "@sigx/runtime-core"]
+  },
+  {
+    "name": "@sigx/json-ui/web",
+    "path": "packages/json-ui/dist/web.prod.js",
+    "limit": "4 KB",
+    "ignore": ["@sigx/ai", "@sigx/reactivity", "@sigx/runtime-core"]
   }
 ]

@@ -16,6 +16,7 @@
       "@sigx/ai/server": ["./packages/ai/src/server/index.ts"],
       "@sigx/ai/app": ["./packages/ai/src/app/index.ts"],
       "@sigx/ai/testing": ["./packages/ai/src/testing/index.ts"],
+      "@sigx/ai/ui": ["./packages/ai/src/ui/index.ts"],
       "@sigx/ai-agent": ["./packages/ai-agent/src/index.ts"],
       "@sigx/ai-agent/testing": ["./packages/ai-agent/src/testing/index.ts"],
       "@sigx/ai-agent/coding": ["./packages/ai-agent/src/coding/index.ts"],
@@ -28,7 +29,10 @@
       "@sigx/ai-agent-codex": ["./packages/ai-agent-codex/src/index.ts"],
       "@sigx/ai-agent-copilot": ["./packages/ai-agent-copilot/src/index.ts"],
       "@sigx/ai-anthropic": ["./packages/ai-anthropic/src/index.ts"],
-      "@sigx/ai-openai": ["./packages/ai-openai/src/index.ts"]
+      "@sigx/ai-openai": ["./packages/ai-openai/src/index.ts"],
+      "@sigx/json-ui": ["./packages/json-ui/src/index.ts"],
+      "@sigx/json-ui/app": ["./packages/json-ui/src/app/index.ts"],
+      "@sigx/json-ui/web": ["./packages/json-ui/src/web/index.ts"]
     }
   },
   "include": [

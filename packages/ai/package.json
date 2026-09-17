@@ -29,6 +29,12 @@
             "development": "./dist/testing.js",
             "production": "./dist/testing.prod.js",
             "import": "./dist/testing.js"
+        },
+        "./ui": {
+            "types": "./dist/ui/index.d.ts",
+            "development": "./dist/ui.js",
+            "production": "./dist/ui.prod.js",
+            "import": "./dist/ui.js"
         }
     },
     "files": [
@@ -65,6 +71,7 @@
         "url": "https://github.com/signalxjs/ai/issues"
     },
     "devDependencies": {
+        "@sigx/json-ui": "workspace:*",
         "@sigx/reactivity": "catalog:",
         "@sigx/runtime-core": "catalog:",
         "@sigx/runtime-dom": "catalog:",
@@ -79,7 +86,13 @@
         "access": "public"
     },
     "peerDependencies": {
+        "@sigx/json-ui": "^0.1.0",
         "@sigx/reactivity": "^0.15.0",
         "@sigx/runtime-core": "^0.15.0"
+    },
+    "peerDependenciesMeta": {
+        "@sigx/json-ui": {
+            "optional": true
+        }
     }
 }

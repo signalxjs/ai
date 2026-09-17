@@ -8,6 +8,11 @@ All notable changes to `@sigx/ai` are documented here. The format follows
 
 ### Added
 
+- `@sigx/ai/ui` — `uiTool()`, a `defineTool` whose input is a `@sigx/json-ui`
+  spec validated against a catalog and whose description is the catalog, so a
+  model can build interfaces that render while the call's arguments stream
+  (`@sigx/json-ui` is an optional peer).
+
 - The provider-neutral core: the `LanguageModel` seam, `UIMessage` / `UIPart`
   and the `UIChunk` stream protocol, `defineTool` (Standard Schema input,
   JSON Schema for the wire), and the engine — `streamText`, `generateText`,

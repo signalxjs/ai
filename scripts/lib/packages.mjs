@@ -14,6 +14,7 @@ import { readdirSync, readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
 export const PACKAGES = [
+    'packages/json-ui',
     'packages/ai',
     'packages/ai-agent',
     'packages/ai-agent-node',
@@ -30,6 +31,10 @@ export const ENTRIES = [
     '@sigx/ai/server',
     '@sigx/ai/app',
     '@sigx/ai/testing',
+    '@sigx/ai/ui',
+    '@sigx/json-ui',
+    '@sigx/json-ui/app',
+    '@sigx/json-ui/web',
     '@sigx/ai-agent',
     '@sigx/ai-agent/testing',
     '@sigx/ai-agent/coding',

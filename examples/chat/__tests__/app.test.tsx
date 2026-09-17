@@ -8,7 +8,7 @@
  * halves agree, because nothing else has a view.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { component, jsx, defineApp } from 'sigx';
+import { component, jsx, defineApp, signal } from 'sigx';
 import { CATALOG, defaultFor, isKnown, isOffered, type ChatCatalog, type ProviderChoice, type Selection } from '../src/catalog';
 
 // `ai.server` builds provider clients and reads keys; the client build
@@ -31,7 +31,7 @@ const fakeCatalog: ChatCatalog = {
     selected: { provider: 'anthropic', model: 'claude-opus-5' }
 };
 
-const { App, ModelPicker } = await import('../src/App');
+const { App, ModelPicker, Part } = await import('../src/App');
 
 const closers: (() => void)[] = [];
 afterEach(() => {
@@ -175,5 +175,31 @@ describe('the app', () => {
         expect(sent).toHaveLength(1);
         expect(sent[0]!.selection).toEqual({ provider: 'anthropic', model: 'claude-haiku-4-5' });
         expect(Array.isArray(sent[0]!.messages)).toBe(true);
+    });
+});
+
+describe('a render_ui tool part', () => {
+    it('is a live UI while its arguments are still streaming, and its buttons can talk back', async () => {
+        const emitted: [string, unknown][] = [];
+        const part = signal({
+            type: 'tool' as const,
+            id: 't1',
+            name: 'render_ui',
+            state: 'streaming' as 'streaming' | 'done',
+            input: { spec: { state: { n: 1 }, root: { type: 'stack', children: [{ type: 'text', props: { text: 'Count: {{n}}' } }] } } } as unknown
+        });
+        const One = component(() => () => <Part part={part as never} role="assistant" live={true} onEmit={(name, payload) => emitted.push([name, payload])} />, { name: 'One' });
+        const dom = mount(jsx(One, {}));
+        expect(dom.querySelector('.json-ui-text')?.textContent).toBe('Count: 1');
+        // The core's reducer replaces `input` wholesale on every delta; the view merges it in place.
+        part.input = { spec: { state: { n: 1 }, root: { type: 'stack', children: [{ type: 'text', props: { text: 'Count: {{n}}' } }, { type: 'button', props: { label: 'Say hi' }, on: { press: [{ do: 'emit', name: 'send', payload: { text: 'hi from n={{n}}' } }] } }] } } };
+        await tick();
+        expect(dom.querySelector('.json-ui-text')?.textContent).toBe('Count: 1');
+        dom.querySelector('button')!.click();
+        await tick();
+        expect(emitted).toEqual([['send', { text: 'hi from n=1' }]]);
+        part.state = 'done';
+        await tick();
+        expect(dom.querySelector('.ui.done')).not.toBeNull();
     });
 });

@@ -169,7 +169,7 @@ on every OS in the matrix).
 ## Packages
 
 
-- `packages/ai` → `@sigx/ai` — the core. Four entries: `.` (the
+- `packages/ai` → `@sigx/ai` — the core. Five entries: `.` (the
   `LanguageModel` seam, `UIMessage`/`UIPart` and the `UIChunk` stream
   protocol, `defineTool`, `streamText` / `generateText` / `streamObject` —
   the tool loop, message assembly and abort handling live HERE, once;
@@ -177,9 +177,36 @@ on every OS in the matrix).
   `serverStream` handler delegates to, plus `toTextStream` for
   `useStream`), `./app` (`useChat`, `useCompletion`, `useObject` —
   composables on `@sigx/runtime-core`, NEVER the `sigx` umbrella, so a
-  terminal or Lynx app can use them), and `./testing` (`mockModel` — a
-  scripted, deterministic model for tests, docs and CI). Zero runtime
-  dependencies; `node:`-free so the deploy adapters (workerd, edge) run it.
+  terminal or Lynx app can use them), `./testing` (`mockModel` — a
+  scripted, deterministic model for tests, docs and CI), and `./ui`
+  (`uiTool` — a `@sigx/json-ui` spec as a tool the model calls, whose
+  description is the catalog; `@sigx/json-ui` is an optional peer that
+  only this entry needs). Zero runtime dependencies; `node:`-free so the
+  deploy adapters (workerd, edge) run it.
+- `packages/json-ui` → `@sigx/json-ui` — **proof of concept**, UI from JSON: a
+  JSON UI spec anything can write and stream — a model, a server, a CMS —
+  rendered wherever sigx renders. No dependency on `@sigx/ai` (the two
+  helpers it shares with the core, `parsePartialJson` and the Standard
+  Schema types, are copies); the model-facing tool lives on `@sigx/ai/ui`.
+  Entries: `.` (the spec types, a safe JS-subset expression language with its
+  own parser — `{"$": "expr"}` values and `{{expr}}` interpolation, no
+  `eval`, lazy helpers with `it` instead of lambdas — `defineCatalog` and
+  the 8-component `baseCatalog`, `validateSpec` / `uiSpecSchema` /
+  `specJsonSchema` / `describeCatalog`, the `applyUIChunk` stream reducer
+  with identity-preserving `mergeDeep`, the async action runtime — `state.*`,
+  `http`, `delay`, `emit`, `call`, `seq`, `all`, `ui.patch`, host actions,
+  per-node concurrency modes); `./app` (`UIView`, `createUIRuntime` on
+  `@sigx/runtime-core`, NEVER the `sigx` umbrella: one keyed `UINodeView`
+  per spec node so a streamed token re-renders one node; runtime state is
+  seeded from `spec.state` once and owned by the runtime); `./web` (the base
+  catalog as `jsx('div' | 'span' | …)` functions, `webStyles`). Source
+  layout: `utils ← spec ← expr ← catalog ← stream ← actions`, `app` and
+  `web` on top. No JSX syntax in `src/` — `jsx()` calls with string tags, so
+  no platform's `IntrinsicElements` is ever imported and a Lynx pack is the
+  same functions over `view` / `text`. Node-free (edge-safety test). Peers
+  on `@sigx/reactivity` and `@sigx/runtime-core` only, so it builds first.
+  The chat example is the playground: its `render_ui` tool part (from
+  `@sigx/ai/ui`) renders a `UIView` while the arguments stream.
 - `packages/ai-agent` → `@sigx/ai-agent` — **experimental**, the agent layer
   (tracking issue #35): one provider-neutral `Agent` contract for agent
   harnesses and our own engine. Entries today: `.` (the contract, the

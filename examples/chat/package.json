@@ -14,6 +14,7 @@
         "@sigx/ai": "workspace:*",
         "@sigx/ai-anthropic": "workspace:*",
         "@sigx/ai-openai": "workspace:*",
+        "@sigx/json-ui": "workspace:*",
         "@sigx/reactivity": "catalog:",
         "@sigx/richtext": "^0.3.0",
         "@sigx/richtext-markdown": "^0.3.0",

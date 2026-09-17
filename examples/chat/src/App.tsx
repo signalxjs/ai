@@ -7,14 +7,53 @@
  */
 import { component, useHead, onMounted, signal } from 'sigx';
 import { useChat, type UIMessage, type UIPart } from '@sigx/ai/app';
+import { UIView, type UISpec } from '@sigx/json-ui/app';
+import { webRegistry, webStyles } from '@sigx/json-ui/web';
 import { RichTextView } from '@sigx/richtext/dom';
 import { markdownFormat } from '@sigx/richtext-markdown';
 import { catalog, chat } from './ai.server';
 import type { ChatCatalog, ProviderId, Selection } from './catalog';
 
-const Part = component<{ part: UIPart; role: UIMessage['role']; live: boolean }>((ctx) => {
+/** The base catalog on the web, once for every generated UI. */
+const uiRegistry = webRegistry();
+
+/**
+ * Exported so a test can mount it: a `render_ui` tool part is the one part
+ * that becomes a live interface, and it must do so while the arguments are
+ * still streaming — `p.input` is re-parsed on every token by the core's
+ * reducer, and `UIView` merges each new object in place.
+ */
+export const Part = component<{ part: UIPart; role: UIMessage['role']; live: boolean; onEmit?: (name: string, payload: unknown) => void }>((ctx) => {
     return () => {
         const p = ctx.props.part;
+        if (p.type === 'tool' && p.name === 'render_ui') {
+            const spec = (p.input as { spec?: UISpec } | undefined)?.spec;
+            const issues = p.state === 'done' ? ((p.output as { issues?: { path: (string | number)[]; message: string }[] } | undefined)?.issues ?? []) : [];
+            return (
+                <div class={`ui ${p.state}`}>
+                    <UIView spec={spec} done={p.state !== 'streaming'} registry={uiRegistry} onEmit={(name, payload) => ctx.props.onEmit?.(name, payload)} placeholder={<code class="tool streaming">render_ui(…)</code>} />
+                    {p.state === 'error' && <code class="tool error">{JSON.stringify(p.output)}</code>}
+                    {/* What the model wrote, and what the catalog had to say about it — the POC's debugging aid. */}
+                    {p.state !== 'streaming' && (
+                        <details class="spec">
+                            <summary>
+                                spec{issues.length ? ` · ${issues.length} warning${issues.length === 1 ? '' : 's'}` : ''}
+                            </summary>
+                            {issues.length > 0 && (
+                                <ul class="issues">
+                                    {issues.map((i) => (
+                                        <li>
+                                            <code>{i.path.join('.')}</code> {i.message}
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                            <pre>{JSON.stringify(spec, null, 2)}</pre>
+                        </details>
+                    )}
+                </div>
+            );
+        }
         if (p.type === 'text') {
             // Only the assistant writes markdown; a user's text shows as typed.
             if (ctx.props.role !== 'assistant') return <span>{p.text}</span>;
@@ -24,7 +63,9 @@ const Part = component<{ part: UIPart; role: UIMessage['role']; live: boolean }>
                 </div>
             );
         }
-        if (p.type === 'reasoning') return p.text ? <div class="reasoning">{p.text}</div> : null;
+        // A reasoning part with no text yet (or a provider that sends none) is
+        // still the model thinking: say so rather than show nothing.
+        if (p.type === 'reasoning') return p.text ? <div class="reasoning">{p.text}</div> : ctx.props.live ? <span class="thinking">thinking…</span> : null;
         // An attachment the user sent: show what it is, not its bytes.
         if (p.type === 'image' || p.type === 'file') return <code class="attachment">{p.type === 'file' && p.filename ? p.filename : p.mediaType}</code>;
         // Arguments still arriving: show the raw JSON as it lands, so a long
@@ -44,13 +85,15 @@ const Part = component<{ part: UIPart; role: UIMessage['role']; live: boolean }>
     };
 });
 
-const Message = component<{ message: UIMessage; live: boolean }>((ctx) => {
+const Message = component<{ message: UIMessage; live: boolean; onEmit: (name: string, payload: unknown) => void }>((ctx) => {
     return () => {
         const m = ctx.props.message;
         return (
             <div class={`msg ${m.role}`}>
+                {/* The turn has started but nothing has arrived: the model is thinking, or a provider that sends no reasoning text is. */}
+                {ctx.props.live && m.parts.length === 0 && <span class="thinking">thinking…</span>}
                 {m.parts.map((part, i) => (
-                    <Part part={part} role={m.role} live={ctx.props.live && i === m.parts.length - 1} />
+                    <Part part={part} role={m.role} live={ctx.props.live && i === m.parts.length - 1} onEmit={ctx.props.onEmit} />
                 ))}
             </div>
         );
@@ -160,8 +203,20 @@ export const App = component(() => {
         }
     }
 
+    /**
+     * A generated UI talking back: `{ "do": "emit", "name": "send" }` in a
+     * spec becomes a user message, so a button the model built can continue
+     * the conversation.
+     */
+    function onEmit(name: string, payload: unknown): void {
+        if (name === 'send' && payload && typeof payload === 'object' && typeof (payload as { text?: unknown }).text === 'string') {
+            void thread.send((payload as { text: string }).text);
+        } else console.log('[chat] ui emit', name, payload);
+    }
+
     return () => (
         <main>
+            <style>{webStyles}</style>
             <header>
                 <h1>sigx ai</h1>
                 <ModelPicker
@@ -175,9 +230,9 @@ export const App = component(() => {
                 <small>status: {thread.status}</small>
             </header>
             <section class="thread">
-                {thread.messages.length === 0 && <p style="opacity:.6">Say hello — ask about the weather to see a tool call, or say "email" to see one that asks first.</p>}
+                {thread.messages.length === 0 && <p style="opacity:.6">Say hello — ask about the weather to see a tool call, say "email" to see one that asks first, or "build me a todo app" to watch a UI stream in.</p>}
                 {thread.messages.map((m) => (
-                    <Message message={m} live={thread.streaming === m} />
+                    <Message message={m} live={thread.streaming === m} onEmit={onEmit} />
                 ))}
                 {thread.error && <p class="error">{thread.error.message}</p>}
                 {/* A tool the server deferred to us: decide, and the turn resumes. */}
