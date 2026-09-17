@@ -1,5 +1,5 @@
 /**
- * @sigx/ai-agent-codex — Codex as an `Agent`, over the `codex app-server`
+ * @sigx/ai-agent-codex-cli — Codex as an `Agent`, over the `codex app-server`
  * JSON-RPC protocol (threads, turns, approvals, dynamic client tools).
  *
  * One app-server process and one JSON-RPC peer per agent, started lazily on
@@ -13,7 +13,7 @@ import type { Agent, AgentCapabilities, SessionSummary } from '@sigx/ai-agent';
 import { AgentError, capabilities } from '@sigx/ai-agent';
 import { createJsonRpcPeer, type JsonRpcPeer } from '@sigx/ai-agent/harness';
 import { DEFAULT_ENV_ALLOWLIST, resolveExecutable, spawnAgentProcess, type AgentProcess } from '@sigx/ai-agent-node';
-import { DEFAULT_PASS_ENV, type CodexOptions, type CodexSessionOptions } from './options.js';
+import { DEFAULT_PASS_ENV, type CodexCliOptions, type CodexCliSessionOptions } from './options.js';
 import { CODEX_METHODS } from './schema.js';
 import type {
     AccountReadResponse,
@@ -30,7 +30,7 @@ import type {
 import { createCodexSession, type CodexSession } from './session.js';
 import { toDynamicTools } from './tools.js';
 
-export const CODEX_CAPABILITIES: AgentCapabilities = capabilities({
+export const CODEX_CLI_CAPABILITIES: AgentCapabilities = capabilities({
     resume: 'local',
     fork: true,
     cancel: true,
@@ -62,12 +62,12 @@ interface Connection {
     readonly models: { readonly id: string; readonly label?: string }[];
 }
 
-export interface CodexAgent extends Agent<CodexSessionOptions> {
+export interface CodexCliAgent extends Agent<CodexCliSessionOptions> {
     readonly capabilities: AgentCapabilities;
 }
 
-export function codex(options: CodexOptions = {}): CodexAgent {
-    const id = options.id ?? 'codex';
+export function codexCli(options: CodexCliOptions = {}): CodexCliAgent {
+    const id = options.id ?? 'codex-cli';
     const sessions = new Map<string, CodexSession>();
     /** Sub-agent thread → the session that spawned it (directly or through one of its own children). */
     const childOwner = new Map<string, CodexSession>();
@@ -101,7 +101,7 @@ export function codex(options: CodexOptions = {}): CodexAgent {
     };
 
     const connect = (): Promise<Connection> => {
-        if (disposed) return Promise.reject(new AgentError('protocol_error', `[sigx ai-agent-codex] agent "${id}" is disposed`));
+        if (disposed) return Promise.reject(new AgentError('protocol_error', `[sigx ai-agent-codex-cli] agent "${id}" is disposed`));
         return (connecting ??= (async () => {
             let process: AgentProcess | undefined;
             let transport = options.transport && options.transport !== 'stdio' ? options.transport : undefined;
@@ -146,15 +146,15 @@ export function codex(options: CodexOptions = {}): CodexAgent {
                     if (own) return own.handleRequest(method, params, ctx);
                     const owner = threadId !== undefined ? ownerOf(threadId) : undefined;
                     if (owner) return owner.handleChildRequest(threadId!, method, params, ctx);
-                    throw new AgentError('protocol_error', `[sigx ai-agent-codex] "${method}" for unknown thread "${String(threadId)}"`);
+                    throw new AgentError('protocol_error', `[sigx ai-agent-codex-cli] "${method}" for unknown thread "${String(threadId)}"`);
                 });
             }
             void peer.closed.then((why) => {
                 const tail = process?.stderrTail() ?? '';
-                const message = `[sigx ai-agent-codex] the app-server connection closed (${why.reason})${why.error ? `: ${why.error.message}` : ''}${tail ? `\n${tail}` : ''}`;
+                const message = `[sigx ai-agent-codex-cli] the app-server connection closed (${why.reason})${why.error ? `: ${why.error.message}` : ''}${tail ? `\n${tail}` : ''}`;
                 for (const s of sessions.values()) s.peerClosed(message);
             });
-            const clientInfo = options.clientInfo ?? { name: '@sigx/ai-agent-codex', version: '0.1.0' };
+            const clientInfo = options.clientInfo ?? { name: '@sigx/ai-agent-codex-cli', version: '0.1.0' };
             const init: InitializeParams = { clientInfo: { name: clientInfo.name, title: clientInfo.title ?? null, version: clientInfo.version }, capabilities: { experimentalApi: true, requestAttestation: false } };
             const info = await peer.request<InitializeResponse>(CODEX_METHODS.initialize, init);
             await peer.notify(CODEX_METHODS.initialized, {});
@@ -167,8 +167,8 @@ export function codex(options: CodexOptions = {}): CodexAgent {
         }));
     };
 
-    async function openSession(sessionOptions: CodexSessionOptions): Promise<CodexSession> {
-        if (!sessionOptions?.cwd) throw new AgentError('protocol_error', '[sigx ai-agent-codex] session options need a cwd');
+    async function openSession(sessionOptions: CodexCliSessionOptions): Promise<CodexSession> {
+        if (!sessionOptions?.cwd) throw new AgentError('protocol_error', '[sigx ai-agent-codex-cli] session options need a cwd');
         const conn = await connect();
         const tools: readonly AnyTool[] = sessionOptions.tools ?? [];
         const strict = sessionOptions.policy !== undefined;
@@ -184,7 +184,7 @@ export function codex(options: CodexOptions = {}): CodexAgent {
         let thread: ThreadStartResponse;
         let epoch = 1;
         if (sessionOptions.resume) {
-            if (sessionOptions.resume.agent !== id) throw new AgentError('protocol_error', `[sigx ai-agent-codex] session ref belongs to agent "${sessionOptions.resume.agent}", not "${id}"`);
+            if (sessionOptions.resume.agent !== id) throw new AgentError('protocol_error', `[sigx ai-agent-codex-cli] session ref belongs to agent "${sessionOptions.resume.agent}", not "${id}"`);
             const params: ThreadResumeParams | ThreadForkParams = { ...common, threadId: sessionOptions.resume.id };
             thread = await conn.peer.request<ThreadStartResponse>(sessionOptions.fork ? CODEX_METHODS.threadFork : CODEX_METHODS.threadResume, params);
             if (!sessionOptions.fork) epoch = ((sessionOptions.resume.data as { epoch?: number } | undefined)?.epoch ?? 1) + 1;
@@ -219,7 +219,7 @@ export function codex(options: CodexOptions = {}): CodexAgent {
 
     return {
         id,
-        capabilities: CODEX_CAPABILITIES,
+        capabilities: CODEX_CLI_CAPABILITIES,
         session: openSession,
         async listSessions(): Promise<SessionSummary[]> {
             const conn = await connect();
@@ -275,7 +275,7 @@ async function assertSignedIn(peer: JsonRpcPeer): Promise<void> {
 }
 
 function notSignedIn(): AgentError {
-    return new AgentError('auth_required', '[sigx ai-agent-codex] Codex is not signed in — run `codex login` (or set OPENAI_API_KEY) and retry', false, {
+    return new AgentError('auth_required', '[sigx ai-agent-codex-cli] Codex is not signed in — run `codex login` (or set OPENAI_API_KEY) and retry', false, {
         data: { hint: 'codex login' }
     });
 }

@@ -168,6 +168,42 @@ on every OS in the matrix).
 
 ## Packages
 
+**Naming rule.** A package name says which contract it implements first, and
+what it talks to second. Three tiers:
+
+- `@sigx/ai-<vendor>` — a `LanguageModel` on a vendor's inference API, named by
+  **who you authenticate to**: `ai-anthropic`, `ai-openai` (a Gemini one would
+  be `ai-google`, not `ai-gemini` — Gemini is the model family, not the API you
+  hold a key for). One vendor, one package.
+- `@sigx/ai-agent-<protocol>` — one `Agent` adapter serving many harnesses over
+  a standard protocol, named by the protocol: `ai-agent-acp`.
+- `@sigx/ai-agent-<product>` — one `Agent` adapter for one agent product, named
+  as its users name it: `ai-agent-claude-code`, `ai-agent-codex-cli`,
+  `ai-agent-copilot-cli`.
+
+The two agent tiers key on the **product**, not the vendor, because the
+cardinality differs: a vendor has one inference API but ships several agent
+products (Copilot CLI *and* the cloud coding agent; Codex CLI *and* Codex
+cloud). A bare vendor word would be wrong the moment the second one lands, so
+add the qualifier the product's own users say — `-cli` — unless the product
+name is already unambiguous (`claude-code` is; `copilot` is not). Name by the
+product, never by the SDK we link against: `@github/copilot-sdk` *is* the
+Copilot CLI, and SDK names move under us (`@anthropic-ai/claude-code` →
+`@anthropic-ai/claude-agent-sdk`). Transport is an option inside the package,
+not a name.
+
+Vendor-first grouping (`ai-anthropic-agent-claude-code`) is deliberately NOT
+used: it scatters the agent family alphabetically, has no segment for a
+protocol adapter, double-encodes (Claude Code can only be Anthropic's), and
+demotes the contract seam the whole layer exists to provide. Vendor grouping
+for discovery is what the `@sigx` scope, `keywords` and the README table are
+for. `ai-agent-node` is infrastructure — a documented exception in the product
+slot.
+
+The factory mirrors the package name (`acp()`, `claudeCode()`, `codexCli()`,
+`copilotCli()`), so two adapters for one vendor never export the same symbol.
+The agent's default `id` and its `ext` namespace use that same string
+(`'codex-cli'`), since both reach session refs and persisted transcripts.
 
 - `packages/ai` → `@sigx/ai` — the core. Five entries: `.` (the
   `LanguageModel` seam, `UIMessage`/`UIPart` and the `UIChunk` stream
@@ -231,8 +267,8 @@ on every OS in the matrix).
   runtime dependencies; edge-safe (`node:`-free, no `process` / `Buffer`,
   enforced by `__tests__/package/edge-safety.test.ts`). Peers on `@sigx/ai` —
   plus `@sigx/reactivity` and `@sigx/runtime-core`, which only `./app` uses.
-  Node-only building blocks live in `@sigx/ai-agent-node`; adapters are
-  `@sigx/ai-agent-<harness>` (named by harness, not vendor).
+  Node-only building blocks live in `@sigx/ai-agent-node`; adapters follow
+  the naming rule below.
 - `packages/ai-agent-node` → `@sigx/ai-agent-node` — **experimental**, the
   family's only Node-specific package (`tsconfig` `types: ["node"]`): it owns
   cross-platform process correctness — `resolveExecutable` (`PATH`/`Path`,
@@ -263,17 +299,17 @@ on every OS in the matrix).
   reasoning parts empty); `configure({ thinkingDisplay })` switches it live. Tests replay recorded SDK messages through
   a fake `query` injected via `claudeCode({ query })`; a live smoke is gated on
   `SIGX_LIVE_CLAUDE_CODE=1`.
-- `packages/ai-agent-codex` → `@sigx/ai-agent-codex` — **experimental**, Codex as
-  an `Agent` over the `codex app-server` JSON-RPC protocol (one process and
+- `packages/ai-agent-codex-cli` → `@sigx/ai-agent-codex-cli` — **experimental**, the
+  Codex CLI as an `Agent` over the `codex app-server` JSON-RPC protocol (one process and
   one `createJsonRpcPeer` per agent through `@sigx/ai-agent-node`, a regular
   dependency; `transport: { readable, writable }` drives a running server). One
   file per concern: `schema.ts` (the hand-written v2 subset, checked against the
   generated types in `__tests__/schema.test-d.ts`), `options.ts`, `approvals.ts`,
   `tools.ts` (dynamic tools), `stream.ts` (items → events), `session.ts`
-  (a thread), `provider.ts` (`codex()`), `index.ts`. `pnpm --filter
-  @sigx/ai-agent-codex codex:generate` regenerates the full types with an
+  (a thread), `provider.ts` (`codexCli()`), `index.ts`. `pnpm --filter
+  @sigx/ai-agent-codex-cli codex:generate` regenerates the full types with an
   installed Codex CLI.
-- `packages/ai-agent-copilot` → `@sigx/ai-agent-copilot` — **experimental**,
+- `packages/ai-agent-copilot-cli` → `@sigx/ai-agent-copilot-cli` — **experimental**,
   GitHub Copilot CLI as an `Agent` on the official `@github/copilot-sdk`
   (peer, literal range; the SDK spawns its bundled runtime itself, so no
   `@sigx/ai-agent-node`). Layout `options ← request ← permissions ← tools ←
@@ -283,7 +319,7 @@ on every OS in the matrix).
   creation, `send()` … `session.idle` as a turn, in-process client tools
   (`tools: 'native'`), `listModels()` + `session.start` → a switchable
   `model` config option, `setModel` on `configure()`. Tests script the SDK
-  boundary through `copilot({ client })` (`__tests__/fake-client.ts`);
+  boundary through `copilotCli({ client })` (`__tests__/fake-client.ts`);
   `__tests__/sdk.test-d.ts` checks the real `CopilotClient` / `CopilotSession`
   against that seam; a live smoke is gated on `SIGX_LIVE_COPILOT=1`.
 - `packages/ai-anthropic` → `@sigx/ai-anthropic` — Claude on the official

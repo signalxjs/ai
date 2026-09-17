@@ -5,7 +5,7 @@
  * order a recording showed them — and honours `turn/interrupt`.
  */
 import { createJsonRpcPeer, type JsonRpcPeer, type RequestContext } from '@sigx/ai-agent/harness';
-import type { CodexTransport } from '@sigx/ai-agent-codex';
+import type { CodexCliTransport } from '@sigx/ai-agent-codex-cli';
 import type { ThreadStartResponse, Turn, TurnSteerParams, TurnSteerResponse, UserInput } from '../src/schema';
 
 export interface TurnProgramContext {
@@ -73,7 +73,7 @@ export interface FakeAppServerOptions {
 }
 
 export interface FakeAppServer {
-    readonly transport: CodexTransport;
+    readonly transport: CodexCliTransport;
     readonly peer: JsonRpcPeer;
     /** Every client→server request, in order. */
     readonly requests: { method: string; params: unknown }[];

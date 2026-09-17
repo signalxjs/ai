@@ -8,7 +8,7 @@ import { allowAll, denyAll, createTranscript, createReducer, agentMessages, spaw
 import { codingExtension, codingState } from '@sigx/ai-agent/coding';
 import { checkEventInvariants } from '@sigx/ai-agent/testing';
 import { resolveExecutable } from '@sigx/ai-agent-node';
-import { codex, CODEX_CAPABILITIES, toErrorCode } from '@sigx/ai-agent-codex';
+import { codexCli, CODEX_CLI_CAPABILITIES, toErrorCode } from '@sigx/ai-agent-codex-cli';
 import { fakeAppServer, say, type TurnProgram } from './fake-app-server';
 import { updateSubAgent, type SubAgents } from '../src/stream';
 import type { UnstampedEvent } from '@sigx/ai-agent';
@@ -61,7 +61,7 @@ const shellProgram =
         await say('Done.')(ctx);
     };
 
-describe('@sigx/ai-agent-codex over JSON-RPC lite (#126)', () => {
+describe('@sigx/ai-agent-codex-cli over JSON-RPC lite (#126)', () => {
     it('connects to a server that omits the jsonrpc member, as codex app-server does', async () => {
         const fake = fakeAppServer({ onTurn: say('pong'), wire: 'lite' });
         const chunks: string[] = [];
@@ -72,7 +72,7 @@ describe('@sigx/ai-agent-codex over JSON-RPC lite (#126)', () => {
                 controller.enqueue(chunk);
             }
         });
-        const agent = codex({ transport: { readable: fake.transport.readable.pipeThrough(tap), writable: fake.transport.writable } });
+        const agent = codexCli({ transport: { readable: fake.transport.readable.pipeThrough(tap), writable: fake.transport.writable } });
         const session = await agent.session({ cwd: '/repo' });
         const turn = session.prompt('ping');
         const { events } = await drain(turn);
@@ -86,20 +86,20 @@ describe('@sigx/ai-agent-codex over JSON-RPC lite (#126)', () => {
     });
 });
 
-describe('@sigx/ai-agent-codex', () => {
+describe('@sigx/ai-agent-codex-cli', () => {
     it('declares its capabilities and performs the handshake once', async () => {
         const fake = fakeAppServer({ onTurn: say('Hello there') });
-        const agent = codex({ transport: fake.transport, clientInfo: { name: 'test', version: '1.2.3' } });
-        expect(agent.id).toBe('codex');
-        expect(agent.capabilities).toEqual(CODEX_CAPABILITIES);
+        const agent = codexCli({ transport: fake.transport, clientInfo: { name: 'test', version: '1.2.3' } });
+        expect(agent.id).toBe('codex-cli');
+        expect(agent.capabilities).toEqual(CODEX_CLI_CAPABILITIES);
         const session = await agent.session({ cwd: '/repo' });
         expect(fake.requests.map((r) => r.method)).toEqual(['initialize', 'initialized', 'account/read', 'model/list', 'thread/start']);
         expect(fake.requests[0]!.params).toEqual({ clientInfo: { name: 'test', title: null, version: '1.2.3' }, capabilities: { experimentalApi: true, requestAttestation: false } });
         expect(fake.requests[4]!.params).toMatchObject({ cwd: '/repo', approvalPolicy: 'on-request', sandbox: 'workspace-write' });
-        expect(session.ref).toEqual({ agent: 'codex', v: 1, id: session.id, data: { cwd: '/repo', epoch: 1 } });
+        expect(session.ref).toEqual({ agent: 'codex-cli', v: 1, id: session.id, data: { cwd: '/repo', epoch: 1 } });
         const { events, result } = await drain(session.prompt('hi'));
         expect(types(events)).toEqual(['turn-start', 'user-message', 'ext', 'part-start', 'part-delta', 'part-delta', 'part-end', 'turn-end']);
-        expect(events[2]).toMatchObject({ type: 'ext', ns: 'codex', name: 'turn', data: { turnId: expect.stringMatching(/^turn_/) } });
+        expect(events[2]).toMatchObject({ type: 'ext', ns: 'codex-cli', name: 'turn', data: { turnId: expect.stringMatching(/^turn_/) } });
         expect(textOf(events)).toBe('Hello there');
         expect(result).toMatchObject({ stopReason: 'end_turn' });
         expect(fake.requests.at(-1)).toMatchObject({ method: 'turn/start', params: { threadId: session.id, input: [{ type: 'text', text: 'hi', text_elements: [] }] } });
@@ -111,7 +111,7 @@ describe('@sigx/ai-agent-codex', () => {
 
     it('a policy makes the defaults strict; config is announced from model/list', async () => {
         const fake = fakeAppServer({ onTurn: say('x') });
-        const agent = codex({ transport: fake.transport });
+        const agent = codexCli({ transport: fake.transport });
         const session = await agent.session({ cwd: '/repo', policy: allowAll, system: 'be terse', tools: [echo] });
         expect(fake.requests.at(-1)!.params).toMatchObject({ approvalPolicy: 'untrusted', sandbox: 'workspace-write', baseInstructions: 'be terse', dynamicTools: [{ type: 'function', name: 'echo', description: 'Echoes.' }] });
         const events: AgentEvent[] = [];
@@ -128,7 +128,7 @@ describe('@sigx/ai-agent-codex', () => {
 
     it('configure({ sandbox }) is sent as sandboxPolicy on the next turn/start', async () => {
         const fake = fakeAppServer({ onTurn: say('x') });
-        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
         await session.prompt('go').result;
         expect(fake.requests.at(-1)!.params).not.toHaveProperty('sandboxPolicy');
         const expected = {
@@ -151,7 +151,7 @@ describe('@sigx/ai-agent-codex', () => {
                 sandbox: { type: 'externalSandbox', networkAccess: 'restricted' }
             }
         });
-        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
         let config: Extract<AgentEvent, { type: 'config' }> | undefined;
         for await (const e of session.subscribe({ epoch: 0, seq: 0 })) {
             if (e.type === 'config') {
@@ -173,7 +173,7 @@ describe('@sigx/ai-agent-codex', () => {
                 await say('ok')(ctx);
             }
         });
-        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
         const { events } = await drain(session.prompt('plan it'));
         expect(events.find((e) => e.type === 'ext' && e.name === 'item.plan')).toBeUndefined();
         const plan = events.filter((e) => 'partId' in e && e.partId === 'plan_1');
@@ -196,7 +196,7 @@ describe('@sigx/ai-agent-codex', () => {
         };
 
         it('declares subagents: control', () => {
-            expect(CODEX_CAPABILITIES.subagents).toBe('control');
+            expect(CODEX_CLI_CAPABILITIES.subagents).toBe('control');
         });
 
         it('updateSubAgent emits a change of output or error even when status and summary repeat; a true repeat stays quiet', () => {
@@ -224,7 +224,7 @@ describe('@sigx/ai-agent-codex', () => {
                     await say('Done.')(ctx);
                 }
             });
-            const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+            const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
             const all = observe(session);
             const { events, result } = await drain(session.prompt('delegate'));
             expect(result).toMatchObject({ stopReason: 'end_turn' });
@@ -259,7 +259,7 @@ describe('@sigx/ai-agent-codex', () => {
                     await say('ok')(ctx);
                 }
             });
-            const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+            const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
             const all = observe(session);
             const { events } = await drain(session.prompt('go'));
             expect(agentEvents(events, 'a1').map((e) => (e.type === 'agent-start' ? 'start' : e.status))).toEqual(['start', 'running', 'cancelled']);
@@ -288,7 +288,7 @@ describe('@sigx/ai-agent-codex', () => {
                     await say('ok')(ctx);
                 }
             });
-            const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+            const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
             const all = observe(session);
             const { events } = await drain(session.prompt('go'));
             const agent = agentEvents(events, 'child_9');
@@ -338,7 +338,7 @@ describe('@sigx/ai-agent-codex', () => {
                         await say('pong')(ctx);
                     }
                 });
-                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
                 const all = observe(session);
                 const { events, result } = await drain(session.prompt('delegate'));
                 expect(result).toMatchObject({ stopReason: 'end_turn' });
@@ -380,7 +380,7 @@ describe('@sigx/ai-agent-codex', () => {
                         await say('ok')(ctx);
                     }
                 });
-                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
                 const all = observe(session);
                 const { events } = await drain(session.prompt('go'));
                 expect(nestedText(events, 'call_s2')).toBe('early');
@@ -404,7 +404,7 @@ describe('@sigx/ai-agent-codex', () => {
                         await say('stopped')(ctx);
                     }
                 });
-                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
                 const all = observe(session);
                 const { events, result } = await drain(session.prompt('go'), async (e) => {
                     if (e.type === 'part-start' && e.parentCallId === 'call_s3') await session.cancel({ agentId: 'child_3' });
@@ -430,7 +430,7 @@ describe('@sigx/ai-agent-codex', () => {
                         await say('stopped')(ctx);
                     }
                 });
-                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
                 const all = observe(session);
                 let cancelled = false;
                 const { events, result } = await drain(session.prompt('go'), async (e) => {
@@ -463,7 +463,7 @@ describe('@sigx/ai-agent-codex', () => {
                         await say('ok')(ctx);
                     }
                 });
-                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
                 const all = observe(session);
                 const { events } = await drain(session.prompt('go'), async (e) => {
                     if (e.type === 'request') {
@@ -493,7 +493,7 @@ describe('@sigx/ai-agent-codex', () => {
                         await say('ok')(ctx);
                     }
                 });
-                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
                 const all = observe(session);
                 const { events } = await drain(session.prompt('go'));
                 expect(nestedText(events, 'collab_s6')).toBe('found it');
@@ -516,7 +516,7 @@ describe('@sigx/ai-agent-codex', () => {
                         await say('stopped')(ctx);
                     }
                 });
-                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
                 const all = observe(session);
                 let cancelled = false;
                 const { events, result } = await drain(session.prompt('go'), async (e) => {
@@ -541,7 +541,7 @@ describe('@sigx/ai-agent-codex', () => {
                         await notify('thread/name/updated', { threadId, name: 'Early name' });
                     }
                 });
-                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
                 // Everything the session log holds, from its first event.
                 const events: AgentEvent[] = [];
                 const done = (async () => {
@@ -572,7 +572,7 @@ describe('@sigx/ai-agent-codex', () => {
                         await say('ok')(ctx);
                     }
                 });
-                const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+                const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
                 const all = observe(session);
                 let cancelled = false;
                 const { events, result } = await drain(session.prompt('go'), async (e) => {
@@ -599,7 +599,7 @@ describe('@sigx/ai-agent-codex', () => {
                     await ctx.complete('interrupted');
                 }
             });
-            const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+            const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
             const { events, result } = await drain(session.prompt('go'), async (e) => {
                 if (e.type === 'agent-update' && e.status === 'running') await session.cancel();
             });
@@ -613,7 +613,7 @@ describe('@sigx/ai-agent-codex', () => {
                     await say('spawned')(ctx);
                 }
             });
-            const session2 = await codex({ transport: fake2.transport }).session({ cwd: '/repo' });
+            const session2 = await codexCli({ transport: fake2.transport }).session({ cwd: '/repo' });
             const all = observe(session2);
             const second = await drain(session2.prompt('go'));
             expect(agentEvents(second.events, 'r2').map((e) => (e.type === 'agent-start' ? 'start' : e.status))).toEqual(['start', 'running']);
@@ -626,11 +626,11 @@ describe('@sigx/ai-agent-codex', () => {
     });
 
     it('not signed in → auth_required (account/read null, or getAuthStatus fallback)', async () => {
-        const a = codex({ transport: fakeAppServer({ onTurn: say('x'), account: null }).transport });
+        const a = codexCli({ transport: fakeAppServer({ onTurn: say('x'), account: null }).transport });
         await expect(a.session({ cwd: '/repo' })).rejects.toMatchObject({ name: 'AgentError', code: 'auth_required' });
-        const b = codex({ transport: fakeAppServer({ onTurn: say('x'), account: 'missing', authStatus: { authMethod: null, authToken: null, requiresOpenaiAuth: true } }).transport });
+        const b = codexCli({ transport: fakeAppServer({ onTurn: say('x'), account: 'missing', authStatus: { authMethod: null, authToken: null, requiresOpenaiAuth: true } }).transport });
         await expect(b.session({ cwd: '/repo' })).rejects.toMatchObject({ code: 'auth_required' });
-        const c = codex({ transport: fakeAppServer({ onTurn: say('x'), account: 'missing', authStatus: { authMethod: 'chatgpt', authToken: null, requiresOpenaiAuth: true } }).transport });
+        const c = codexCli({ transport: fakeAppServer({ onTurn: say('x'), account: 'missing', authStatus: { authMethod: 'chatgpt', authToken: null, requiresOpenaiAuth: true } }).transport });
         await expect(c.session({ cwd: '/repo' })).resolves.toBeDefined();
     });
 
@@ -645,7 +645,7 @@ describe('@sigx/ai-agent-codex', () => {
                 await ctx.complete();
             }
         });
-        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
         const { events } = await drain(session.prompt('go'));
         const t = createTranscript(session.id);
         const reduce = createReducer();
@@ -660,7 +660,7 @@ describe('@sigx/ai-agent-codex', () => {
 
     it('command execution: approval through the policy, output deltas → coding.terminal, exit → terminal-exit', async () => {
         const fake = fakeAppServer({ onTurn: shellProgram('ls -la') });
-        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
         const turn = session.prompt('list');
         const { events, result } = await drain(turn, async (e) => {
             if (e.type === 'request') {
@@ -688,7 +688,7 @@ describe('@sigx/ai-agent-codex', () => {
                     await ctx.complete();
                 }
             });
-            const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+            const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
             const { events } = await drain(session.prompt('go'), async (e) => {
                 if (e.type === 'request') await session.respond(e.requestId, decision);
             });
@@ -701,7 +701,7 @@ describe('@sigx/ai-agent-codex', () => {
         expect(await decide({ type: 'cancel' })).toBe('cancel');
         // A headless session with no policy declines without asking.
         const fake = fakeAppServer({ onTurn: shellProgram('rm -rf /') });
-        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo', interactive: false });
+        const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo', interactive: false });
         const { events } = await drain(session.prompt('go'));
         expect(events.filter((e) => e.type === 'request')).toHaveLength(0);
         expect(events.find((e) => e.type === 'request-resolved')).toMatchObject({ outcome: 'deny', by: 'policy' });
@@ -720,7 +720,7 @@ describe('@sigx/ai-agent-codex', () => {
                 await ctx.complete();
             }
         });
-        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo', policy: allowAll });
+        const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo', policy: allowAll });
         const { events } = await drain(session.prompt('edit'));
         expect(events.find((e) => e.type === 'tool-call')).toMatchObject({ callId: 'fc1', name: 'apply_patch', category: 'edit' });
         expect(events.find((e) => e.type === 'request-resolved')).toMatchObject({ outcome: 'allow', by: 'policy', ruleId: 'allowAll' });
@@ -744,7 +744,7 @@ describe('@sigx/ai-agent-codex', () => {
                 await ctx.complete();
             }
         });
-        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo', tools: [echo, failing], policy: allowAll });
+        const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo', tools: [echo, failing], policy: allowAll });
         const { events } = await drain(session.prompt('go'));
         expect(calls).toEqual([
             { contentItems: [{ type: 'inputText', text: '{"echoed":{"a":1}}' }], success: true },
@@ -764,7 +764,7 @@ describe('@sigx/ai-agent-codex', () => {
                 await ctx.complete();
             }
         });
-        const s2 = await codex({ transport: denying.transport }).session({ cwd: '/repo', tools: [echo], policy: denyAll });
+        const s2 = await codexCli({ transport: denying.transport }).session({ cwd: '/repo', tools: [echo], policy: denyAll });
         const r2 = await drain(s2.prompt('go'));
         expect(updates(r2.events, 'd1')).toEqual(['pending', 'denied']);
     });
@@ -777,7 +777,7 @@ describe('@sigx/ai-agent-codex', () => {
                 await say('Thanks.')(ctx);
             }
         });
-        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
         const { events } = await drain(session.prompt('deploy'), async (e) => {
             if (e.type === 'request') {
                 expect(e).toMatchObject({ kind: 'input', schema: { type: 'object', properties: { region: { enum: ['eu', 'us'] }, note: { type: 'string' } }, required: ['region', 'note'] } });
@@ -797,7 +797,7 @@ describe('@sigx/ai-agent-codex', () => {
                 await ctx.complete('interrupted');
             }
         });
-        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo', policy: allowAll });
+        const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo', policy: allowAll });
         const turn = session.prompt('go');
         const { events, result } = await drain(turn, async (e) => {
             if (e.type === 'tool-update' && e.status === 'in_progress') await session.cancel();
@@ -814,7 +814,7 @@ describe('@sigx/ai-agent-codex', () => {
                 await say(`Got: ${extra.map((i) => (i.type === 'text' ? i.text : '')).join('')}`)(ctx);
             }
         });
-        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
         const first = session.prompt('go');
         // Sent before `turn/start` has answered: the adapter waits for the Codex turn id.
         const second = session.prompt('also B');
@@ -838,7 +838,7 @@ describe('@sigx/ai-agent-codex', () => {
                 await say('ok')(ctx);
             }
         });
-        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
         const first = session.prompt('go');
         let second: ReturnType<typeof session.prompt> | undefined;
         const { events } = await drain(first, (e) => {
@@ -861,7 +861,7 @@ describe('@sigx/ai-agent-codex', () => {
                 await say('Hello')(ctx);
             }
         });
-        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
         const first = session.prompt('go');
         const second = session.prompt('nope');
         const { events, result } = await drain(first, (e) => {
@@ -889,7 +889,7 @@ describe('@sigx/ai-agent-codex', () => {
                 return new Promise(() => {});
             }
         });
-        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
         const all: AgentEvent[] = [];
         const notice = (async () => {
             for await (const e of session.subscribe({ epoch: 0, seq: 0 })) {
@@ -927,7 +927,7 @@ describe('@sigx/ai-agent-codex', () => {
                 await ctx.complete('failed', { message: 'the context is full', codexErrorInfo: 'contextWindowExceeded', additionalDetails: null });
             }
         });
-        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
         const { events, result } = await drain(session.prompt('go'));
         expect(events.filter((e) => e.type === 'error')).toEqual([expect.objectContaining({ code: 'rate_limited', recoverable: true, message: 'retrying' }), expect.objectContaining({ code: 'context_exceeded', recoverable: false })]);
         expect(result).toMatchObject({ stopReason: 'error', error: { code: 'context_exceeded', message: 'the context is full' } });
@@ -935,14 +935,14 @@ describe('@sigx/ai-agent-codex', () => {
 
     it('structured output: outputSchema goes to Codex and the final message is validated onto turn-end.output', async () => {
         const fake = fakeAppServer({ onTurn: (ctx) => say(ctx.params.outputSchema ? '{"ok":true}' : 'plain')(ctx) });
-        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
         const r1 = await session.prompt('go', { output: { schema: okSchema } }).result;
         expect(r1).toMatchObject({ stopReason: 'end_turn', output: { ok: true } });
         expect(fake.requests.at(-1)!.params).toMatchObject({ outputSchema: { type: 'object', required: ['ok'] } });
         const r2 = await session.prompt('go', { output: { schema: { type: 'object' } } }).result;
         expect(r2.output).toEqual({ ok: true });
         const bad = fakeAppServer({ onTurn: say('{"ok":"nope"}') });
-        const s2 = await codex({ transport: bad.transport }).session({ cwd: '/repo' });
+        const s2 = await codexCli({ transport: bad.transport }).session({ cwd: '/repo' });
         const r3 = await drain(s2.prompt('go', { output: { schema: okSchema } }));
         expect(r3.result).toMatchObject({ stopReason: 'error', error: { code: 'provider_error' } });
         expect(r3.events.at(-2)).toMatchObject({ type: 'error', message: expect.stringContaining('did not match') });
@@ -959,12 +959,12 @@ describe('@sigx/ai-agent-codex', () => {
                 await say('ok')(ctx);
             }
         });
-        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
         const { events, result } = await drain(session.prompt('go'));
         expect(events.find((e) => e.type === 'ext' && e.ns === 'coding' && e.name === 'plan')).toMatchObject({ data: { entries: [{ content: 'read', status: 'completed' }, { content: 'write', status: 'in_progress' }] } });
-        expect(events.find((e) => e.type === 'ext' && e.name === 'turn-diff')).toMatchObject({ ns: 'codex', data: { diff: '--- x' } });
-        expect(events.find((e) => e.type === 'ext' && e.name === 'account/rateLimits/updated')).toMatchObject({ ns: 'codex' });
-        expect(events.find((e) => e.type === 'ext' && e.name === 'item.contextCompaction')).toMatchObject({ ns: 'codex', data: { phase: 'completed' } });
+        expect(events.find((e) => e.type === 'ext' && e.name === 'turn-diff')).toMatchObject({ ns: 'codex-cli', data: { diff: '--- x' } });
+        expect(events.find((e) => e.type === 'ext' && e.name === 'account/rateLimits/updated')).toMatchObject({ ns: 'codex-cli' });
+        expect(events.find((e) => e.type === 'ext' && e.name === 'item.contextCompaction')).toMatchObject({ ns: 'codex-cli', data: { phase: 'completed' } });
         const usages = events.filter((e): e is Extract<AgentEvent, { type: 'usage' }> => e.type === 'usage');
         expect(usages.map((u) => [u.scope, u.usage.inputTokens, u.usage.totalTokens])).toEqual([
             ['turn', 2, 3],
@@ -983,7 +983,7 @@ describe('@sigx/ai-agent-codex', () => {
 
     it('resume opens a new epoch on the same thread; fork starts a new one; listSessions maps threads', async () => {
         const fake = fakeAppServer({ onTurn: say('x'), threadId: 'thread_fixed' });
-        const agent = codex({ transport: fake.transport });
+        const agent = codexCli({ transport: fake.transport });
         const s1 = await agent.session({ cwd: '/repo' });
         const r1 = await drain(s1.prompt('a'));
         expect(r1.events[0]!.epoch).toBe(1);
@@ -998,13 +998,13 @@ describe('@sigx/ai-agent-codex', () => {
         expect(s3.id).toBe('thread_fixed-fork');
         expect(fake.threads.at(-1)!.method).toBe('thread/fork');
         await expect(agent.session({ cwd: '/repo', resume: { agent: 'other', v: 1, id: 'x' } })).rejects.toThrow(/belongs to agent/);
-        expect(await agent.listSessions!()).toEqual([{ ref: { agent: 'codex', v: 1, id: 'thread_a', data: { cwd: '/repo' } }, title: 'First thread' }]);
+        expect(await agent.listSessions!()).toEqual([{ ref: { agent: 'codex-cli', v: 1, id: 'thread_a', data: { cwd: '/repo' } }, title: 'First thread' }]);
         await agent.dispose();
     });
 
     it('the ref carries the epoch, so successive resumes from a persisted ref keep advancing it', async () => {
         const fake = fakeAppServer({ onTurn: say('x'), threadId: 'thread_fixed' });
-        const agent = codex({ transport: fake.transport });
+        const agent = codexCli({ transport: fake.transport });
         // A caller persists `session.ref` verbatim (JSON round-trip) and resumes from what it stored.
         const persist = (ref: SessionRef): SessionRef => JSON.parse(JSON.stringify(ref)) as SessionRef;
         const s1 = await agent.session({ cwd: '/repo' });
@@ -1029,14 +1029,14 @@ describe('@sigx/ai-agent-codex', () => {
                 await fake.close();
             }
         });
-        const session = await codex({ transport: fake.transport }).session({ cwd: '/repo' });
+        const session = await codexCli({ transport: fake.transport }).session({ cwd: '/repo' });
         const { result } = await drain(session.prompt('go'));
         expect(result).toMatchObject({ stopReason: 'error', error: { code: 'process_exited' } });
     });
 
     it('rejects prompts without a cwd and unsupported prompt parts', async () => {
         const fake = fakeAppServer({ onTurn: say('x') });
-        const agent = codex({ transport: fake.transport });
+        const agent = codexCli({ transport: fake.transport });
         await expect(agent.session({} as never)).rejects.toThrow(/cwd/);
         const session = await agent.session({ cwd: '/repo' });
         // Refused by the core's promptParts gate before any event, so no turn starts.
@@ -1068,9 +1068,9 @@ function mkdirp(dir: string): void {
 
 /** Live smoke — needs a signed-in Codex CLI on PATH and SIGX_LIVE_CODEX=1. */
 const liveReason = process.env.SIGX_LIVE_CODEX ? undefined : 'SIGX_LIVE_CODEX is not set';
-describe.skipIf(!!liveReason)('@sigx/ai-agent-codex (live)', () => {
+describe.skipIf(!!liveReason)('@sigx/ai-agent-codex-cli (live)', () => {
     it('answers a short prompt', async () => {
-        const agent = codex();
+        const agent = codexCli();
         const session = await agent.session({ cwd: tmpdir(), interactive: false, policy: allowAll });
         const turn = session.prompt('Reply with the single word: pong');
         let text = '';
@@ -1082,7 +1082,7 @@ describe.skipIf(!!liveReason)('@sigx/ai-agent-codex (live)', () => {
     }, 120_000);
 
     it('a prompt during a real turn steers it: same turn, one more user-message, no refusal', async () => {
-        const agent = codex();
+        const agent = codexCli();
         const session = await agent.session({ cwd: tmpdir(), interactive: false, policy: allowAll });
         const first = session.prompt('Use the shell to wait about five seconds (Start-Sleep -Seconds 5 on Windows, sleep 5 elsewhere), then reply with the single word: done');
         let second: ReturnType<typeof session.prompt> | undefined;
@@ -1103,7 +1103,7 @@ describe.skipIf(!!liveReason)('@sigx/ai-agent-codex (live)', () => {
     }, 180_000);
 
     it('a real sub-agent spawn is announced and cancel({ agentId }) ends it cancelled', async () => {
-        const agent = codex();
+        const agent = codexCli();
         const session = await agent.session({ cwd: tmpdir(), interactive: false, policy: allowAll });
         const started = Date.now();
         const trace: string[] = [];
@@ -1147,4 +1147,4 @@ describe.skipIf(!!liveReason)('@sigx/ai-agent-codex (live)', () => {
         await agent.dispose();
     }, 240_000);
 });
-if (liveReason) console.log(`[ai-agent-codex] live smoke skipped: ${liveReason}`);
+if (liveReason) console.log(`[ai-agent-codex-cli] live smoke skipped: ${liveReason}`);

@@ -20,8 +20,8 @@ export const PACKAGES = [
     'packages/ai-agent-node',
     'packages/ai-agent-acp',
     'packages/ai-agent-claude-code',
-    'packages/ai-agent-codex',
-    'packages/ai-agent-copilot',
+    'packages/ai-agent-codex-cli',
+    'packages/ai-agent-copilot-cli',
     'packages/ai-anthropic',
     'packages/ai-openai',
 ];
@@ -44,8 +44,8 @@ export const ENTRIES = [
     '@sigx/ai-agent-node',
     '@sigx/ai-agent-acp',
     '@sigx/ai-agent-claude-code',
-    '@sigx/ai-agent-codex',
-    '@sigx/ai-agent-copilot',
+    '@sigx/ai-agent-codex-cli',
+    '@sigx/ai-agent-copilot-cli',
     '@sigx/ai-anthropic',
     '@sigx/ai-openai',
 ];

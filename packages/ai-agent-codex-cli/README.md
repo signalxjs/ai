@@ -1,4 +1,4 @@
-# @sigx/ai-agent-codex
+# @sigx/ai-agent-codex-cli
 
 > **Experimental** — 0.x, part of the [`@sigx/ai-agent`](https://www.npmjs.com/package/@sigx/ai-agent) family.
 
@@ -11,10 +11,10 @@ adapter never collects or stores credentials.
 ```ts
 import { firstMatch, allowReadOnly } from '@sigx/ai-agent';
 import { allowCategories, denyOutside } from '@sigx/ai-agent/coding';
-import { codex } from '@sigx/ai-agent-codex';
+import { codexCli } from '@sigx/ai-agent-codex-cli';
 
 // U2 — a headless review bot: read and search inside the checkout, nothing else.
-const agent = codex();
+const agent = codexCli();
 const session = await agent.session({
     cwd,
     interactive: false,
@@ -45,10 +45,10 @@ await agent.dispose(); // kills the app-server tree, on Windows too
 | `item/tool/call` | your tool, through the policy, then `AnyTool.run` |
 | `thread/tokenUsage/updated` | `usage { scope: 'turn' }` and `usage { scope: 'session' }` |
 | `model/list`, approval policy, sandbox | `config` events (a mode we do not model, such as a granular approval policy, is listed as its own value); `configure()` applies on the next turn — `sandbox` becomes that turn's `sandboxPolicy` |
-| everything else | `ext { ns: 'codex' }` |
+| everything else | `ext { ns: 'codex-cli' }` |
 
 The contract's turn id is ours (a caller-supplied `turnId` is honoured);
-Codex's own turn id is announced as `ext { ns: 'codex', name: 'turn' }`.
+Codex's own turn id is announced as `ext { ns: 'codex-cli', name: 'turn' }`.
 A `prompt()` during a turn does not start a second one: it is sent as
 `turn/steer` with that Codex turn as `expectedTurnId` (waiting for
 `turn/start` to answer first), and the handle you get back is the running
@@ -97,7 +97,7 @@ session's memory; nothing is written to Codex's trust settings.
 
 ## Transport
 
-`codex()` resolves `codex` on `PATH` (an npm `.cmd` shim runs under
+`codexCli()` resolves `codex` on `PATH` (an npm `.cmd` shim runs under
 `process.execPath`), spawns `codex app-server` with an allowlisted environment
 plus `OPENAI_API_KEY` and `CODEX_HOME` (`passEnv` to add more), and speaks
 NDJSON JSON-RPC over stdio. `transport: { readable, writable }` drives an
@@ -108,14 +108,14 @@ ws://…` through `webSocketStreams`), or an in-memory fake in tests.
 
 `src/schema.ts` is a hand-written subset of the v2 protocol, checked against
 the generated types of Codex CLI 0.153.4 (`@pwrdrvr/codex-app-server-protocol`,
-a devDependency). `pnpm --filter @sigx/ai-agent-codex codex:generate` regenerates
+a devDependency). `pnpm --filter @sigx/ai-agent-codex-cli codex:generate` regenerates
 the full types into `generated/` with the Codex CLI you have installed
 (`codex app-server generate-ts --experimental`), for diffing.
 
 ## Install
 
 ```bash
-npm install @sigx/ai @sigx/ai-agent @sigx/ai-agent-codex
+npm install @sigx/ai @sigx/ai-agent @sigx/ai-agent-codex-cli
 ```
 
 Node only (it spawns a process). Codex itself is installed and signed in

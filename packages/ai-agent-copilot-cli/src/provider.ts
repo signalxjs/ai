@@ -1,5 +1,5 @@
 /**
- * `copilot()` — GitHub Copilot CLI as an `Agent`, on the official
+ * `copilotCli()` — GitHub Copilot CLI as an `Agent`, on the official
  * `@github/copilot-sdk`.
  *
  * One `CopilotClient` (one runtime process, spawned by the SDK) per agent,
@@ -14,11 +14,11 @@ import type { CopilotClientOptions, ModelInfo, SessionConfig } from '@github/cop
 import type { AnyTool } from '@sigx/ai';
 import type { Agent, AgentCapabilities, ConfigValue, SessionSummary } from '@sigx/ai-agent';
 import { AgentError, capabilities } from '@sigx/ai-agent';
-import type { CopilotClientLike, CopilotOptions, CopilotSessionOptions } from './options.js';
+import type { CopilotClientLike, CopilotCliOptions, CopilotCliSessionOptions } from './options.js';
 import { toClientOptions, toModelValues, toSessionConfig } from './request.js';
 import { createCopilotSession, type CopilotSession } from './session.js';
 
-export const COPILOT_CAPABILITIES: AgentCapabilities = capabilities({
+export const COPILOT_CLI_CAPABILITIES: AgentCapabilities = capabilities({
     resume: 'local',
     fork: false,
     cancel: true,
@@ -48,24 +48,24 @@ interface Connection {
     readonly models: ModelInfo[];
 }
 
-export interface CopilotAgent extends Agent<CopilotSessionOptions> {
+export interface CopilotCliAgent extends Agent<CopilotCliSessionOptions> {
     listSessions(): Promise<SessionSummary[]>;
 }
 
-export function copilot(options: CopilotOptions = {}): CopilotAgent {
-    const id = options.id ?? 'copilot';
+export function copilotCli(options: CopilotCliOptions = {}): CopilotCliAgent {
+    const id = options.id ?? 'copilot-cli';
     const sessions = new Map<string, CopilotSession>();
     let connecting: Promise<Connection> | undefined;
     let disposed = false;
 
     const connect = (): Promise<Connection> => {
-        if (disposed) return Promise.reject(new AgentError('protocol_error', `[sigx ai-agent-copilot] agent "${id}" is disposed`));
+        if (disposed) return Promise.reject(new AgentError('protocol_error', `[sigx ai-agent-copilot-cli] agent "${id}" is disposed`));
         return (connecting ??= (async () => {
             const client = options.client ?? (await createClient(options));
             try {
                 await client.start();
             } catch (e) {
-                throw new AgentError('process_exited', `[sigx ai-agent-copilot] the Copilot runtime did not start: ${e instanceof Error ? e.message : String(e)}`, false, { cause: e });
+                throw new AgentError('process_exited', `[sigx ai-agent-copilot-cli] the Copilot runtime did not start: ${e instanceof Error ? e.message : String(e)}`, false, { cause: e });
             }
             const status = await client.getAuthStatus().catch(() => ({ isAuthenticated: false }));
             const models = status.isAuthenticated ? await client.listModels().catch((): ModelInfo[] => []) : [];
@@ -76,11 +76,11 @@ export function copilot(options: CopilotOptions = {}): CopilotAgent {
         }));
     };
 
-    async function openSession(sessionOptions: CopilotSessionOptions): Promise<CopilotSession> {
-        if (!sessionOptions?.cwd) throw new AgentError('protocol_error', '[sigx ai-agent-copilot] session options need a cwd');
+    async function openSession(sessionOptions: CopilotCliSessionOptions): Promise<CopilotSession> {
+        if (!sessionOptions?.cwd) throw new AgentError('protocol_error', '[sigx ai-agent-copilot-cli] session options need a cwd');
         const resume = sessionOptions.resume;
-        if (resume && resume.agent !== id) throw new AgentError('protocol_error', `[sigx ai-agent-copilot] session ref belongs to agent "${resume.agent}", not "${id}"`);
-        if (sessionOptions.fork) throw new AgentError('protocol_error', '[sigx ai-agent-copilot] Copilot sessions cannot be forked');
+        if (resume && resume.agent !== id) throw new AgentError('protocol_error', `[sigx ai-agent-copilot-cli] session ref belongs to agent "${resume.agent}", not "${id}"`);
+        if (sessionOptions.fork) throw new AgentError('protocol_error', '[sigx ai-agent-copilot-cli] Copilot sessions cannot be forked');
         const conn = await connect();
         // A bring-your-own-key session runs without a GitHub login; everything else needs one.
         if (!conn.authenticated && !sessionOptions.provider) throw notSignedIn();
@@ -117,14 +117,14 @@ export function copilot(options: CopilotOptions = {}): CopilotAgent {
             sessions.delete(sessionId);
             await session.close().catch(() => {});
             if (e instanceof AgentError) throw e;
-            throw new AgentError('provider_error', `[sigx ai-agent-copilot] the runtime refused the session: ${e instanceof Error ? e.message : String(e)}`, false, { cause: e });
+            throw new AgentError('provider_error', `[sigx ai-agent-copilot-cli] the runtime refused the session: ${e instanceof Error ? e.message : String(e)}`, false, { cause: e });
         }
         return session;
     }
 
     return {
         id,
-        capabilities: COPILOT_CAPABILITIES,
+        capabilities: COPILOT_CLI_CAPABILITIES,
         session: openSession,
         async listSessions(): Promise<SessionSummary[]> {
             const conn = await connect();
@@ -148,12 +148,12 @@ export function copilot(options: CopilotOptions = {}): CopilotAgent {
 }
 
 /** The SDK client for these options; the SDK is loaded on first use so a missing peer is a thrown `AgentError`, not a crash at import. */
-async function createClient(options: CopilotOptions): Promise<CopilotClientLike> {
+async function createClient(options: CopilotCliOptions): Promise<CopilotClientLike> {
     let sdk: typeof import('@github/copilot-sdk');
     try {
         sdk = await import('@github/copilot-sdk');
     } catch (e) {
-        throw new AgentError('protocol_error', '[sigx ai-agent-copilot] @github/copilot-sdk is not installed — `npm i @github/copilot-sdk` (it bundles the Copilot CLI runtime)', false, { cause: e });
+        throw new AgentError('protocol_error', '[sigx ai-agent-copilot-cli] @github/copilot-sdk is not installed — `npm i @github/copilot-sdk` (it bundles the Copilot CLI runtime)', false, { cause: e });
     }
     const clientOptions: CopilotClientOptions = {
         connection: sdk.RuntimeConnection.forStdio(options.cliPath !== undefined ? { path: options.cliPath } : {}),
@@ -163,7 +163,7 @@ async function createClient(options: CopilotOptions): Promise<CopilotClientLike>
 }
 
 function notSignedIn(): AgentError {
-    return new AgentError('auth_required', '[sigx ai-agent-copilot] Copilot is not signed in — run `copilot login` (or set COPILOT_GITHUB_TOKEN / GH_TOKEN, or pass `gitHubToken`) and retry', false, {
+    return new AgentError('auth_required', '[sigx ai-agent-copilot-cli] Copilot is not signed in — run `copilot login` (or set COPILOT_GITHUB_TOKEN / GH_TOKEN, or pass `gitHubToken`) and retry', false, {
         data: { hint: 'copilot login' }
     });
 }
