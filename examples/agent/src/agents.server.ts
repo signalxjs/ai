@@ -380,7 +380,7 @@ const LABELS: Record<AgentChoice, string> = {
     'acp:gemini': 'Gemini CLI (ACP)',
     'acp:cursor': 'Cursor CLI (ACP)',
     'acp:claude-code': 'Claude Code (ACP bridge)',
-    'acp:codex-cli': 'Codex (ACP bridge)',
+    'acp:codex-cli': 'Codex CLI (ACP bridge)',
     'acp:copilot-cli': 'GitHub Copilot CLI (ACP)'
 };
 

@@ -120,7 +120,7 @@ export interface AgentSession {
 }
 
 export interface Agent<O extends SessionOptions = SessionOptions> {
-    /** `'sigx' | 'claude-code' | 'codex-cli' | 'acp:gemini' | …` — for logs, never for branching. */
+    /** `'sigx' | 'claude-code' | 'codex-cli' | 'copilot-cli' | 'acp:gemini' | …` — for logs, never for branching. */
     readonly id: string;
     readonly capabilities: AgentCapabilities;
     session(options?: O): Promise<AgentSession>;

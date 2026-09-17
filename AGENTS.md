@@ -268,7 +268,7 @@ The agent's default `id` and its `ext` namespace use that same string
   enforced by `__tests__/package/edge-safety.test.ts`). Peers on `@sigx/ai` —
   plus `@sigx/reactivity` and `@sigx/runtime-core`, which only `./app` uses.
   Node-only building blocks live in `@sigx/ai-agent-node`; adapters follow
-  the naming rule below.
+  the naming rule at the top of this section.
 - `packages/ai-agent-node` → `@sigx/ai-agent-node` — **experimental**, the
   family's only Node-specific package (`tsconfig` `types: ["node"]`): it owns
   cross-platform process correctness — `resolveExecutable` (`PATH`/`Path`,
