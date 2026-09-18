@@ -74,7 +74,7 @@
         "access": "public"
     },
     "peerDependencies": {
-        "@sigx/reactivity": "^0.15.0",
-        "@sigx/runtime-core": "^0.15.0"
+        "@sigx/reactivity": "^1.0.0",
+        "@sigx/runtime-core": "^1.0.0"
     }
 }

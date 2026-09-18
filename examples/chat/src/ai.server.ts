@@ -263,9 +263,8 @@ export const chat = serverStream({
     input: ChatRequest,
     // Deliberate: the demo has no sign-in. See vite.config.ts.
     allowAnonymous: true,
-    // `@sigx/server` 0.15: `handler(rq, input)`. Core main's 1.0 form is
-    // `handler({ input, rq })` — one destructuring to flip when it ships.
-    handler: async function* (rq, input) {
+    // `@sigx/server` 1.0: the handler receives ONE object (rfc-server-v5 §1.2).
+    handler: async function* ({ rq, input }) {
         yield* chatStream({
             model: modelFor(input.selection),
             system: SYSTEM,

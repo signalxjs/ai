@@ -66,7 +66,7 @@ const weather = defineTool({
 
 export const chat = serverStream({
     input: ChatInput,
-    handler: async function* (rq, input) {
+    handler: async function* ({ rq, input }) {
         yield* chatStream({ model, tools: [weather], messages: input.messages, signal: rq.abortSignal });
     }
 });

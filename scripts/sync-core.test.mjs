@@ -213,6 +213,25 @@ test('a prerelease of a new major pins exactly — the only caret that resolves 
     assert.throws(() => alignCatalog(src, '^1.1.0-beta.0'), /single-minor caret/);
 });
 
+test('alignManifests preserves CRLF line endings without doubling them (Windows checkout)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sync-core-crlf-'));
+    try {
+        mkdirSync(join(root, 'packages', 'lib'), { recursive: true });
+        writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'root', private: true }, null, 2) + '\n');
+        const src = (JSON.stringify({ name: '@acme/lib', version: '1.0.0', dependencies: { sigx: 'catalog:' } }, null, 4) + '\n').replace(/\n/g, '\r\n');
+        writeFileSync(join(root, 'packages', 'lib', 'package.json'), src);
+
+        assert.equal(alignManifests(root, '^1.0.0').length, 1);
+        const lib = readFileSync(join(root, 'packages', 'lib', 'package.json'), 'utf8');
+        assert.ok(!lib.includes('\r\n\r\n'), 'no doubled newlines');
+        assert.equal(lib.split('\n').length, lib.split('\r\n').length, 'every newline is CRLF');
+        assert.match(lib, /^    "peerDependencies": \{\r$/m, 'four-space indent preserved (not "\\n    ")');
+        assert.deepEqual(JSON.parse(lib).peerDependencies, { sigx: '^1.0.0' });
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test("alignManifests writes the peer shape into publishable packages only, keeping each file's indent", () => {
     const root = mkdtempSync(join(tmpdir(), 'sync-core-'));
     try {
