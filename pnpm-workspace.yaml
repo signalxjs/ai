@@ -7,19 +7,19 @@ onlyBuiltDependencies:
 
 # Single source of truth for the sigx core version — a framework bump is a
 # localized edit to these entries here, instead of hunting specifiers across
-# every dependency section. A single-minor range (`^0.15.0`) preserves core's
+# every dependency section. A single-minor range (`^1.0.0`) preserves core's
 # single-copy guarantee: @sigx/reactivity keeps reactive state in module-local
 # variables, so a second copy silently splits core's singletons (topic
 # registry, DI app-context token, `instanceof` identity). `catalog:` resolves
 # here in peerDeps/devDeps; `pnpm pack` rewrites it to the concrete range in
 # the published manifest.
 catalog:
-  "@sigx/cache": ^0.15.0
-  "@sigx/reactivity": ^0.15.0
-  "@sigx/runtime-core": ^0.15.0
-  "@sigx/runtime-dom": ^0.15.0
-  "@sigx/serialize": ^0.15.0
-  "@sigx/server": ^0.15.0
-  "@sigx/server-renderer": ^0.15.0
-  "@sigx/vite": ^0.15.0
-  "sigx": ^0.15.0
+  "@sigx/cache": ^1.0.0
+  "@sigx/reactivity": ^1.0.0
+  "@sigx/runtime-core": ^1.0.0
+  "@sigx/runtime-dom": ^1.0.0
+  "@sigx/serialize": ^1.0.0
+  "@sigx/server": ^1.0.0
+  "@sigx/server-renderer": ^1.0.0
+  "@sigx/vite": ^1.0.0
+  "sigx": ^1.0.0

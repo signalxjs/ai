@@ -6,6 +6,15 @@ All notable changes to `@sigx/ai` are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Peers on sigx core `^1.0.0` (`@sigx/reactivity`, `@sigx/runtime-core`);
+  0.1.0 peered on `^0.15.0`. Core 1.0 promises additive minors, so the range
+  is the major, and the app owns the single copy (rfc-1.0 §3).
+- The `chatStream` recipe in the `@sigx/ai/server` docs uses core 1.0's
+  `serverStream` handler shape — one `{ rq, input }` object, not
+  `(rq, input)`.
+
 ### Added
 
 - `@sigx/ai/ui` — `uiTool()`, a `defineTool` whose input is a `@sigx/json-ui`

@@ -5,7 +5,7 @@
  * // src/ai.server.ts
  * export const chat = serverStream({
  *     input: ChatInput,
- *     handler: async function* (rq, input) {
+ *     handler: async function* ({ rq, input }) {
  *         yield* chatStream({ model, tools, messages: input.messages, signal: rq.abortSignal });
  *     }
  * });

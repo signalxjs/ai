@@ -265,7 +265,10 @@ export function alignManifests(repoRoot, peerRange, { dryRun = false } = {}) {
         if (result.changes.length === 0) continue;
         changes.push(...result.changes);
         if (dryRun) continue;
-        const indent = /^(\s+)"/m.exec(src)?.[1] ?? '  ';
+        // Spaces/tabs only: in multiline mode ^ also matches right after a bare \r,
+        // so \s+ on a CRLF checkout (Windows, autocrlf) captured "\n    " as the
+        // indent string and JSON.stringify doubled every newline in the manifest.
+        const indent = /^([ \t]+)"/m.exec(src)?.[1] ?? '  ';
         const eol = src.includes('\r\n') ? '\r\n' : '\n';
         writeFileSync(file, (JSON.stringify(result.pkg, null, indent) + '\n').replace(/\n/g, eol));
     }

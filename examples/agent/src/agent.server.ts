@@ -61,7 +61,7 @@ export const agentSessions = serverFn({
 export const agentOpenSession = serverFn({
     input: OpenInput,
     allowAnonymous: true,
-    handler: (_rq, input): Promise<OpenResult> => open(input)
+    handler: ({ input }): Promise<OpenResult> => open(input)
 });
 
 /**
@@ -71,7 +71,7 @@ export const agentOpenSession = serverFn({
 export const agentCommand = serverFn({
     input: CommandInput,
     allowAnonymous: true,
-    handler: async (_rq, input): Promise<WireReply> => {
+    handler: async ({ input }): Promise<WireReply> => {
         const command = input.command as unknown;
         if (!isWireCommand(command)) {
             return { v: WIRE_PROTOCOL_VERSION, kind: 'error', commandId: '', code: 'invalid', message: 'not a wire command' };
@@ -97,7 +97,7 @@ export const agentCommand = serverFn({
 export const agentEvents = serverStream({
     input: EventsInput,
     allowAnonymous: true,
-    handler: async function* (rq, input): AsyncGenerator<WireFrame> {
+    handler: async function* ({ rq, input }): AsyncGenerator<WireFrame> {
         const target = served(input.sessionId);
         // Throw rather than yield nothing: an empty stream makes
         // `connectSession` retry its way to "the event stream ended before a

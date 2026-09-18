@@ -6,6 +6,12 @@ follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Peers on sigx core `^1.0.0` (`@sigx/reactivity`, `@sigx/runtime-core`);
+  0.1.0 peered on `^0.15.0`. Core 1.0 promises additive minors, so the range
+  is the major, and the app owns the single copy (rfc-1.0 §3).
+
 ### Added
 
 - **Progressive tool input.** A `tool-input-delta` event carries a call's
