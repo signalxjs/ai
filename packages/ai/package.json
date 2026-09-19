@@ -1,6 +1,6 @@
 {
     "name": "@sigx/ai",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "AI for SignalX — provider-neutral streaming core, tools, and the useChat / useCompletion / useObject composables",
     "type": "module",
     "main": "./dist/index.js",
@@ -86,7 +86,7 @@
         "access": "public"
     },
     "peerDependencies": {
-        "@sigx/json-ui": "^0.1.0",
+        "@sigx/json-ui": "^0.2.0",
         "@sigx/reactivity": "^1.0.0",
         "@sigx/runtime-core": "^1.0.0"
     },

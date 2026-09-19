@@ -6,11 +6,17 @@ All notable changes to `@sigx/json-ui` are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-19
+
 ### Changed
 
 - Peers on sigx core `^1.0.0` (`@sigx/reactivity`, `@sigx/runtime-core`);
   0.1.0 peered on `^0.15.0`. Core 1.0 promises additive minors, so the range
   is the major, and the app owns the single copy (rfc-1.0 §3).
+
+## [0.1.0] - 2026-09-17
+
+> First publish of `@sigx/json-ui` (published from `main` before this repo had tag-driven releases; no git tag).
 
 ### Added
 

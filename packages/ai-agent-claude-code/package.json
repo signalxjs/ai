@@ -1,6 +1,6 @@
 {
     "name": "@sigx/ai-agent-claude-code",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Claude Code as an @sigx/ai-agent Agent, on the official Claude Agent SDK — sessions, tool calls, permissions through the policy, client tools over MCP, resume and fork",
     "type": "module",
     "main": "./dist/index.js",
@@ -63,7 +63,7 @@
     },
     "peerDependencies": {
         "@anthropic-ai/claude-agent-sdk": ">=0.3.0 <1",
-        "@sigx/ai": "^0.1.0",
-        "@sigx/ai-agent": "^0.1.0"
+        "@sigx/ai": "^0.2.0",
+        "@sigx/ai-agent": "^0.2.0"
     }
 }

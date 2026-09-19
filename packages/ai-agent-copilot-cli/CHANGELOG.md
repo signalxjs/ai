@@ -6,6 +6,17 @@ follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-19
+
+### Changed
+
+- Version bump in lockstep with `@sigx/ai` 0.2.0 — the workspace
+  moves to sigx core `^1.0.0` (rfc-1.0 §3). No code change in this package.
+
+## [0.1.0] - 2026-09-17
+
+> First publish of `@sigx/ai-agent-copilot-cli` (published from `main` before this repo had tag-driven releases; no git tag).
+
 ### Added
 
 - `copilotCli({ id?, client?, cliPath?, env?, cwd?, baseDirectory?, logLevel?,
