@@ -12,6 +12,10 @@ describe('@sigx/ai-agent-node package', () => {
         expect(tsconfig.compilerOptions.types).toEqual(['node']);
         const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { dependencies?: Record<string, string>; peerDependencies: Record<string, string> };
         expect(pkg.dependencies ?? {}).toEqual({});
-        expect(pkg.peerDependencies['@sigx/ai-agent']).toBe('^0.1.0');
+        // The peer tracks the sibling's CURRENT version — the packages release
+        // in lockstep and bump-version rewrites this range on every bump, so a
+        // literal here would fail on each release (it did, at 0.2.0).
+        const sibling = JSON.parse(readFileSync(join(root, '..', 'ai-agent', 'package.json'), 'utf8')) as { version: string };
+        expect(pkg.peerDependencies['@sigx/ai-agent']).toBe(`^${sibling.version}`);
     });
 });

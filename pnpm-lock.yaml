@@ -284,7 +284,7 @@ importers:
   packages/ai-agent-acp:
     dependencies:
       '@sigx/ai-agent-node':
-        specifier: ^0.1.0
+        specifier: ^0.2.0
         version: link:../ai-agent-node
     devDependencies:
       '@agentclientprotocol/sdk':
@@ -340,7 +340,7 @@ importers:
   packages/ai-agent-codex-cli:
     dependencies:
       '@sigx/ai-agent-node':
-        specifier: ^0.1.0
+        specifier: ^0.2.0
         version: link:../ai-agent-node
     devDependencies:
       '@pwrdrvr/codex-app-server-protocol':

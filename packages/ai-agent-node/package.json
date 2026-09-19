@@ -1,6 +1,6 @@
 {
     "name": "@sigx/ai-agent-node",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Node building blocks for @sigx/ai-agent adapters — cross-platform process supervisor, executable resolution (PATH, PATHEXT, npm .cmd shims), child environment allowlist, loopback MCP listener",
     "type": "module",
     "main": "./dist/index.js",
@@ -58,7 +58,7 @@
         "access": "public"
     },
     "peerDependencies": {
-        "@sigx/ai": "^0.1.0",
-        "@sigx/ai-agent": "^0.1.0"
+        "@sigx/ai": "^0.2.0",
+        "@sigx/ai-agent": "^0.2.0"
     }
 }
