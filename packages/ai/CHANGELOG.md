@@ -16,6 +16,8 @@ All notable changes to `@sigx/ai` are documented here. The format follows
 - The `chatStream` recipe in the `@sigx/ai/server` docs uses core 1.0's
   `serverStream` handler shape — one `{ rq, input }` object, not
   `(rq, input)`.
+- The optional `@sigx/json-ui` peer (the `@sigx/ai/ui` entry) moves to
+  `^0.2.0` — the family releases in lockstep.
 
 ## [0.1.0] - 2026-09-17
 

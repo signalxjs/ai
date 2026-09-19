@@ -13,6 +13,8 @@ follow [SemVer](https://semver.org/).
 - Peers on sigx core `^1.0.0` (`@sigx/reactivity`, `@sigx/runtime-core`);
   0.1.0 peered on `^0.15.0`. Core 1.0 promises additive minors, so the range
   is the major, and the app owns the single copy (rfc-1.0 §3).
+- The `@sigx/ai` peer range moves to `^0.2.0` — the family releases in
+  lockstep, so upgrading one package means upgrading its siblings.
 
 ## [0.1.0] - 2026-09-17
 
