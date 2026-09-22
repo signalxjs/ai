@@ -1,6 +1,6 @@
 {
     "name": "@sigx/ai",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "AI for SignalX — provider-neutral streaming core, tools, and the useChat / useCompletion / useObject composables",
     "type": "module",
     "main": "./dist/index.js",

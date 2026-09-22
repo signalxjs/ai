@@ -6,6 +6,13 @@ All notable changes to `@sigx/json-ui` are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-22
+
+### Changed
+
+- Version bump in lockstep with `@sigx/ai-agent-claude-code` 0.2.1. No code change
+  in this package.
+
 ## [0.2.0] - 2026-09-19
 
 ### Changed

@@ -1,6 +1,6 @@
 {
     "name": "@sigx/ai-agent-claude-code",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "Claude Code as an @sigx/ai-agent Agent, on the official Claude Agent SDK — sessions, tool calls, permissions through the policy, client tools over MCP, resume and fork",
     "type": "module",
     "main": "./dist/index.js",
