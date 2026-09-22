@@ -12,8 +12,8 @@ import { join } from 'node:path';
 import { query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import type { Options, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { defineTool, type JsonSchema, type StandardSchemaV1 } from '@sigx/ai';
-import { allowAll, allowReadOnly, denyAll, type AgentEvent, type AgentTurn, type UnstampedEvent } from '@sigx/ai-agent';
-import { agentConformance, type ConformanceScenario } from '@sigx/ai-agent/testing';
+import { allowAll, allowReadOnly, denyAll, type AgentEvent, type AgentSession, type AgentTurn, type Policy, type UnstampedEvent } from '@sigx/ai-agent';
+import { agentConformance, checkEventInvariants, type ConformanceScenario } from '@sigx/ai-agent/testing';
 import { codingState, codingExtension } from '@sigx/ai-agent/coding';
 import { createReducer, createTranscript } from '@sigx/ai-agent';
 import {
@@ -789,6 +789,162 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
         const asks = events.filter((e): e is Extract<AgentEvent, { type: 'request-resolved' }> => e.type === 'request-resolved');
         expect(asks).toHaveLength(2);
         expect(events.find((e) => e.type === 'tool-update' && e.callId === 'task_1' && e.status === 'completed')).toMatchObject({ output: 'summary' });
+    });
+
+    describe('turns Claude Code starts itself (#187)', () => {
+        const PLAN = { plan: '1. do it' };
+        /** Every event of the session as it lands, with a way to wait for one. */
+        const watch = (session: AgentSession) => {
+            const events: AgentEvent[] = [];
+            const waiters: { pred: (e: AgentEvent) => boolean; resolve: (e: AgentEvent) => void }[] = [];
+            void (async () => {
+                for await (const e of session.subscribe({ epoch: 0, seq: 0 })) {
+                    events.push(e);
+                    for (const w of [...waiters]) {
+                        if (!w.pred(e)) continue;
+                        waiters.splice(waiters.indexOf(w), 1);
+                        w.resolve(e);
+                    }
+                }
+            })();
+            const until = (pred: (e: AgentEvent) => boolean) =>
+                new Promise<AgentEvent>((resolve) => {
+                    const hit = events.find(pred);
+                    if (hit) resolve(hit);
+                    else waiters.push({ pred, resolve });
+                });
+            return { events, until };
+        };
+        /** The prompted turn, then — with no prompt — the turn the CLI runs when a background task finishes. */
+        const promptedThen = (selfStarted: (ctx: TurnCtx) => AsyncIterable<SDKMessage>, later: SDKMessage[] = [messageStart(), ...textBlocks('ok'), ...messageStop(), RESULT()]) =>
+            fakeQuery(async function* (_u, turn, ctx) {
+                if (turn > 0) {
+                    yield* later;
+                    return;
+                }
+                yield messageStart();
+                yield* textBlocks('waiting for the review');
+                yield* messageStop();
+                yield RESULT();
+                yield* selfStarted(ctx);
+            });
+
+        it('a permission request in it goes through the policy and the client, inside a turn of its own', async () => {
+            let asked: AskResult | undefined;
+            const consulted: string[] = [];
+            const policy: Policy = (request) => {
+                consulted.push(request.toolName ?? '');
+                return 'ask';
+            };
+            const fake = promptedThen(async function* (ctx) {
+                yield messageStart();
+                yield* toolUseBlocks('toolu_exit', 'ExitPlanMode', PLAN);
+                yield* messageStop();
+                asked = await ctx.ask('ExitPlanMode', PLAN, 'toolu_exit');
+                yield toolResult('toolu_exit', 'approved');
+                yield RESULT();
+            });
+            const agent = claudeCode({ query: fake.query, listen: fakeListen });
+            const session = await agent.session({ cwd, policy });
+            const log = watch(session);
+            const prompted = await drain(session.prompt('plan it'));
+            expect(prompted.result.stopReason).toBe('end_turn');
+
+            const request = (await log.until((e) => e.type === 'request')) as Extract<AgentEvent, { type: 'request' }>;
+            expect(request).toMatchObject({ kind: 'permission', toolName: 'ExitPlanMode', callId: 'toolu_exit' });
+            expect(consulted).toEqual(['ExitPlanMode']);
+            await session.respond(request.requestId, { type: 'permission', outcome: 'allow', scope: 'once' });
+            const end = await log.until((e) => e.type === 'turn-end' && e.turnId !== prompted.result.turnId);
+            expect(asked).toEqual({ behavior: 'allow', updatedInput: PLAN });
+            expect(end).toMatchObject({ stopReason: 'end_turn' });
+
+            // Its own turn: a turn-start nobody prompted (no input), every event of it inside, none loose.
+            const own = log.events.filter((e) => e.turnId === end.turnId);
+            expect(own[0]).toMatchObject({ type: 'turn-start', input: [] });
+            expect(own.at(-1)).toBe(end);
+            expect(own.some((e) => e.type === 'user-message')).toBe(false);
+            expect(types(own)).toEqual(expect.arrayContaining(['tool-call', 'request', 'request-resolved', 'tool-update', 'usage']));
+            expect(log.events.filter((e) => e.type === 'ext' && e.turnId === undefined)).toEqual([]);
+            await log.until((e) => e.type === 'state' && e.seq > end.seq);
+            expect(log.events.filter((e) => e.type === 'state').map((e) => (e as Extract<AgentEvent, { type: 'state' }>).value)).toEqual(['running', 'idle', 'running', 'awaiting', 'running', 'idle']);
+            checkEventInvariants(log.events);
+            await session.close();
+        });
+
+        it('cancel() interrupts it', async () => {
+            const fake = promptedThen(async function* (ctx) {
+                yield messageStart();
+                yield* textBlocks('finalising the plan');
+                await ctx.onInterrupt;
+                yield RESULT_ERROR('error_during_execution');
+            });
+            const agent = claudeCode({ query: fake.query, listen: fakeListen });
+            const session = await agent.session({ cwd, interactive: false });
+            const log = watch(session);
+            const prompted = await drain(session.prompt('go'));
+            await log.until((e) => e.type === 'part-delta' && e.turnId !== prompted.result.turnId);
+            await session.cancel();
+            const end = await log.until((e) => e.type === 'turn-end' && e.turnId !== prompted.result.turnId);
+            expect(end).toMatchObject({ stopReason: 'cancelled' });
+            expect(fake.interrupts).toBe(1);
+            await session.close();
+        });
+
+        it('a prompt while it runs is refused like one behind a prompted turn; after it ends, prompts work', async () => {
+            let release!: () => void;
+            const hold = new Promise<void>((r) => (release = r));
+            const fake = promptedThen(async function* () {
+                yield messageStart();
+                yield* textBlocks('on my own');
+                await hold;
+                yield* messageStop();
+                yield RESULT();
+            });
+            const agent = claudeCode({ query: fake.query, listen: fakeListen });
+            const session = await agent.session({ cwd, interactive: false });
+            const log = watch(session);
+            const prompted = await drain(session.prompt('go'));
+            await log.until((e) => e.type === 'part-delta' && e.turnId !== prompted.result.turnId);
+            await expect(session.prompt('and this').result).rejects.toMatchObject({ name: 'SessionBusyError' });
+            release();
+            await log.until((e) => e.type === 'turn-end' && e.turnId !== prompted.result.turnId);
+            const next = await drain(session.prompt('next'));
+            expect(next.result.stopReason).toBe('end_turn');
+            expect(textOf(next.events)).toBe('ok');
+            await session.close();
+        });
+
+        it('a turn after a cancelled one reads its own failure as a failure, not a cancel', async () => {
+            const fake = fakeQuery(async function* (_u, turn, ctx) {
+                yield messageStart();
+                yield* textBlocks('working');
+                if (turn === 0) await ctx.onInterrupt;
+                yield RESULT_ERROR('error_during_execution');
+            });
+            const agent = claudeCode({ query: fake.query, listen: fakeListen });
+            const session = await agent.session({ cwd, interactive: false });
+            const first = session.prompt('x');
+            for await (const e of first) if (e.type === 'part-delta') await session.cancel();
+            expect((await first.result).stopReason).toBe('cancelled');
+            expect((await session.prompt('y').result).stopReason).toBe('error');
+            await session.close();
+        });
+
+        it('a background sub-agent reporting between turns opens no turn', async () => {
+            const fake = promptedThen(async function* () {
+                yield messageStart('task_bg');
+                yield* textBlocks('nested work', 'task_bg');
+                yield* messageStop('task_bg');
+                yield sys('status', { status: null });
+            });
+            const agent = claudeCode({ query: fake.query, listen: fakeListen });
+            const session = await agent.session({ cwd, interactive: false });
+            const log = watch(session);
+            await drain(session.prompt('go'));
+            await log.until((e) => e.type === 'ext' && e.name === 'status');
+            expect(log.events.filter((e) => e.type === 'turn-start')).toHaveLength(1);
+            await session.close();
+        });
     });
 
     describe('sub-agents (#97)', () => {

@@ -6,6 +6,21 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Permission requests in a turn Claude Code starts itself are no longer denied
+  with "No turn is running." (#187). When a background task finishes, the CLI
+  runs a model turn with no prompt. This mostly surfaced as `ExitPlanMode`
+  failing in plan mode after a background sub-agent. Such a turn is now an
+  **implicit turn**: a `turn-start` with an empty `input`, its events inside it
+  instead of loose session-level `ext` frames, and a `turn-end` at the CLI's
+  `result`. Requests in it go through the policy and `respond()`, `cancel()`
+  interrupts it, and a `prompt()` meanwhile is refused with `SessionBusyError`,
+  as behind any turn.
+- A turn after a cancelled one no longer reads an `error_during_execution`
+  result as `cancelled`. The interrupt flag is now reset per turn, not per
+  query.
+
 ## [0.2.0] - 2026-09-19
 
 ### Changed

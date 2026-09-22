@@ -24,10 +24,14 @@ export interface PermissionTarget {
     markDenied(toolName: string, input: unknown, callId?: string): void;
 }
 
-export function createCanUseTool(current: () => PermissionTarget | undefined, serverName: string): CanUseTool {
+/**
+ * `current` resolves the turn a question belongs to, opening one when the CLI asks in a turn it
+ * started itself (#187) — `undefined` only once the session is closed.
+ */
+export function createCanUseTool(current: () => PermissionTarget | undefined | Promise<PermissionTarget | undefined>, serverName: string): CanUseTool {
     return async (rawName, input, options) => {
-        const target = current();
-        if (!target) return { behavior: 'deny', message: 'No turn is running.' };
+        const target = await current();
+        if (!target) return { behavior: 'deny', message: 'The session is closed.' };
         const { name, source } = splitToolName(rawName, serverName);
         const annotations = source === 'native' ? toolAnnotations(name) : undefined;
         const callId = (options as { toolUseID?: string }).toolUseID ?? target.callIdFor(rawName, input);
