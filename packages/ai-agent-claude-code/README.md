@@ -67,6 +67,16 @@ becomes a turn of its own after the result — so a `prompt()` while a turn runs
 is refused with `SessionBusyError` rather than promised. The live test suite
 carries a probe that records which of the two happens (`SIGX_LIVE_CLAUDE_CODE=1`).
 
+Claude Code also starts **turns of its own**. When a background task finishes
+(a background sub-agent, a backgrounded Bash command), the CLI runs a model turn
+nobody prompted. That turn's first frame opens an **implicit turn** in the
+session log: a `turn-start` with an empty `input` and no `user-message`, and a
+`turn-end` at the CLI's `result`. Otherwise it behaves like a prompted turn.
+Permission requests in it go through the policy and `request` / `respond()`,
+`cancel()` interrupts it, and a `prompt()` while it runs is refused with
+`SessionBusyError`. Watch it through `subscribe()`, since no `prompt()` returns
+a handle to it.
+
 ## Options
 
 `claudeCode({ pathToClaudeCodeExecutable?, settingSources?, permissionMode?, env?, toolServerName?, query?, spawn?, listen? })`.
