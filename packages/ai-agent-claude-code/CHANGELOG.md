@@ -6,6 +6,8 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-22
+
 ### Fixed
 
 - Permission requests in a turn Claude Code starts itself are no longer denied

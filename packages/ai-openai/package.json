@@ -1,6 +1,6 @@
 {
     "name": "@sigx/ai-openai",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "OpenAI for @sigx/ai — a LanguageModel on the official openai SDK: Responses API streaming and function calling",
     "type": "module",
     "main": "./dist/index.js",

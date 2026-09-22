@@ -1,6 +1,6 @@
 {
     "name": "@sigx/ai-agent-copilot-cli",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "GitHub Copilot CLI for @sigx/ai-agent — the Copilot CLI as an Agent on the official @github/copilot-sdk: sessions, streaming, permissions through your policy, in-process client tools, a switchable model list",
     "type": "module",
     "main": "./dist/index.js",

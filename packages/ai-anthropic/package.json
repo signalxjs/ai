@@ -1,6 +1,6 @@
 {
     "name": "@sigx/ai-anthropic",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "Claude for @sigx/ai — a LanguageModel on the official @anthropic-ai/sdk: streaming, tool use, adaptive thinking, refusal handling",
     "type": "module",
     "main": "./dist/index.js",

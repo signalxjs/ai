@@ -1,6 +1,6 @@
 {
     "name": "@sigx/ai-agent-acp",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "Agent Client Protocol adapter for @sigx/ai-agent — every ACP agent (Gemini CLI, Cursor, …) as an Agent, with vendors as presets",
     "type": "module",
     "main": "./dist/index.js",
