@@ -213,25 +213,6 @@ test('a prerelease of a new major pins exactly — the only caret that resolves 
     assert.throws(() => alignCatalog(src, '^1.1.0-beta.0'), /single-minor caret/);
 });
 
-test('alignManifests preserves CRLF line endings without doubling them (Windows checkout)', () => {
-    const root = mkdtempSync(join(tmpdir(), 'sync-core-crlf-'));
-    try {
-        mkdirSync(join(root, 'packages', 'lib'), { recursive: true });
-        writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'root', private: true }, null, 2) + '\n');
-        const src = (JSON.stringify({ name: '@acme/lib', version: '1.0.0', dependencies: { sigx: 'catalog:' } }, null, 4) + '\n').replace(/\n/g, '\r\n');
-        writeFileSync(join(root, 'packages', 'lib', 'package.json'), src);
-
-        assert.equal(alignManifests(root, '^1.0.0').length, 1);
-        const lib = readFileSync(join(root, 'packages', 'lib', 'package.json'), 'utf8');
-        assert.ok(!lib.includes('\r\n\r\n'), 'no doubled newlines');
-        assert.equal(lib.split('\n').length, lib.split('\r\n').length, 'every newline is CRLF');
-        assert.match(lib, /^    "peerDependencies": \{\r$/m, 'four-space indent preserved (not "\\n    ")');
-        assert.deepEqual(JSON.parse(lib).peerDependencies, { sigx: '^1.0.0' });
-    } finally {
-        rmSync(root, { recursive: true, force: true });
-    }
-});
-
 test("alignManifests writes the peer shape into publishable packages only, keeping each file's indent", () => {
     const root = mkdtempSync(join(tmpdir(), 'sync-core-'));
     try {
@@ -272,4 +253,56 @@ test("alignManifests writes the peer shape into publishable packages only, keepi
     } finally {
         rmSync(root, { recursive: true, force: true });
     }
+});
+
+// #55 / signalxjs/richtext#40: every Windows checkout (core.autocrlf=true) is
+// CRLF. The indent match used to be `/^(\s+)"/m`, whose capture on a CRLF file
+// is `"\n    "` — every emitted line gained a blank one and nested keys lost
+// their indent (a 74-line manifest came out at 196 lines).
+test('alignManifests round-trips a CRLF manifest: indent, EOL and trailing newline kept', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sync-core-crlf-'));
+    try {
+        mkdirSync(join(root, 'packages', 'lib'), { recursive: true });
+        mkdirSync(join(root, 'packages', 'bare'), { recursive: true });
+        const crlf = (obj, indent) => JSON.stringify(obj, null, indent).replace(/\n/g, '\r\n');
+        const lib = { name: '@acme/lib', version: '1.0.0', exports: { '.': { types: './dist/index.d.ts', import: './dist/index.js' } }, dependencies: { sigx: 'catalog:' } };
+        writeFileSync(join(root, 'packages', 'lib', 'package.json'), crlf(lib, 4) + '\r\n');
+        // No trailing newline: must stay that way.
+        writeFileSync(join(root, 'packages', 'bare', 'package.json'), crlf({ name: '@acme/bare', version: '1.0.0', dependencies: { sigx: 'catalog:' } }, 2));
+
+        assert.equal(alignManifests(root, '^1.0.0').length, 2);
+
+        const out = readFileSync(join(root, 'packages', 'lib', 'package.json'), 'utf8');
+        const parsed = JSON.parse(out);
+        assert.deepEqual(parsed.exports, lib.exports, 'nested block intact');
+        assert.deepEqual(parsed.peerDependencies, { sigx: '^1.0.0' });
+        assert.equal(out, crlf(parsed, 4) + '\r\n', 'byte-exact: 4-space indent, CRLF, one trailing CRLF');
+        assert.doesNotMatch(out, /(^|[^\r])\n/, 'no bare LF');
+        assert.doesNotMatch(out, /\r\n[ \t]*\r\n/, 'no blank lines');
+
+        const bare = readFileSync(join(root, 'packages', 'bare', 'package.json'), 'utf8');
+        assert.ok(bare.endsWith('}'), 'absent trailing newline stays absent');
+        assert.match(bare, /\r\n  "peerDependencies": {\r\n    "sigx": "\^1\.0\.0"/);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test('alignCatalog handles a CRLF pnpm-workspace.yaml and keeps its line endings', () => {
+    const lf = [
+        '# Keep core single-minor (^0.12.0).',
+        'catalog:',
+        '  "@sigx/reactivity": ^0.12.0',
+        // A trailing comment: `(?:#.*)$` never matched with a `\r` still on the
+        // line, so this pin was silently skipped on a CRLF checkout.
+        '  sigx: ^0.12.0 # the umbrella',
+        '  "@sigx/router": ^2.4.0',
+        '',
+    ].join('\n');
+    const { text, pins, comments } = alignCatalog(lf.replace(/\n/g, '\r\n'), '^1.0.0');
+    assert.deepEqual(pins.map((p) => p.name), ['@sigx/reactivity', 'sigx']);
+    assert.equal(comments.length, 1);
+    assert.equal(text, alignCatalog(lf, '^1.0.0').text.replace(/\n/g, '\r\n'), 'same edit as LF, CRLF preserved');
+    assert.match(text, /  sigx: \^1\.0\.0 # the umbrella\r\n/);
+    assert.doesNotMatch(text, /(^|[^\r])\n/, 'no bare LF');
 });

@@ -15,7 +15,8 @@
  *   node scripts/sync-core.mjs --check     # exit 1 if a change WOULD be made (CI drift guard)
  *
  * It rewrites only CORE packages (published from signalxjs/core) to `^X.Y.0`
- * (== `>=X.Y.0 <X.(Y+1).0`, one minor — the single-copy guarantee). It never
+ * (on 0.x `>=X.Y.0 <X.(Y+1).0`, one minor; from 1.0 the caret spans the major,
+ * `>=X.Y.0 <(X+1).0.0` — either way the single-copy guarantee). It never
  * touches sibling-ecosystem entries (`@sigx/router`, `@sigx/lynx-*`, …) that may
  * also live in the catalog. Formatting is preserved (line-based edit). It does
  * NOT run install/build/test — CI (core-sync.yml) does that and opens the PR;
@@ -30,14 +31,20 @@
  * major bump. The app that installs the library owns the single copy.
  *
  * It also rewrites the explanatory COMMENT that sits directly above the
- * `catalog:` block — the `# … ^X.Y.0 == >=X.Y.0 <X.(Y+1).0 …` prose that names
- * the pinned minor. Left alone it goes stale on every bump (still citing the old
- * minor), and Copilot's review flags it on every consumer, turning an otherwise
+ * `catalog:` block — the `# … ^X.Y.0 == >=X.Y.0 <X.(Y+1).0 …` prose (`<(X+1).0.0`
+ * from 1.0) that names the pinned minor. Left alone it goes stale on every bump
+ * (still citing the old minor), and Copilot's review flags it on every consumer,
+ * turning an otherwise
  * clean catalog bump AMBER — a human forced in over a one-line comment. The
  * rewrite is doubly scoped: to the contiguous comment run immediately above the
  * header, and within it to only the version the catalog CURRENTLY pins — so an
  * unrelated caret sharing that block (a Node `^20.19.0` engines note, say) is
  * never touched, and a major bump still moves the old `^0.x` correctly (#41).
+ *
+ * Line endings are the file's own: both passes parse an LF-normalised copy and
+ * write back with the EOL the file was read with, so a CRLF working tree (every
+ * Windows checkout with `core.autocrlf=true`) round-trips byte-for-byte outside
+ * the edited values (#55).
  *
  * Because it can ONLY rewrite catalog entries, it refuses to run in a repo whose
  * core deps are pinned inline instead: there would be nothing for the walk to
@@ -65,6 +72,24 @@ import {
 // spaces, e.g. a wide range ">=0.11.0 <0.13.0" we want to tighten), or bare.
 const blockHeader = /^(catalog|catalogs)\s*:/;
 const entry = /^(\s+)(["']?)([@a-zA-Z0-9._/-]+)\2\s*:\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))(\s*(?:#.*)?)$/;
+
+/**
+ * Split a file's text into its LF-normalised form and the EOL it was written
+ * with. Everything below parses and matches LF only: on a CRLF checkout a
+ * `\s`-based match captures the `\r` (the manifest indent became `"\n    "`
+ * and every rewritten line gained a blank one), and a line-anchored `$` after
+ * `.*` never matches with a `\r` left before it (#55).
+ *
+ * @param {string} src
+ * @returns {{ text: string, eol: '\n' | '\r\n' }}
+ */
+export function normalizeEol(src) {
+    const eol = src.includes('\r\n') ? '\r\n' : '\n';
+    return { text: src.replace(/\r\n/g, '\n'), eol };
+}
+
+/** Re-emit LF text with `eol` — the inverse of `normalizeEol`. */
+const restoreEol = (text, eol) => (eol === '\n' ? text : text.replace(/\n/g, eol));
 
 /** Escape a string for literal use inside a `RegExp`. */
 const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -122,7 +147,8 @@ export function alignCatalog(src, range) {
         ? `>=0.${tMin}.0 <0.${tMin + 1}.0`
         : `>=${tMaj}.${tMin}.0${tPre} <${tMaj + 1}.0.0`;
 
-    const lines = src.split('\n');
+    const { text: lf, eol } = normalizeEol(src);
+    const lines = lf.split('\n');
 
     // The explanatory comment is the contiguous run of `#` lines immediately
     // above a `catalog:`/`catalogs:` header. Its version prose is the only prose
@@ -215,7 +241,7 @@ export function alignCatalog(src, range) {
         return `${ind}${nameQ}${name}${nameQ}: ${valQ}${range}${valQ}${trailing ?? ''}`;
     });
 
-    return { text: out.join('\n'), pins, comments };
+    return { text: restoreEol(out.join('\n'), eol), pins, comments };
 }
 
 /** Resolve the target minor as `^X.Y.0`, from an arg or the npm registry. */
@@ -253,24 +279,25 @@ function resolveRange(versionArg) {
 
 /**
  * Rewrite every publishable manifest under `repoRoot` to the shape for
- * `peerRange` (`alignManifest`), preserving each file's indentation. Returns
+ * `peerRange` (`alignManifest`), preserving each file's indentation, line
+ * endings and trailing newline (or its absence). Returns
  * the change lines; writes nothing when `dryRun`.
  */
 export function alignManifests(repoRoot, peerRange, { dryRun = false } = {}) {
     const changes = [];
     for (const file of workspaceManifests(repoRoot)) {
-        const src = readFileSync(file, 'utf8');
+        const { text: src, eol } = normalizeEol(readFileSync(file, 'utf8'));
         const pkg = JSON.parse(src);
         const result = alignManifest(pkg, peerRange);
         if (result.changes.length === 0) continue;
         changes.push(...result.changes);
         if (dryRun) continue;
-        // Spaces/tabs only: in multiline mode ^ also matches right after a bare \r,
-        // so \s+ on a CRLF checkout (Windows, autocrlf) captured "\n    " as the
-        // indent string and JSON.stringify doubled every newline in the manifest.
+        // `[ \t]`, never `\s`: `\s` also matches a newline, so a CRLF (or a
+        // blank line) would leak into the indent and every emitted line would
+        // gain a blank one (#55, signalxjs/richtext#40).
         const indent = /^([ \t]+)"/m.exec(src)?.[1] ?? '  ';
-        const eol = src.includes('\r\n') ? '\r\n' : '\n';
-        writeFileSync(file, (JSON.stringify(result.pkg, null, indent) + '\n').replace(/\n/g, eol));
+        const trailing = src.endsWith('\n') ? '\n' : '';
+        writeFileSync(file, restoreEol(JSON.stringify(result.pkg, null, indent) + trailing, eol));
     }
     return changes;
 }
