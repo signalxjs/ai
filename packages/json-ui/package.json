@@ -1,6 +1,6 @@
 {
     "name": "@sigx/json-ui",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "UI from JSON for SignalX — a streamable JSON UI spec, a catalog that describes and validates it, safe expressions, reactive state, pluggable async actions, and a platform-neutral renderer on @sigx/runtime-core",
     "type": "module",
     "main": "./dist/index.js",

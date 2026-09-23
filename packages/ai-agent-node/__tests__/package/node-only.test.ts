@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { caretRange } from '../../../../scripts/lib/ranges.mjs';
 
 const root = join(import.meta.dirname, '..', '..');
 
@@ -12,10 +13,10 @@ describe('@sigx/ai-agent-node package', () => {
         expect(tsconfig.compilerOptions.types).toEqual(['node']);
         const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { dependencies?: Record<string, string>; peerDependencies: Record<string, string> };
         expect(pkg.dependencies ?? {}).toEqual({});
-        // The peer tracks the sibling's CURRENT version — the packages release
-        // in lockstep and bump-version rewrites this range on every bump, so a
-        // literal here would fail on each release (it did, at 0.2.0).
+        // The peer tracks the sibling's CURRENT version the way bump-version
+        // writes it — the same `caretRange`, so a change to the range rule
+        // moves this test with it. A literal failed at 0.2.0, `^<version>` at 0.2.1.
         const sibling = JSON.parse(readFileSync(join(root, '..', 'ai-agent', 'package.json'), 'utf8')) as { version: string };
-        expect(pkg.peerDependencies['@sigx/ai-agent']).toBe(`^${sibling.version}`);
+        expect(pkg.peerDependencies['@sigx/ai-agent']).toBe(caretRange(sibling.version));
     });
 });

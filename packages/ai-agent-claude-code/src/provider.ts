@@ -230,15 +230,109 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
         // The first query resumes (or forks) the ref's session; later ones resume the live id.
         let firstQuery = true;
 
-        const canUseTool = createCanUseTool(
-            (): PermissionTarget | undefined => (current ? { ctx: current.ctx, callIdFor: (n, i) => current!.mapper.callIdFor(n, i), markDenied: (n, i, c) => current?.mapper.markDenied(n, i, c) } : undefined),
-            serverName
-        );
+        // `createTurn` starts a turn's run on a microtask, and the CLI does not wait: what arrives
+        // between a turn opening and its run taking `current` is held here, and the run replays it.
+        const early: SDKMessage[] = [];
+        // A `canUseTool` that arrived in that same gap, woken once the run has taken `current`.
+        const ready: (() => void)[] = [];
+        const opening = () => (core.current && !core.current.settled ? core.current : undefined);
+
+        /**
+         * The CLI starts turns on its own: when a background task finishes it queues a
+         * `<task-notification>` and runs a model turn nobody prompted (#187). Its first frame opens
+         * an IMPLICIT turn — a `turn-start` with no input and no `user-message` — that runs exactly
+         * like a prompted one (the policy, `request` / `respond`, `cancel()`) and ends at the CLI's
+         * `result`. A `prompt()` meanwhile is refused as busy, as behind any turn.
+         *
+         * Known limit: a prompt pushed at the very moment the CLI starts its own turn is serialised
+         * by the CLI, so the self-started turn's frames land in the prompted turn and the prompt's
+         * reply becomes the implicit one. The SDK does not echo the prompt, so they cannot be told apart.
+         */
+        const openImplicit = (): boolean => {
+            if (core.closed) return false;
+            core.startTurn([], undefined, (driver, ctx) => runTurn(driver, ctx));
+            return true;
+        };
+
+        const canUseTool = createCanUseTool(async (): Promise<PermissionTarget | undefined> => {
+            if (!current && !opening()) openImplicit();
+            const pending = current ? undefined : opening();
+            if (pending) {
+                await Promise.race([
+                    new Promise<void>((resolve) => ready.push(resolve)),
+                    pending.result.then(
+                        () => {},
+                        () => {}
+                    )
+                ]);
+            }
+            const turn = current;
+            return turn ? { ctx: turn.ctx, callIdFor: (n, i) => turn.mapper.callIdFor(n, i), markDenied: (n, i, c) => turn.mapper.markDenied(n, i, c) } : undefined;
+        }, serverName);
+
+        /** A main-thread frame only a model turn produces — a background sub-agent's frames carry a parent. */
+        const isTurnContent = (m: SDKMessage) =>
+            (m.type === 'stream_event' || m.type === 'assistant' || m.type === 'user' || m.type === 'tool_progress') && !(m as { parent_tool_use_id?: string | null }).parent_tool_use_id;
 
         const emitSession = (m: SDKMessage) => {
             if (m.type === 'system' && (m as { subtype: string }).subtype === 'init') claudeSessionId = (m as { session_id: string }).session_id;
             if (current) current.mapper.handle(m);
+            else if (opening()) early.push(m);
+            else if (isTurnContent(m) && openImplicit()) early.push(m);
             else if (!tracker.handleTask(m, emitSessionEvent)) mapSessionMessage(m, emitSessionEvent, config);
+        };
+
+        /** One turn's wiring, prompted or implicit: its mapper, its end at the `result`, and `cancel()` as an interrupt. */
+        const runTurn = async (driver: TurnDriver, ctx: TurnContext): Promise<void> => {
+            // Per turn, not per query: a turn after a cancelled one must not read its own result as cancelled.
+            interrupted = false;
+            const mapper = createTurnMapper({
+                driver,
+                serverName,
+                tracker,
+                onResult: (r) => current?.done(r),
+                interrupted: () => interrupted,
+                previousCostUsd: () => lastCost,
+                config
+            });
+            const finished = new Promise<void>((resolve) => {
+                current = {
+                    driver,
+                    ctx,
+                    mapper,
+                    done: (result, failure) => {
+                        current = undefined;
+                        if (result && typeof result.total_cost_usd === 'number') lastCost = result.total_cost_usd;
+                        if (!result && !driver.ended) {
+                            const message = failure ? failure.message : `Claude Code exited before the turn ended${stderrTail ? `: ${stderrTail.trim().split('\n').slice(-3).join(' | ')}` : ''}`;
+                            // Every sub-agent, background ones included, died with the process.
+                            tracker.sweep(driver.signal.aborted ? 'cancelled' : 'failed', (e) => driver.emit(e), { message });
+                            if (!driver.signal.aborted) driver.emit({ type: 'error', code: 'process_exited', message, recoverable: false });
+                            driver.end({ stopReason: driver.signal.aborted ? 'cancelled' : 'error', ...(driver.signal.aborted ? {} : { error: { code: 'process_exited', message } }) });
+                        }
+                        resolve();
+                    }
+                };
+            });
+            const onAbort = () => {
+                interrupted = true;
+                const running = q;
+                void running?.interrupt().catch(() => {});
+                setTimeout(() => {
+                    if (current?.driver === driver) abort?.abort();
+                }, graceMs);
+            };
+            driver.signal.addEventListener('abort', onAbort, { once: true });
+            // What arrived before this run, routed again — a `result` among it ends the turn in order.
+            for (const m of early.splice(0)) emitSession(m);
+            for (const wake of ready.splice(0)) wake();
+            // The process went away before this run began: nothing else would ever end it.
+            if (!q && current?.driver === driver) current.done(undefined);
+            try {
+                await finished;
+            } finally {
+                driver.signal.removeEventListener('abort', onAbort);
+            }
         };
 
         const startQuery = (format: OutputFormat | undefined) => {
@@ -318,49 +412,9 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
                     // `outputFormat` is per query: a different schema means a fresh query on the same session.
                     if (q && JSON.stringify(format ?? null) !== JSON.stringify(outputFormat ?? null)) await stopQuery();
                     if (!q) startQuery(format);
-                    const mapper = createTurnMapper({
-                        driver,
-                        serverName,
-                        tracker,
-                        onResult: (r) => current?.done(r),
-                        interrupted: () => interrupted,
-                        previousCostUsd: () => lastCost,
-                        config
-                    });
-                    const finished = new Promise<void>((resolve) => {
-                        current = {
-                            driver,
-                            ctx,
-                            mapper,
-                            done: (result, failure) => {
-                                current = undefined;
-                                if (result && typeof result.total_cost_usd === 'number') lastCost = result.total_cost_usd;
-                                if (!result && !driver.ended) {
-                                    const message = failure ? failure.message : `Claude Code exited before the turn ended${stderrTail ? `: ${stderrTail.trim().split('\n').slice(-3).join(' | ')}` : ''}`;
-                                    // Every sub-agent, background ones included, died with the process.
-                                    tracker.sweep(driver.signal.aborted ? 'cancelled' : 'failed', (e) => driver.emit(e), { message });
-                                    if (!driver.signal.aborted) driver.emit({ type: 'error', code: 'process_exited', message, recoverable: false });
-                                    driver.end({ stopReason: driver.signal.aborted ? 'cancelled' : 'error', ...(driver.signal.aborted ? {} : { error: { code: 'process_exited', message } }) });
-                                }
-                                resolve();
-                            }
-                        };
-                    });
-                    const onAbort = () => {
-                        interrupted = true;
-                        const running = q;
-                        void running?.interrupt().catch(() => {});
-                        setTimeout(() => {
-                            if (current?.driver === driver) abort?.abort();
-                        }, graceMs);
-                    };
-                    driver.signal.addEventListener('abort', onAbort, { once: true });
-                    try {
-                        queue!.push(toUserMessage(parts));
-                        await finished;
-                    } finally {
-                        driver.signal.removeEventListener('abort', onAbort);
-                    }
+                    const turn = runTurn(driver, ctx);
+                    queue!.push(toUserMessage(parts));
+                    await turn;
                 });
             },
             respond: (requestId, decision) => core.respond(requestId, decision),

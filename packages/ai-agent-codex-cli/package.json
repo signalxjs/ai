@@ -1,6 +1,6 @@
 {
     "name": "@sigx/ai-agent-codex-cli",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "description": "Codex CLI for @sigx/ai-agent — the Codex CLI as an Agent over the codex app-server JSON-RPC protocol: threads, turns, approvals, dynamic client tools",
     "type": "module",
     "main": "./dist/index.js",
