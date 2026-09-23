@@ -93,6 +93,33 @@ jobs:
       - run: pnpm test
       - run: pnpm verify:catalog
 
+      # create-pull-request runs `git add -- <path>` once per add-paths entry, and a
+      # pathspec that matches nothing is FATAL: the PR step dies with an empty
+      # "Unexpected error" after build/typecheck/test already went green (#55 —
+      # signalxjs/richtext has no packages/package.json). So the candidate list —
+      # every manifest shape sync:core may rewrite (lib/core-deps.mjs
+      # WORKSPACE_DIRS) plus the workspace file and lockfile — is filtered here to
+      # the paths that exist in THIS repo. One list for every adopter; nothing to
+      # trim by hand. `nullglob` drops an unmatched glob, `-f` drops a missing
+      # literal.
+      - name: Collect PR paths
+        id: paths
+        shell: bash
+        run: |
+          shopt -s nullglob
+          paths=()
+          for p in pnpm-workspace.yaml pnpm-lock.yaml package.json \
+                   packages/package.json packages/*/package.json \
+                   app/package.json apps/*/package.json examples/*/package.json; do
+            if [ -f "$p" ]; then paths+=("$p"); fi
+          done
+          printf 'PR paths:\n'; printf '  %s\n' "${paths[@]}"
+          {
+            echo 'list<<SIGX_PATHS_EOF'
+            printf '%s\n' "${paths[@]}"
+            echo 'SIGX_PATHS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Open / update alignment PR
         uses: peter-evans/create-pull-request@v6
         with:
@@ -123,13 +150,6 @@ jobs:
           reviewers: copilot-pull-request-reviewer[bot]
           # The manifests too: sync:core writes the peer shape into publishable
           # packages, and a PR that carried the catalog bump without the manifest
-          # move would fail verify:catalog on the next run.
-          add-paths: |
-            pnpm-workspace.yaml
-            pnpm-lock.yaml
-            package.json
-            packages/*/package.json
-            packages/package.json
-            app/package.json
-            apps/*/package.json
-            examples/*/package.json
+          # move would fail verify:catalog on the next run. Only paths that exist
+          # here — see "Collect PR paths" above.
+          add-paths: ${{ steps.paths.outputs.list }}
