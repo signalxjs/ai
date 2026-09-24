@@ -921,8 +921,8 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
 
             await session.configure!({ model: 'sonnet' });
             expect(fake.models).toEqual(['sonnet']);
-            // Let the echo land: nothing may open a turn over it.
-            await new Promise((r) => setTimeout(r, 20));
+            // The echo lands as session-level traffic, outside any turn: nothing may open a turn over it.
+            await log.until((e) => e.type === 'ext' && e.turnId === undefined && JSON.stringify(e).includes('local-command-stdout'));
             expect(log.events.filter((e) => e.type === 'turn-start')).toHaveLength(1);
             expect(log.events.filter((e) => e.type === 'state').at(-1)).toMatchObject({ value: 'idle' });
 
