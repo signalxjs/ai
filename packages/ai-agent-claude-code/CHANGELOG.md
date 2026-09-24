@@ -6,6 +6,16 @@ versions follow [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `configure({ model })` between turns no longer opens an implicit turn that
+  never ends (#193). Claude Code answers `setModel` with a local-command echo,
+  a `user` frame reading `<local-command-stdout>Set model to …`, and no
+  `result` after it. The adapter took that echo for the start of a turn the
+  CLI runs by itself, so the session stayed `running` for good and every
+  later `prompt()` was refused with `SessionBusyError`. A local-command echo
+  is no longer turn content.
+
 ## [0.2.1] - 2026-09-22
 
 ### Fixed

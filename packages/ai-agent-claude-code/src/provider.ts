@@ -270,9 +270,21 @@ export function claudeCode(options: ClaudeCodeOptions = {}): Agent<ClaudeCodeSes
             return turn ? { ctx: turn.ctx, callIdFor: (n, i) => turn.mapper.callIdFor(n, i), markDenied: (n, i, c) => turn.mapper.markDenied(n, i, c) } : undefined;
         }, serverName);
 
+        /**
+         * The CLI's echo of a local command, a `user` frame whose text is `<local-command-stdout>…` (or `-stderr`). It
+         * answers `setModel` between turns and is never followed by a `result` (#193): opening a turn over it would open
+         * one nothing ever ends.
+         */
+        const isLocalCommandEcho = (m: SDKMessage) => {
+            if (m.type !== 'user') return false;
+            const content = (m as { message?: { content?: unknown } }).message?.content;
+            const text = typeof content === 'string' ? content : Array.isArray(content) && content.length === 1 && (content[0] as { type?: string }).type === 'text' ? String((content[0] as { text?: unknown }).text ?? '') : '';
+            return text.trimStart().startsWith('<local-command-');
+        };
+
         /** A main-thread frame only a model turn produces — a background sub-agent's frames carry a parent. */
         const isTurnContent = (m: SDKMessage) =>
-            (m.type === 'stream_event' || m.type === 'assistant' || m.type === 'user' || m.type === 'tool_progress') && !(m as { parent_tool_use_id?: string | null }).parent_tool_use_id;
+            (m.type === 'stream_event' || m.type === 'assistant' || m.type === 'user' || m.type === 'tool_progress') && !(m as { parent_tool_use_id?: string | null }).parent_tool_use_id && !isLocalCommandEcho(m);
 
         const emitSession = (m: SDKMessage) => {
             if (m.type === 'system' && (m as { subtype: string }).subtype === 'init') claudeSessionId = (m as { session_id: string }).session_id;
