@@ -871,6 +871,68 @@ describe('@sigx/ai-agent-claude-code (recorded)', () => {
             await session.close();
         });
 
+        /**
+         * The CLI answers `setModel` between turns with its local-command echo, a top-level `user` frame and never a
+         * `result` (#193, seen on Claude Code 2.x): `<local-command-stdout>Set model to …</local-command-stdout>`. The
+         * fake injects it into the stream the way the CLI does, before `setModel` resolves.
+         */
+        const echoing = (fake: FakeQuery): FakeQuery['query'] => (params) => {
+            const q = fake.query(params);
+            const extra: SDKMessage[] = [];
+            let wake: (() => void) | undefined;
+            const it = q[Symbol.asyncIterator]();
+            let pending = it.next();
+            const merged = (async function* (): AsyncGenerator<SDKMessage, void> {
+                for (;;) {
+                    const r = await Promise.race([pending.then((v) => ({ v })), new Promise<{ v?: undefined }>((resolve) => (wake = () => resolve({})))]);
+                    while (extra.length) yield extra.shift()!;
+                    if (!r.v) continue;
+                    if (r.v.done) return;
+                    pending = it.next();
+                    yield r.v.value;
+                }
+            })();
+            return Object.assign(merged, {
+                interrupt: () => q.interrupt(),
+                stopTask: (id: string) => q.stopTask(id),
+                setPermissionMode: (m: never) => q.setPermissionMode(m),
+                setMaxThinkingTokens: (max: number | null, display?: never) => q.setMaxThinkingTokens(max, display),
+                close: () => q.close(),
+                setModel: async (model?: string) => {
+                    extra.push({ type: 'user', message: { role: 'user', content: `<local-command-stdout>Set model to \`${model}\`</local-command-stdout>` }, parent_tool_use_id: null, session_id: 'sess', uuid: 'echo' } as unknown as SDKMessage);
+                    wake?.();
+                    await q.setModel(model);
+                }
+            }) as unknown as Query;
+        };
+
+        it("the CLI's echo of a model switch between turns opens no turn, and the next prompt runs (#193)", async () => {
+            const fake = fakeQuery(async function* () {
+                yield messageStart();
+                yield* textBlocks('ok');
+                yield* messageStop();
+                yield RESULT();
+            });
+            const agent = claudeCode({ query: echoing(fake), listen: fakeListen });
+            const session = await agent.session({ cwd });
+            const log = watch(session);
+            const first = await drain(session.prompt('what model are you'));
+            expect(first.result.stopReason).toBe('end_turn');
+
+            await session.configure!({ model: 'sonnet' });
+            expect(fake.models).toEqual(['sonnet']);
+            // Let the echo land: nothing may open a turn over it.
+            await new Promise((r) => setTimeout(r, 20));
+            expect(log.events.filter((e) => e.type === 'turn-start')).toHaveLength(1);
+            expect(log.events.filter((e) => e.type === 'state').at(-1)).toMatchObject({ value: 'idle' });
+
+            const next = await drain(session.prompt('5 or 5.5'));
+            expect(next.result.stopReason).toBe('end_turn');
+            expect(log.events.filter((e) => e.type === 'turn-start')).toHaveLength(2);
+            checkEventInvariants(log.events);
+            await session.close();
+        });
+
         it('cancel() interrupts it', async () => {
             const fake = promptedThen(async function* (ctx) {
                 yield messageStart();
