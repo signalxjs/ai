@@ -1,0 +1,36 @@
+name: Bundle size (merge queue)
+
+# If `size` is a required check, it must also report on the merge-queue ref.
+# A required check that never runs there leaves every queued PR stuck waiting
+# on checks (signalxjs/core#336). bundle-size.yml can't cover it: its
+# size-limit action needs a PR to diff and comment on, and so needs
+# `pull-requests: write`. This run gets read-only permissions and enforces the
+# budgets directly. The job id matches (`size`), so one required check covers
+# both events.
+on:
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  size:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Size
+        run: pnpm size

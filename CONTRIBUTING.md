@@ -69,8 +69,9 @@ pnpm build
 - **Update `CHANGELOG.md`** under the `[Unreleased]` section (for user-visible changes).
 - **Update docs in the same PR.** Package/script/API changes update the in-repo docs (see `AGENTS.md` → Documentation); user-facing changes also need an issue filed on the docs repo [`signalxjs/signalxjs.github.io`](https://github.com/signalxjs/signalxjs.github.io) before merge, linked from the PR body — the docs agent picks it up from there (don't open docs-site PRs yourself).
 - **Don't bump versions** in your PR — releases are handled centrally via tags. (`pnpm version:minor` & co. bump every published package in lockstep *and* rewrite the in-repo peer/runtime ranges dependents declare on them, so the family always installs together; `pnpm verify:pack` refuses a stale range.)
-- **Squash-merge only.** `main` rejects merge commits; CI must be green and the
-  PR reviewed before merge.
+- **Squash-merge only, through the merge queue.** `main` rejects merge commits;
+  CI must be green, the PR reviewed and its review threads resolved before it
+  can enter the queue (`gh pr merge <pr> --squash --auto`).
 
 ## Reporting bugs and requesting features
 
