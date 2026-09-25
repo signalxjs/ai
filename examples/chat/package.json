@@ -10,7 +10,7 @@
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {
-        "@anthropic-ai/sdk": "^0.125.0",
+        "@anthropic-ai/sdk": "^0.127.0",
         "@sigx/ai": "workspace:*",
         "@sigx/ai-anthropic": "workspace:*",
         "@sigx/ai-openai": "workspace:*",
@@ -23,9 +23,9 @@
         "@sigx/serialize": "catalog:",
         "@sigx/server": "catalog:",
         "@sigx/server-renderer": "catalog:",
-        "openai": "^7.15.0",
+        "openai": "^7.21.0",
         "sigx": "catalog:",
-        "zod": "^4.6.2"
+        "zod": "^4.6.5"
     },
     "devDependencies": {
         "@sigx/vite": "catalog:",
