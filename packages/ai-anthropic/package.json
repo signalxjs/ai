@@ -46,7 +46,7 @@
         "url": "https://github.com/signalxjs/ai/issues"
     },
     "devDependencies": {
-        "@anthropic-ai/sdk": "^0.125.0",
+        "@anthropic-ai/sdk": "^0.127.0",
         "@sigx/ai": "workspace:*",
         "@sigx/vite": "catalog:",
         "@types/node": "^26.5.1",
