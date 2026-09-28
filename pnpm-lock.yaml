@@ -166,11 +166,11 @@ importers:
         specifier: 'catalog:'
         version: 1.0.0
       '@sigx/richtext':
-        specifier: ^0.4.0
-        version: 0.4.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0))(@sigx/runtime-dom@1.0.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0)))
+        specifier: ^0.5.0
+        version: 0.5.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0))(@sigx/runtime-dom@1.0.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0)))
       '@sigx/richtext-markdown':
-        specifier: ^0.4.0
-        version: 0.4.0(@sigx/reactivity@1.0.0)(@sigx/richtext@0.4.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0))(@sigx/runtime-dom@1.0.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0))))(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0))
+        specifier: ^0.5.0
+        version: 0.5.0(@sigx/reactivity@1.0.0)(@sigx/richtext@0.5.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0))(@sigx/runtime-dom@1.0.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0))))(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0))
       '@sigx/runtime-core':
         specifier: 'catalog:'
         version: 1.0.0(@sigx/reactivity@1.0.0)
@@ -1130,16 +1130,16 @@ packages:
     resolution: {integrity: sha512-lMEyxbCpt1ZrLDtez4JYZB1Kb/Z/T7eMfCQjPKZLoEJw0q3iNpJ5vbIkBXvKbbK1x+N2SdvQygS8bp0YOdHzLw==}
     engines: {node: ^20.19.0 || >=22.12.0}
 
-  '@sigx/richtext-markdown@0.4.0':
-    resolution: {integrity: sha512-Ow2+5e5BThbN/pMDzz109TyYAII6VoxUz2XprOU9lb8IYs5sx32BHZjTYRJ1dJFIKfAzNzqT7i46YnguEaNH1Q==}
+  '@sigx/richtext-markdown@0.5.0':
+    resolution: {integrity: sha512-4/rWoGBtgmOBKd1bDKB2GMORwQoQUiwrZh3ZS/5GAk+OLr6AXdlC5xhBHPjQdSbGHLgo1k3/bFHzbfXMX6aPQA==}
     engines: {node: ^20.19.0 || >=22.12.0}
     peerDependencies:
       '@sigx/reactivity': ^1.0.0
-      '@sigx/richtext': ^0.4.0
+      '@sigx/richtext': ^0.5.0
       '@sigx/runtime-core': ^1.0.0
 
-  '@sigx/richtext@0.4.0':
-    resolution: {integrity: sha512-NTr6E1KnmYm7eRaBSIcE7uqwikQuQJWgLB+P8nB8cJDNyx+cp4OHhwM4BeI7OL/e6LvEE3FieFlRxIq5gq1pKQ==}
+  '@sigx/richtext@0.5.0':
+    resolution: {integrity: sha512-bdUoNtKNPek+MQEHK/j4IkW5augL2hu2/1g9gEqTjMgcOZEi3zY947VXsKrModrPW9wBcELU9PAuwnRuavVKMQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
     peerDependencies:
       '@sigx/reactivity': ^1.0.0
@@ -2578,13 +2578,13 @@ snapshots:
 
   '@sigx/reactivity@1.0.0': {}
 
-  '@sigx/richtext-markdown@0.4.0(@sigx/reactivity@1.0.0)(@sigx/richtext@0.4.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0))(@sigx/runtime-dom@1.0.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0))))(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0))':
+  '@sigx/richtext-markdown@0.5.0(@sigx/reactivity@1.0.0)(@sigx/richtext@0.5.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0))(@sigx/runtime-dom@1.0.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0))))(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0))':
     dependencies:
       '@sigx/reactivity': 1.0.0
-      '@sigx/richtext': 0.4.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0))(@sigx/runtime-dom@1.0.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0)))
+      '@sigx/richtext': 0.5.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0))(@sigx/runtime-dom@1.0.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0)))
       '@sigx/runtime-core': 1.0.0(@sigx/reactivity@1.0.0)
 
-  '@sigx/richtext@0.4.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0))(@sigx/runtime-dom@1.0.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0)))':
+  '@sigx/richtext@0.5.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0))(@sigx/runtime-dom@1.0.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0)))':
     dependencies:
       '@sigx/reactivity': 1.0.0
       '@sigx/runtime-core': 1.0.0(@sigx/reactivity@1.0.0)
