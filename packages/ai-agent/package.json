@@ -78,16 +78,16 @@
         "url": "https://github.com/signalxjs/ai/issues"
     },
     "devDependencies": {
-        "@modelcontextprotocol/sdk": "^1.30.0",
+        "@modelcontextprotocol/sdk": "^1.31.0",
         "@sigx/ai": "workspace:*",
         "@sigx/reactivity": "catalog:",
         "@sigx/runtime-core": "catalog:",
         "@sigx/runtime-dom": "catalog:",
         "@sigx/vite": "catalog:",
         "sigx": "catalog:",
-        "@types/node": "^26.5.1",
+        "@types/node": "^26.6.3",
         "typescript": "^7.0.2",
-        "vite": "^8.0.3"
+        "vite": "^8.3.1"
     },
     "publishConfig": {
         "access": "public"

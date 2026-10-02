@@ -39,17 +39,17 @@ importers:
         specifier: ^11
         version: 11.2.0(size-limit@11.2.0)
       '@types/node':
-        specifier: ^26.5.1
-        version: 26.5.1
+        specifier: ^26.6.3
+        version: 26.6.3
       '@vitest/coverage-v8':
         specifier: ^4.1.5
         version: 4.1.11(vitest@4.1.11)
       happy-dom:
-        specifier: ^20.9.0
-        version: 20.14.3
+        specifier: ^20.14.5
+        version: 20.14.5
       oxlint:
-        specifier: ^1.47.0
-        version: 1.82.0
+        specifier: ^1.86.0
+        version: 1.86.0
       size-limit:
         specifier: ^11
         version: 11.2.0
@@ -57,17 +57,17 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
       vite:
-        specifier: ^8.0.3
-        version: 8.3.0(@types/node@26.5.1)(jiti@2.7.0)
+        specifier: ^8.3.1
+        version: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)
       vitest:
         specifier: ^4.1.5
-        version: 4.1.11(@types/node@26.5.1)(@vitest/coverage-v8@4.1.11)(happy-dom@20.14.3)(vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0))
+        version: 4.1.11(@types/node@26.6.3)(@vitest/coverage-v8@4.1.11)(happy-dom@20.14.5)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0))
 
   examples/agent:
     dependencies:
       '@anthropic-ai/claude-agent-sdk':
         specifier: 0.3.270
-        version: 0.3.270(@anthropic-ai/sdk@0.125.0(zod@4.6.2))(@modelcontextprotocol/sdk@1.30.0(zod@4.6.2))(zod@4.6.2)
+        version: 0.3.270(@anthropic-ai/sdk@0.125.0(zod@4.6.2))(@modelcontextprotocol/sdk@1.31.0(zod@4.6.2))(zod@4.6.2)
       '@anthropic-ai/sdk':
         specifier: ^0.125.0
         version: 0.125.0(zod@4.6.2)
@@ -118,7 +118,7 @@ importers:
         version: 1.0.0(sigx@1.0.0)
       openai:
         specifier: ^7.15.0
-        version: 7.15.0(ws@8.21.3)(zod@4.6.2)
+        version: 7.15.0(ws@8.22.0)(zod@4.6.2)
       sigx:
         specifier: 'catalog:'
         version: 1.0.0
@@ -128,10 +128,10 @@ importers:
     devDependencies:
       '@sigx/vite':
         specifier: 'catalog:'
-        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0))
+        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0))
       '@types/node':
-        specifier: ^26.5.1
-        version: 26.5.1
+        specifier: ^26.6.3
+        version: 26.6.3
       cross-env:
         specifier: ^10.1.0
         version: 10.1.0
@@ -139,11 +139,11 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
       vite:
-        specifier: ^8.0.3
-        version: 8.3.0(@types/node@26.5.1)(jiti@2.7.0)
+        specifier: ^8.3.1
+        version: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)
       vitest:
         specifier: ^4.1.5
-        version: 4.1.11(@types/node@26.5.1)(@vitest/coverage-v8@4.1.11)(happy-dom@20.14.3)(vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0))
+        version: 4.1.11(@types/node@26.6.3)(@vitest/coverage-v8@4.1.11)(happy-dom@20.14.5)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0))
 
   examples/chat:
     dependencies:
@@ -188,7 +188,7 @@ importers:
         version: 1.0.0(sigx@1.0.0)
       openai:
         specifier: ^7.15.0
-        version: 7.15.0(ws@8.21.3)(zod@4.6.2)
+        version: 7.15.0(ws@8.22.0)(zod@4.6.2)
       sigx:
         specifier: 'catalog:'
         version: 1.0.0
@@ -198,10 +198,10 @@ importers:
     devDependencies:
       '@sigx/vite':
         specifier: 'catalog:'
-        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0))
+        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0))
       '@types/node':
-        specifier: ^26.5.1
-        version: 26.5.1
+        specifier: ^26.6.3
+        version: 26.6.3
       cross-env:
         specifier: ^10.1.0
         version: 10.1.0
@@ -209,11 +209,11 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
       vite:
-        specifier: ^8.0.3
-        version: 8.3.0(@types/node@26.5.1)(jiti@2.7.0)
+        specifier: ^8.3.1
+        version: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)
       vitest:
         specifier: ^4.1.5
-        version: 4.1.11(@types/node@26.5.1)(@vitest/coverage-v8@4.1.11)(happy-dom@20.14.3)(vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0))
+        version: 4.1.11(@types/node@26.6.3)(@vitest/coverage-v8@4.1.11)(happy-dom@20.14.5)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0))
 
   packages/ai:
     devDependencies:
@@ -234,10 +234,10 @@ importers:
         version: 1.0.0(sigx@1.0.0)
       '@sigx/vite':
         specifier: 'catalog:'
-        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0))
+        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0))
       '@types/node':
-        specifier: ^26.5.1
-        version: 26.5.1
+        specifier: ^26.6.3
+        version: 26.6.3
       sigx:
         specifier: 'catalog:'
         version: 1.0.0
@@ -245,14 +245,14 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
       vite:
-        specifier: ^8.0.3
-        version: 8.3.0(@types/node@26.5.1)(jiti@2.7.0)
+        specifier: ^8.3.1
+        version: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)
 
   packages/ai-agent:
     devDependencies:
       '@modelcontextprotocol/sdk':
-        specifier: ^1.30.0
-        version: 1.30.0(zod@4.6.2)
+        specifier: ^1.31.0
+        version: 1.31.0(zod@4.6.2)
       '@sigx/ai':
         specifier: workspace:*
         version: link:../ai
@@ -267,10 +267,10 @@ importers:
         version: 1.0.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0))
       '@sigx/vite':
         specifier: 'catalog:'
-        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0))
+        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0))
       '@types/node':
-        specifier: ^26.5.1
-        version: 26.5.1
+        specifier: ^26.6.3
+        version: 26.6.3
       sigx:
         specifier: 'catalog:'
         version: 1.0.0
@@ -278,8 +278,8 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
       vite:
-        specifier: ^8.0.3
-        version: 8.3.0(@types/node@26.5.1)(jiti@2.7.0)
+        specifier: ^8.3.1
+        version: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)
 
   packages/ai-agent-acp:
     dependencies:
@@ -288,8 +288,8 @@ importers:
         version: link:../ai-agent-node
     devDependencies:
       '@agentclientprotocol/sdk':
-        specifier: 1.4.0
-        version: 1.4.0(zod@4.6.2)
+        specifier: 1.5.1
+        version: 1.5.1(zod@4.6.2)
       '@sigx/ai':
         specifier: workspace:*
         version: link:../ai
@@ -298,16 +298,16 @@ importers:
         version: link:../ai-agent
       '@sigx/vite':
         specifier: 'catalog:'
-        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0))
+        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0))
       '@types/node':
-        specifier: ^26.5.1
-        version: 26.5.1
+        specifier: ^26.6.3
+        version: 26.6.3
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
       vite:
-        specifier: ^8.0.3
-        version: 8.3.0(@types/node@26.5.1)(jiti@2.7.0)
+        specifier: ^8.3.1
+        version: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)
 
   packages/ai-agent-claude-code:
     dependencies:
@@ -317,7 +317,7 @@ importers:
     devDependencies:
       '@anthropic-ai/claude-agent-sdk':
         specifier: 0.3.270
-        version: 0.3.270(@anthropic-ai/sdk@0.125.0(zod@4.6.2))(@modelcontextprotocol/sdk@1.30.0(zod@4.6.2))(zod@4.6.2)
+        version: 0.3.270(@anthropic-ai/sdk@0.125.0(zod@4.6.2))(@modelcontextprotocol/sdk@1.31.0(zod@4.6.2))(zod@4.6.2)
       '@sigx/ai':
         specifier: workspace:*
         version: link:../ai
@@ -326,16 +326,16 @@ importers:
         version: link:../ai-agent
       '@sigx/vite':
         specifier: 'catalog:'
-        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0))
+        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0))
       '@types/node':
-        specifier: ^26.5.1
-        version: 26.5.1
+        specifier: ^26.6.3
+        version: 26.6.3
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
       vite:
-        specifier: ^8.0.3
-        version: 8.3.0(@types/node@26.5.1)(jiti@2.7.0)
+        specifier: ^8.3.1
+        version: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)
 
   packages/ai-agent-codex-cli:
     dependencies:
@@ -354,22 +354,22 @@ importers:
         version: link:../ai-agent
       '@sigx/vite':
         specifier: 'catalog:'
-        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0))
+        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0))
       '@types/node':
-        specifier: ^26.5.1
-        version: 26.5.1
+        specifier: ^26.6.3
+        version: 26.6.3
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
       vite:
-        specifier: ^8.0.3
-        version: 8.3.0(@types/node@26.5.1)(jiti@2.7.0)
+        specifier: ^8.3.1
+        version: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)
 
   packages/ai-agent-copilot-cli:
     devDependencies:
       '@github/copilot-sdk':
-        specifier: 1.0.13
-        version: 1.0.13
+        specifier: 1.0.15
+        version: 1.0.15
       '@sigx/ai':
         specifier: workspace:*
         version: link:../ai
@@ -378,16 +378,16 @@ importers:
         version: link:../ai-agent
       '@sigx/vite':
         specifier: 'catalog:'
-        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0))
+        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0))
       '@types/node':
-        specifier: ^26.5.1
-        version: 26.5.1
+        specifier: ^26.6.3
+        version: 26.6.3
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
       vite:
-        specifier: ^8.0.3
-        version: 8.3.0(@types/node@26.5.1)(jiti@2.7.0)
+        specifier: ^8.3.1
+        version: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)
 
   packages/ai-agent-node:
     devDependencies:
@@ -399,16 +399,16 @@ importers:
         version: link:../ai-agent
       '@sigx/vite':
         specifier: 'catalog:'
-        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0))
+        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0))
       '@types/node':
-        specifier: ^26.5.1
-        version: 26.5.1
+        specifier: ^26.6.3
+        version: 26.6.3
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
       vite:
-        specifier: ^8.0.3
-        version: 8.3.0(@types/node@26.5.1)(jiti@2.7.0)
+        specifier: ^8.3.1
+        version: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)
 
   packages/ai-anthropic:
     devDependencies:
@@ -420,16 +420,16 @@ importers:
         version: link:../ai
       '@sigx/vite':
         specifier: 'catalog:'
-        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0))
+        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0))
       '@types/node':
-        specifier: ^26.5.1
-        version: 26.5.1
+        specifier: ^26.6.3
+        version: 26.6.3
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
       vite:
-        specifier: ^8.0.3
-        version: 8.3.0(@types/node@26.5.1)(jiti@2.7.0)
+        specifier: ^8.3.1
+        version: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)
 
   packages/ai-openai:
     devDependencies:
@@ -438,19 +438,19 @@ importers:
         version: link:../ai
       '@sigx/vite':
         specifier: 'catalog:'
-        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0))
+        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0))
       '@types/node':
-        specifier: ^26.5.1
-        version: 26.5.1
+        specifier: ^26.6.3
+        version: 26.6.3
       openai:
         specifier: ^7.15.0
-        version: 7.15.0(ws@8.21.3)(zod@4.6.2)
+        version: 7.15.0(ws@8.22.0)(zod@4.6.2)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
       vite:
-        specifier: ^8.0.3
-        version: 8.3.0(@types/node@26.5.1)(jiti@2.7.0)
+        specifier: ^8.3.1
+        version: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)
 
   packages/json-ui:
     devDependencies:
@@ -468,10 +468,10 @@ importers:
         version: 1.0.0(@sigx/reactivity@1.0.0)(@sigx/runtime-core@1.0.0(@sigx/reactivity@1.0.0))
       '@sigx/vite':
         specifier: 'catalog:'
-        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0))
+        version: 1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0))
       '@types/node':
-        specifier: ^26.5.1
-        version: 26.5.1
+        specifier: ^26.6.3
+        version: 26.6.3
       sigx:
         specifier: 'catalog:'
         version: 1.0.0
@@ -479,13 +479,13 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
       vite:
-        specifier: ^8.0.3
-        version: 8.3.0(@types/node@26.5.1)(jiti@2.7.0)
+        specifier: ^8.3.1
+        version: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)
 
 packages:
 
-  '@agentclientprotocol/sdk@1.4.0':
-    resolution: {integrity: sha512-/eufudw+aFY1LKLolT6yFE6UMmYRl7fMJ/DEONSIyR6wI3slHWITBsANRGqXEY8FRzqUxwh7QEaGiZHcJPVThg==}
+  '@agentclientprotocol/sdk@1.5.1':
+    resolution: {integrity: sha512-nSUIrC1fOR9+ppKfx9KdwjBBND2sAPzFHo4yVQrGbXZHnayUYpwL8CDVR5LSxbapY/oKMOzNP0wvwfyx3PS2KA==}
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
 
@@ -734,56 +734,56 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@github/copilot-sdk-darwin-arm64@1.0.13':
-    resolution: {integrity: sha512-AvBV5dzjNWpGwgoCnttrETnt7rLI4pTFQsRSM7GU5TK+YqShauffdMU06Bn/d+IDX2fj1Z4ThH7yl/gHCDvoNQ==}
+  '@github/copilot-sdk-darwin-arm64@1.0.15':
+    resolution: {integrity: sha512-+iZRSgr0Bjc2EksKuNHggfBQR/2HAiLCAjgIx31X4SavNLzcly6BuR/mJLe6xkamlyjj0ugkLK5TKwnmRjqDRg==}
     cpu: [arm64]
     os: [darwin]
 
-  '@github/copilot-sdk-darwin-x64@1.0.13':
-    resolution: {integrity: sha512-ZNQmTnHwk8bO/E514k0sFBsuCVNpFj8jMH4jeLncASQM4RRdOqYhXlYLW7H/ts7ANjdfMJjJY29NUqzEWaADOA==}
+  '@github/copilot-sdk-darwin-x64@1.0.15':
+    resolution: {integrity: sha512-zNtblCoNiSOK0B0y5Y6GvVLfe9PNexJjy/3t1HfcTAA2vHt/zzS440yoGFdqg196Vjtp9yxpLc92Sf1yz6GDMA==}
     cpu: [x64]
     os: [darwin]
 
-  '@github/copilot-sdk-linux-arm64@1.0.13':
-    resolution: {integrity: sha512-km1jvveDwlJbht8luFyBurz0wUxPHSzdkZRMJEJgVHYfMn03gi0gdnZ6fC6JWgkiffNZpukSxRPJmPfRobw6Aw==}
+  '@github/copilot-sdk-linux-arm64@1.0.15':
+    resolution: {integrity: sha512-Q+vp0Y8DBVf9VIe/OxH6jbgf/16xMbvRI/jsglZFGW+u8YNkUGDcpDxSdonMsE5EplC3Hc6E0xFkjVp6pkV1cg==}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
 
-  '@github/copilot-sdk-linux-x64@1.0.13':
-    resolution: {integrity: sha512-4AbzC8Nb1dWYQ1uxbHGAh0ZAoOJeL3Ms1oe3byZLn8ENP1PfoyD8DJZUSsyXGYHxL7oLJyUqd3wyt18ifIg8iw==}
+  '@github/copilot-sdk-linux-x64@1.0.15':
+    resolution: {integrity: sha512-OzZm8sKiUNDbc5GVtj9UY3uf/Ci4ZCSdd76yhguoTXHWE6azV50DycWuSFN8WjmILvemYYcIXo81gXrKcpasPQ==}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
 
-  '@github/copilot-sdk-linuxmusl-arm64@1.0.13':
-    resolution: {integrity: sha512-pCUjly1nXcNpYDZNnKrglFIFejbb+QDkloilldu+0tTbSzb8gEmVsbGwpfwyZXfNQf5Je5FFjsOfQR9PXH1NDQ==}
+  '@github/copilot-sdk-linuxmusl-arm64@1.0.15':
+    resolution: {integrity: sha512-13mnqoX3egpxwMnd2EsMOnDSBxXqK4ed1M/eX2ElAEdWRakE5/NV6tdsAjwdvgCnMeq7g8TXZ0n2Di2qamxAIQ==}
     cpu: [arm64]
     os: [linux]
     libc: [musl]
 
-  '@github/copilot-sdk-linuxmusl-x64@1.0.13':
-    resolution: {integrity: sha512-y5RmqAbKSYHt+OwQdILIiiMSibXdd7/0kO7kFoTZCN2gn2eGRA8wJbXlf6KZh+yYgWSJGUL8677LDJd3WnIHbA==}
+  '@github/copilot-sdk-linuxmusl-x64@1.0.15':
+    resolution: {integrity: sha512-zKDpqjRsYNBCS+sjZ1nIgZ+4u3sGx6Z6fNIxR8cnJZkqzkdKfjWQ4E/5gqdS+jl+7Eb6eKi3ZMioH9OCFTpjBA==}
     cpu: [x64]
     os: [linux]
     libc: [musl]
 
-  '@github/copilot-sdk-win32-arm64@1.0.13':
-    resolution: {integrity: sha512-azISXh4pEVfX0hPzu58wZTYg3tdWG4L1nNpiRa/wdBxhcovbxw+eZVkI4C6FZMx0tiNYFkqWzVTV7oKskNybcw==}
+  '@github/copilot-sdk-win32-arm64@1.0.15':
+    resolution: {integrity: sha512-m3EE2sdqY+XTI1O8sauMSg80iTVEjUqtD1hc0MGPchQd7mt5m/P7KxN7pmUCQ4oVwCqigiMMKbebTRvOz0j0pA==}
     cpu: [arm64]
     os: [win32]
 
-  '@github/copilot-sdk-win32-x64@1.0.13':
-    resolution: {integrity: sha512-lvS7kMbuuxydBQxPDHCkuUwbC858Rvcz3Q3vv0mxnLKuWJ75lAcqERefqA2p4beaPdez+ifZOA5heUT0rx3GnA==}
+  '@github/copilot-sdk-win32-x64@1.0.15':
+    resolution: {integrity: sha512-BRBJ8za6VZDy+LLRPZVkXWepXgT9psys9WM19d8X7CAl9ymr6Pj7K0nOgJ2eqFMeURXW/tithFgOoxQXNBHSzg==}
     cpu: [x64]
     os: [win32]
 
-  '@github/copilot-sdk@1.0.13':
-    resolution: {integrity: sha512-/j6/tGc9HOtcupuYFloOKk0fpScdpy65EVF1LKg2Z2VQOojCGPgBGkhgVGVDaqW7UB6TV2qbQZa9rKJimJ0wWQ==}
+  '@github/copilot-sdk@1.0.15':
+    resolution: {integrity: sha512-u7WEeF93PKCimIbzv7qgBh1UcuuaHFMoWEDC7W8/2VUGB9eeMN4Ff4QqgHWYHZSQnK5xGtY9Tx8KdyssU9kTYw==}
     engines: {node: ^20.19.0 || >=22.12.0}
 
-  '@hono/node-server@2.1.1':
-    resolution: {integrity: sha512-ELuehkj5VCBdgEw9zs+ivkKwyzzUCSQuE96YmiPvn1ECBoZCczbFXJLeEGMTYjphP6gydh4pHMqEYPVMYUVgQg==}
+  '@hono/node-server@2.1.2':
+    resolution: {integrity: sha512-w0tqJ/ilmggKokOSvbp9y+F91Y4ROTyCTL/8EKj9B4qOhOZzNm/tyKElzxrz+9+4fJKQrBSaahIuCGRye5RJYg==}
     engines: {node: '>=20'}
     peerDependencies:
       hono: ^4
@@ -888,8 +888,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@modelcontextprotocol/sdk@1.30.0':
-    resolution: {integrity: sha512-xKd8OIzlqNzcqcNumGAa6g+PW2kjD5vrpcKOnfldAUPP3j7lnqMPwlTXQm8gF+UwH72z0lqaRbjr9hqGz0eITA==}
+  '@modelcontextprotocol/sdk@1.31.0':
+    resolution: {integrity: sha512-UvTMgnNlnIBO/22ob2RcVGDlcvOslQs8T59+FTGdA0L27a39fdGF/EDETNtDVK4DZGpwomlsYpRdA8UXcVL/pw==}
     engines: {node: '>=18'}
     peerDependencies:
       '@cfworker/json-schema': ^4.1.1
@@ -898,127 +898,127 @@ packages:
       '@cfworker/json-schema':
         optional: true
 
-  '@oxc-project/types@0.149.0':
-    resolution: {integrity: sha512-Efcc+iF0j3Bf67YjEqIqWXbX5XddXoK/Mw4K1/JuXwRCZ8N16VR7iT23nlCc9XrveFVh/E5Rqs2StT0V8v9LdA==}
+  '@oxc-project/types@0.151.0':
+    resolution: {integrity: sha512-J1yXrIlNDZVzE3ada310xeAw7nH8yCAyLPuUIsjKatFPmfn5bS1oW+cM+QsGOtVWd5nhSpbwZWx/rue+r5Z+PA==}
 
-  '@oxlint/binding-android-arm-eabi@1.82.0':
-    resolution: {integrity: sha512-a3LB+C5Dsj5b/qtmG/mv5WrzuiXEpg1KF5nXWcEvaoN5TYAqkIvxPOwTPp3Jy/FoGpRo8zsTFhMElMXfeoOEzA==}
+  '@oxlint/binding-android-arm-eabi@1.86.0':
+    resolution: {integrity: sha512-63Ozq6yQn79B2UxjSZ9huJmI+3/ZPI7hxAe6TyFh9oQL447KnIMoffOdtog+h4KILbQr61ZRvFPW5gYbAUgpgQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm]
     os: [android]
 
-  '@oxlint/binding-android-arm64@1.82.0':
-    resolution: {integrity: sha512-OBlhRgNqFblGpGenno/aqOfJLOkQ2B8Ig3iDAalfn0H8hJGZKXPeexCRTDm6uwv6YUjSA9Xnwt1y/Bgj5ZH8uw==}
+  '@oxlint/binding-android-arm64@1.86.0':
+    resolution: {integrity: sha512-JdLGp44phbf/0Du236Dt06yfK6Qw8xhTFeDvHJdjk167r59OfP5+BL31mgMYVnswS8e+j6tFuccSY0QDC/lgCw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm64]
     os: [android]
 
-  '@oxlint/binding-darwin-arm64@1.82.0':
-    resolution: {integrity: sha512-dsopxqtY5ZdyT9uLHyGt1SyiLop6hi7hWI3PKpePodkRQOkLaCm+OE4fR9CAz9qdfjiFO8531tX/QDyP/psjFg==}
+  '@oxlint/binding-darwin-arm64@1.86.0':
+    resolution: {integrity: sha512-h+vkOr4ik6KLFCXdtNVEj9xfnXfNUpPoF95QjORdhiSpLqQePzcN81kGHjAgsw1/G7WBWK5KsFKbI2UK8EyzMA==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm64]
     os: [darwin]
 
-  '@oxlint/binding-darwin-x64@1.82.0':
-    resolution: {integrity: sha512-94Lu0SgTClKColU66g1VDuigV3HkcbkJBnTtZjGYfE8UPugaWDgKrm2icjC6HJVUYler2OXaHP/X0TBy8+CowQ==}
+  '@oxlint/binding-darwin-x64@1.86.0':
+    resolution: {integrity: sha512-wbglRuH5eKsp68keTOOeKDHU1astWSRYFsh2bwKQTAPb44rD6kVgzYI1ZrAJRTc6/7PH55ZXFCQx0rQXrj0UdA==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [x64]
     os: [darwin]
 
-  '@oxlint/binding-freebsd-x64@1.82.0':
-    resolution: {integrity: sha512-hne/V06ewhh1i0w8+l7GDNROAGCGPmyFuOwiP7YTRu0JycyStJ4785dmF8xU5p0uUwt2emvIF9vc7Xjis+cJ0g==}
+  '@oxlint/binding-freebsd-x64@1.86.0':
+    resolution: {integrity: sha512-yTQ7QSOlNfQsrfbeVweTiegQJLKPjUKgXp/JpGiFzza6Hp29S9LAoH77TM3L0RjK39iQRZB5lk5iq2t241Mfag==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [x64]
     os: [freebsd]
 
-  '@oxlint/binding-linux-arm-gnueabihf@1.82.0':
-    resolution: {integrity: sha512-aWY2xtbZf1LneW9Qsv/n2Sp8gOu74JrlQzEtj4coHX2SHFrCfhmAumaU+sI/A5nr+yoTRTSmI/pL2s6ADlNSkw==}
+  '@oxlint/binding-linux-arm-gnueabihf@1.86.0':
+    resolution: {integrity: sha512-QYJGy0E2Tv8GAayyBIeHFTwQb8u+zrvrOYrifuDGZDr9ad5XsDhiMScpZymhS9fwWjqrgG2ZUwT4vpY0ISqp4Q==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm]
     os: [linux]
 
-  '@oxlint/binding-linux-arm-musleabihf@1.82.0':
-    resolution: {integrity: sha512-Fe+TtXCXMh/5f7kWlZ2VAwsMumZWtraFlKVk1NJlL52/beGwfDE7ov+/8gVirHzWokzGu7X65hSPq0ucPDskWQ==}
+  '@oxlint/binding-linux-arm-musleabihf@1.86.0':
+    resolution: {integrity: sha512-oQo83CafLT8p3qh0AGkN0tSUIh5Hm63mfDsoqUmBQUBnSZLNBAbyRaAftfGY5a0cKZ34dG6jAtMYgcY5kZqt5g==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm]
     os: [linux]
 
-  '@oxlint/binding-linux-arm64-gnu@1.82.0':
-    resolution: {integrity: sha512-6azCZ6OJudlvipNttXCCQcyeFfcJ/NvUZdSN1z8elo73kCHtyQC7WTiUcSjWYvJ1jaq9KDUyMAoAS/vNzhBomA==}
+  '@oxlint/binding-linux-arm64-gnu@1.86.0':
+    resolution: {integrity: sha512-EM6wy5c2UM12qPb7iDJDBAZvHyfEJGH6iosFgaFiaRZpirz99//EHcUyD2KAskz07x1TULuiAtsojf4nvWWksw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
 
-  '@oxlint/binding-linux-arm64-musl@1.82.0':
-    resolution: {integrity: sha512-PLEaSD8IAIIlwW4dwOd9YaxuxeOpwiXL4J24rcnE4iNtyM5j9Q9/3+gti08oXpx0u2ygNjRDx9xjWWpQonuJEw==}
+  '@oxlint/binding-linux-arm64-musl@1.86.0':
+    resolution: {integrity: sha512-vCiUQb9ZNzZalxYRU4mlZwUqT5f+c7Sk9DwUOplWHtik3Dl4r3DVnUB5tBeRuTAUe6MUVCTylNW7TkkN8J1oTw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm64]
     os: [linux]
     libc: [musl]
 
-  '@oxlint/binding-linux-ppc64-gnu@1.82.0':
-    resolution: {integrity: sha512-D94em/BwknNTn4vqxjHh5wb2oL566eFhArabqKIr0cNZMHOJuiraFp1A8tXpH05bbE5tqwEfLXTI0MWEGtn3Dw==}
+  '@oxlint/binding-linux-ppc64-gnu@1.86.0':
+    resolution: {integrity: sha512-T0AzE89yjTYmOhB/hb6i+rWTpe2mYt+xiguBhs9DEPIJTZ1H8OYqsE4VxJHHw2Wlq8Mztwvp2P8NV87ZOuhPRw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [ppc64]
     os: [linux]
     libc: [glibc]
 
-  '@oxlint/binding-linux-riscv64-gnu@1.82.0':
-    resolution: {integrity: sha512-MOprxBaoYU2D4VgxXCl3ghydThWtx7Um1lL51kGYNeQ5Al7WzsH7/tqGdNtbLrIWnjq3bsm13+nz/gRIxjrOXw==}
+  '@oxlint/binding-linux-riscv64-gnu@1.86.0':
+    resolution: {integrity: sha512-s49r0K2f5Oc7fJoMUO1WkdhYK5Ob79uYRwWQ/XNoGysaOq3RUGmGUbHSuXiyydTTA+P9xEdDEnnlZVXiaSJhlw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [riscv64]
     os: [linux]
     libc: [glibc]
 
-  '@oxlint/binding-linux-riscv64-musl@1.82.0':
-    resolution: {integrity: sha512-5h55QsfJ/luDXZzC20k6SNOY1Az+dCP9WvntKtcUWh2JhckAdwApY2ZusaBTwLENnReXU+A2fJtSrYvZJNKNPg==}
+  '@oxlint/binding-linux-riscv64-musl@1.86.0':
+    resolution: {integrity: sha512-JIa2tYR8ayb3nvcMSZzn4O/xTy13S7MHllu7cBD+B5qDQXXSRy/Vwk1aNpiTjZmBJGwKCHOy/NvnY5Xcwg27uQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [riscv64]
     os: [linux]
     libc: [musl]
 
-  '@oxlint/binding-linux-s390x-gnu@1.82.0':
-    resolution: {integrity: sha512-IE8NJNLlHr0CaXyGJPGVn0eTkUyoj1I2UfA8x7I4PSOYKsQ/6btVC7Pywrj5onk0cMH25r6Z38SoN3AvE5Zuog==}
+  '@oxlint/binding-linux-s390x-gnu@1.86.0':
+    resolution: {integrity: sha512-XwXMyBsAuWZkhZU74UNcfQKr1CJJAKnS80dZzOnjl6A4fKcf91IjFgidegQugMHA5SN8ulwDXEDV1yPntjXgQQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [s390x]
     os: [linux]
     libc: [glibc]
 
-  '@oxlint/binding-linux-x64-gnu@1.82.0':
-    resolution: {integrity: sha512-XUUUxaBo9XKl+J1B9EmP1cTGQPddzeURvoGkfwh/94PGnbW+hBprDljneoI2M1jzC1bzrIV3ihc7iM9UXl8+tg==}
+  '@oxlint/binding-linux-x64-gnu@1.86.0':
+    resolution: {integrity: sha512-C1WjukSyMnr66b+w1/tV8RFVv6d9v0MzDf4p9IxVXknqgmTHBgZh1pccN1eHzFr0b9Tbb3OXoPsAAdAuHAQfeA==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
 
-  '@oxlint/binding-linux-x64-musl@1.82.0':
-    resolution: {integrity: sha512-SWLSFulX9TDuH6yvbPYp4+VNn6jkkIvvI+KiujDM5rWBRHEfkesCC/pCneIIUr6ovkxZ5fRtpi2v5Cz5FrMJZg==}
+  '@oxlint/binding-linux-x64-musl@1.86.0':
+    resolution: {integrity: sha512-ap6KLmvC38c6MdYzsIh25cXQupqYvjd37tMNftzrX1DCtkX1Gcf2B+S2B17dD4lKa5c5gJog7DQJyDo82PBKyw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [x64]
     os: [linux]
     libc: [musl]
 
-  '@oxlint/binding-openharmony-arm64@1.82.0':
-    resolution: {integrity: sha512-BQy35f6ZUdNr9a6c7B7orxQTcLjByGT2z3WAgmRovpRwmPYAaJ+NTplmMzhdjdJ4qSchfMNZy/Ukg+qRg6zseQ==}
+  '@oxlint/binding-openharmony-arm64@1.86.0':
+    resolution: {integrity: sha512-996Q9w/2GLwNyy5Djs39Jt09aFlr4b7TPhoj7dvo5FHmcyiF68nPz73HNc5UAYKIYeK+M9JzPQ4Wg1r1dXvP6A==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm64]
     os: [openharmony]
 
-  '@oxlint/binding-win32-arm64-msvc@1.82.0':
-    resolution: {integrity: sha512-V4QhSTg5gctZue8RJjsGi7NpQPThr/p1/HfmiMC5kfe1KFEup9SQRVub4A6kijQjdHfxj7bLL1KO3QO7/5bwMQ==}
+  '@oxlint/binding-win32-arm64-msvc@1.86.0':
+    resolution: {integrity: sha512-9uTCHYTknNkug5+46ViSoUMuOuGWK61D87QnblU6CXaWKJC630Z7dbls61vdHxya/cR2ycQZ6Mm6ckgF6Cag5g==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm64]
     os: [win32]
 
-  '@oxlint/binding-win32-ia32-msvc@1.82.0':
-    resolution: {integrity: sha512-TUSCLaKB2yktpFAJ/r3HAUYsaV/3DT7JS4iNKyoh3a9YNwD0UG7Ezh4D8m23654vQcU6P/RQrCAjRPKe4peP/A==}
+  '@oxlint/binding-win32-ia32-msvc@1.86.0':
+    resolution: {integrity: sha512-a47ga7EKVfMU8rO0i1m3mGwfNRj3FhQyt1d/ukO/E9u1HHF3KpR3tyb3VhuJBGEVPF8uR4exSyHUyx7xbE+uxw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [ia32]
     os: [win32]
 
-  '@oxlint/binding-win32-x64-msvc@1.82.0':
-    resolution: {integrity: sha512-VTVoRIWJTb+wvUX8EYoPArfFH02whuR10goFXE/LHRRX33ajRrFgqbcONXZMiF4C5rnattfkm87HqYn8jb8hmQ==}
+  '@oxlint/binding-win32-x64-msvc@1.86.0':
+    resolution: {integrity: sha512-az4dzifCRzES1crwu6pDFXzJTIanrdxXFL9TbiJWrx9LKcuacbR83aPvxDA1LKLNswi/RoqitC7Afcflhu3zBQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [x64]
     os: [win32]
@@ -1027,98 +1027,98 @@ packages:
     resolution: {integrity: sha512-8Ahg/ZC0sKkF8qoG0gtK2OV3lmdEFKRMNhFkdHzyH1fRVFfdR1omFo089HFCfUJo/r6+YiMQ6s52ZMgzujysSQ==}
     engines: {node: '>=20'}
 
-  '@rolldown/binding-android-arm-eabi@1.2.8':
-    resolution: {integrity: sha512-tN5aztYkKCte4i5SIrrz5yK/HMjEuCqCSCJa418jOV8tZ1cBY3YF2otxB1ktPxzsLA1BeTqwapK0bfjxNvHJVw==}
+  '@rolldown/binding-android-arm-eabi@1.2.11':
+    resolution: {integrity: sha512-A5kXfGKvKWWZE0TtPrfsvT+q4Y5d1QG8gGUzpYjGydM+fARM9MuX90PrXYXe0XbsDVgyxxNzHo6giCj90bsFNw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm]
     os: [android]
 
-  '@rolldown/binding-android-arm64@1.2.8':
-    resolution: {integrity: sha512-dIYTWl9XprMUiQFoc55KUyk/oS8SKYH3zFl0LTR7RT0Xj4hgSVyuJcroH8JUu8RcpF8fTB6E0aOwCkZoYPcDSQ==}
+  '@rolldown/binding-android-arm64@1.2.11':
+    resolution: {integrity: sha512-z6cTycz+iJ4PVkuL4HHW4DfTfoeU/2nqYYuSOrTmH7yHK5Y0LCOnA03V4ZNxavyVaU1oOqUgIg2klN/s+USGOA==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm64]
     os: [android]
 
-  '@rolldown/binding-darwin-arm64@1.2.8':
-    resolution: {integrity: sha512-PCSDQGXD2IyTEFrcgPyBM8jJuGmrbCMuoIOXdbEGVemruKACXoLQJrb+A45Z0L5t1RQkdfJprAYPkikbh7dzdA==}
+  '@rolldown/binding-darwin-arm64@1.2.11':
+    resolution: {integrity: sha512-jShvqNtP6vDC6/A5JOAzbVV+DkgHqhl/ScVCJEbt+TUY6QYz7YnXcrg3sLtFBniro0f/Ld50ZwCWA6f7KYD1nQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm64]
     os: [darwin]
 
-  '@rolldown/binding-darwin-x64@1.2.8':
-    resolution: {integrity: sha512-Uk7lRsGhPFHVX/sAUC6D5H9Ol30dFHd6iquokll2th3LpdJ3F5CzQB+7DHn0Ri2mG+U7k2zXiPHDrwZenXhwSA==}
+  '@rolldown/binding-darwin-x64@1.2.11':
+    resolution: {integrity: sha512-f2i2xiNWq1Z1l2++q2fuhZRdLAT3aqxD6vRNm1RAxpUoBcdqNB3C0s1Bt+K+PbEx2F5F4gQp6hqKkphCY/xF9w==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [x64]
     os: [darwin]
 
-  '@rolldown/binding-freebsd-x64@1.2.8':
-    resolution: {integrity: sha512-DjszaTEVogPqA5bYzsEeqDCQxbcp2fexQwKcRspYji2yzR68fCf+e4fx6kBSRDwX5/brZaHw/hWS9+A/+/w9sQ==}
+  '@rolldown/binding-freebsd-x64@1.2.11':
+    resolution: {integrity: sha512-4Ir5FSOKIAMr4r0kExpt1s3bMgzJU3rA45AYOHtQpls0oNeqcYBKrWMlckrYH4KCfGLfkfn1tN1dmZPMVsdXow==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [x64]
     os: [freebsd]
 
-  '@rolldown/binding-linux-arm-gnueabihf@1.2.8':
-    resolution: {integrity: sha512-zmwa7FTmdzB6aaEEuuls18H6Ap5JmJPSoPTuXixeJZV6tG40SyLkApQtz1g8ptZtiEKqj9OM0oNLPh1AgvE31Q==}
+  '@rolldown/binding-linux-arm-gnueabihf@1.2.11':
+    resolution: {integrity: sha512-/gnRDM+39BROzAN/k1OZjDPnDMcZxB/0EUxKjONO5yVkNEvlsoMDrxGNKgZi/ttFriS2gwlDNzB65pvNbFOXIQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm]
     os: [linux]
 
-  '@rolldown/binding-linux-arm64-gnu@1.2.8':
-    resolution: {integrity: sha512-KdYQDPHwJVnbFwdTGMgxsI9SqblBlz6STGM+w1We/d5B8OWWidYH0MwkU/uA1wM5fIpO2MkOVxXrNzzuZhw9ew==}
+  '@rolldown/binding-linux-arm64-gnu@1.2.11':
+    resolution: {integrity: sha512-PFaK8HwvAHbaKbBcDNQihjMKYvFnA5hiENx/l5tphTDz1E0WFp32l0A7aq7lyUwGsRw/xSrNIy/gIK4thrSCrw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
 
-  '@rolldown/binding-linux-arm64-musl@1.2.8':
-    resolution: {integrity: sha512-jFJTifHnNPY+yzOoNZQfSIysrVyXzEQPhPnOUjmD1bcQGHH6s7c8cViKWar8YplQImE5N9JRqMCLrM2CdxOrZA==}
+  '@rolldown/binding-linux-arm64-musl@1.2.11':
+    resolution: {integrity: sha512-AskzJUIKRLPxkruR1wLKewGbOw+EYfU/9lOrBFj4AFrEA8hPpKFnODWNu2WLaNs0QNkEb9QIJufmVZZIL/bJlg==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm64]
     os: [linux]
     libc: [musl]
 
-  '@rolldown/binding-linux-ppc64-gnu@1.2.8':
-    resolution: {integrity: sha512-FhiOziBDWPBjbcmRzfLyIJnaP7AVMFXT7YCXPjXxj7wKU3vx24RjrCNN/zjvVa+N2vVoHJwCoUBvsrN/DG3zIA==}
+  '@rolldown/binding-linux-ppc64-gnu@1.2.11':
+    resolution: {integrity: sha512-qlUGAheh2yh8afH7QBgx0PrRHN85hKnNd78x8MeMhXivuevgd8vgf6/CstOzmNKY/lLTHvNTrPy98cLnAugzJw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [ppc64]
     os: [linux]
     libc: [glibc]
 
-  '@rolldown/binding-linux-s390x-gnu@1.2.8':
-    resolution: {integrity: sha512-WnHfADMzOV2Y55wlx1hzzQnar/wDt/VdvWSD99r18Mz9ylNieIGOkRx3UV21h7m/eJvjySYJkO26VvGNFkwsIQ==}
+  '@rolldown/binding-linux-s390x-gnu@1.2.11':
+    resolution: {integrity: sha512-secpEad+0vCbSfn8upFySkDskv+bGPk3THSDS9Y89yc4rb4kzqHp8Dmyd9BkQW4SnhNXBZCl/6CrO//hZahNJQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [s390x]
     os: [linux]
     libc: [glibc]
 
-  '@rolldown/binding-linux-x64-gnu@1.2.8':
-    resolution: {integrity: sha512-H9tRr5ibfXFVLxbPOseVewewFpl28zcEdjRDt2FTUZU7odxP0gEv1ki4/kGmcGOh78oRwZuuQllGLZ9zTJp84g==}
+  '@rolldown/binding-linux-x64-gnu@1.2.11':
+    resolution: {integrity: sha512-mOVBT3dPpkWm8XBWPmU4bf+U6dYDLeMo/9ojUmis4N0L5uu10qra5vOyngZ7/PSdoE4G9KvRt4bloRxNjLas7A==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
 
-  '@rolldown/binding-linux-x64-musl@1.2.8':
-    resolution: {integrity: sha512-UefiqfM3D6IVNlZ8tSGs9+Ejjud2T+oxO0IHADU45Y+lyEjD2dVFyZHbkfX0LUb5Zugo/oIv1eCO/KVYhgYJYA==}
+  '@rolldown/binding-linux-x64-musl@1.2.11':
+    resolution: {integrity: sha512-Is78i9A8Ui4SqcxUwFJ9uMmjDn58IbVTjFWYdQestFEgeuEmHMLGNriXnVJKkwG2YiZjw8cP0zCTyDMdDGtOOg==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [x64]
     os: [linux]
     libc: [musl]
 
-  '@rolldown/binding-openharmony-arm64@1.2.8':
-    resolution: {integrity: sha512-637Ke4kWSy6rp9cxQ9gMOXlxPgIw/c1beASV4M//3+9I4uwBVOOl74G+e3zyU3u19U7RkRl/HuewixZ/Z6+Rjg==}
+  '@rolldown/binding-openharmony-arm64@1.2.11':
+    resolution: {integrity: sha512-dUCXneZ87INUMyQ0D+C0HrEBNUPNXHaPmU5GTjyKTJEiussw9Kaj5Ln8UztPe4epV/ffvgNBEadksdYhmW6xJA==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm64]
     os: [openharmony]
 
-  '@rolldown/binding-win32-arm64-msvc@1.2.8':
-    resolution: {integrity: sha512-xWBkPOF1Q9k/Gv1nQXnVdLxKu74jXppuOM4Z3mnypVUJJJwLsMl7hNJGRAUJoG8A5MgOI1ACKM+wBFxSJzKy4A==}
+  '@rolldown/binding-win32-arm64-msvc@1.2.11':
+    resolution: {integrity: sha512-jByxb6qfd+bH1xUd0qnfFnb17i9sWBPY2tOavJ0l3tdr3OTu+Kvtm8cd/JV5nFt657b1VqGltxg9olOEfofXWw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm64]
     os: [win32]
 
-  '@rolldown/binding-win32-x64-msvc@1.2.8':
-    resolution: {integrity: sha512-uz2ZvfgXbxqNwijjjbxrnvALwpyODDcgc1T1N8N3rf/DXKQmaFwmB4LX4yyjggpwN2obdQLb2rgirX5ffCWYng==}
+  '@rolldown/binding-win32-x64-msvc@1.2.11':
+    resolution: {integrity: sha512-/PzKqzAJ03i19oy2ItPvyvaVjOjBCNnfaJs8yvUdGBKmiESgnrJSQ2awd81QzFbbnAmu7YO9ZnJrDCb9VSJPRA==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [x64]
     os: [win32]
@@ -1228,8 +1228,8 @@ packages:
   '@types/estree@1.0.9':
     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
 
-  '@types/node@26.5.1':
-    resolution: {integrity: sha512-CzNm2FezW4VR/LjG6yUdiEgLE/rAQ9Slj5gCu/C2VrdcW7I0ahNZ8DRbHT7zOZ6r3ONgd/bsQIeSaoDGrd1C6g==}
+  '@types/node@26.6.3':
+    resolution: {integrity: sha512-dsqMQQoeTLqu9wynDD00q573mNzso3IdQOAfHRJqLCcmCFPoGo9A1bDpUcv/9tnKpErQWv9uKeGfl37EIS02Yg==}
 
   '@types/whatwg-mimetype@3.0.2':
     resolution: {integrity: sha512-c2AKvDT8ToxLIOUlN51gTiHXflsfIFisS4pO7pDPoKouJCESkhZnEy623gwP9laCy5lnLDAw1vAzu2vM2YLOrA==}
@@ -1575,8 +1575,8 @@ packages:
   fast-sha256@1.3.0:
     resolution: {integrity: sha512-n11RGP/lrWEFI/bWdygLxhI+pVeo1ZYIVwvvPkW7azl/rOy+F3HYRZ2K5zeE9mmkhQppyv9sQFx0JM9UabnpPQ==}
 
-  fast-uri@3.1.7:
-    resolution: {integrity: sha512-dOvZVzjdZdz7phd9v6jCbwxrBW3fK6n8Rc0CtdmM4bumzMnxywBYhuph6J819RRw/ku+rLbelwfMunktuzVVHg==}
+  fast-uri@3.1.8:
+    resolution: {integrity: sha512-GZMtZUTNRpOVIECoXwLNZS5xUGE+mVNbTB8h/7Rwh2TFWcBQiPzTgyZi05BF9UMZKkLJv8XBRJTlU7zg8+ZfMg==}
 
   fdir@6.5.0:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
@@ -1619,8 +1619,8 @@ packages:
     resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
     engines: {node: '>= 0.4'}
 
-  happy-dom@20.14.3:
-    resolution: {integrity: sha512-0KMb/Eh8rsd+aMNkOk5h8LkAjo9Na1aksnEGmsuZf+GXl6UkAdIi0VbUHU7d59lXhNmawODgwwuCMiZpCxwwCw==}
+  happy-dom@20.14.5:
+    resolution: {integrity: sha512-x/RzkpWO40bTjIoT30iQtt64FLLmH/iRcUCN2X//bLx7H3ifkdfPXyqsro/OYtqzIAhiLMMA7mmiOR9C3NOKjQ==}
     engines: {node: '>=20.0.0'}
 
   has-flag@4.0.0:
@@ -1635,8 +1635,8 @@ packages:
     resolution: {integrity: sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A==}
     engines: {node: '>= 0.4'}
 
-  hono@4.13.7:
-    resolution: {integrity: sha512-c8/gF9ac8Y78/agExVocyLevgR+JlpNB444Py0FSX8pJoPdYUfUzRcXtYEYGwt6l19qIlVZPN5Mfsw9jFShmQQ==}
+  hono@4.13.10:
+    resolution: {integrity: sha512-dQuLsa5oO+47QVMVMaaD9cIv8ctmVtK1iRvwWngkfloFJMeFeuoUFDswIqZGxmGX3hrRzREgEArjkK9OgsQEhA==}
     engines: {node: '>=16.9.0'}
 
   html-escaper@2.0.2:
@@ -1653,8 +1653,8 @@ packages:
   inherits@2.0.4:
     resolution: {integrity: sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==}
 
-  ip-address@10.7.0:
-    resolution: {integrity: sha512-BGFsyJd5mpXp3rK6jIdADLNgpJUK1jnjzvYF8lK+VyDab9JAmqN0YOKDdP17HlgKb2+ehPgDc8EtnRLbGCAMhA==}
+  ip-address@10.7.2:
+    resolution: {integrity: sha512-7H/2gFSIitxc0hG3nOI1glS8QLo/EHBFFLk8vEUjXY/xu0AdL8jZ9U1IzO2PUm0d2D/ofQcAifb0g6OBkt8U7w==}
     engines: {node: '>= 12'}
 
   ipaddr.js@1.9.1:
@@ -1873,12 +1873,12 @@ packages:
       zod:
         optional: true
 
-  oxlint@1.82.0:
-    resolution: {integrity: sha512-+iFM1BGw1ntYJt3QngbJmjbrGxPaKMUADOXOijpWGnYcBPq8YZnQftSS1C+pVcDYy9YxqDVJKQqQkTazTQMboQ==}
+  oxlint@1.86.0:
+    resolution: {integrity: sha512-og0lhgvZfgGF//gOOmZXvtr+GmBbAGEnbEhv/QUg7UW2Wi4wHMnJbnMD+zuHgPdJxdklfgpPupdlAaAySyxrZg==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
     peerDependencies:
-      oxlint-tsgolint: '>=7.0.2001'
+      oxlint-tsgolint: '>=7.0.2003'
       vite-plus: '*'
     peerDependenciesMeta:
       oxlint-tsgolint:
@@ -1915,8 +1915,8 @@ packages:
     resolution: {integrity: sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A==}
     engines: {node: ^10 || ^12 || >=14}
 
-  proxy-addr@2.0.7:
-    resolution: {integrity: sha512-llQsMLSUDUPT44jdrU/O37qlnifitDP+ZwrmmZcoSKyLKvtZxpyV0n2/bD/N4tBAAZ/gJEdZU7KMraoK1+XYAg==}
+  proxy-addr@2.0.8:
+    resolution: {integrity: sha512-5nnx0yGyVUcY6t9RnWcARWtwT9F1D8O9rt08htPvnd49W1IgZtmLkhu9WfMzQj1cFxjHIO6connUNVW5k7AVyQ==}
     engines: {node: '>= 0.10'}
 
   qs@6.16.0:
@@ -1939,8 +1939,8 @@ packages:
     resolution: {integrity: sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==}
     engines: {node: '>=0.10.0'}
 
-  rolldown@1.2.8:
-    resolution: {integrity: sha512-Z67nTmhZe7anqnM/EjI392w5i/ANUinjip7QYsOyN37oayduxt3ksdX0hf5OOamkAd53BiIHfbfSzfUmzKFQqQ==}
+  rolldown@1.2.11:
+    resolution: {integrity: sha512-qpSwIyz0jHQq5qXBTNxFmE6664rJ7O+4TvPFOiOaBSrz8IOHc1koKKSqTM2H6u1UG1+TveuC6vaDHKXFOvb1Kw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
 
@@ -2066,8 +2066,8 @@ packages:
     resolution: {integrity: sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==}
     engines: {node: '>= 0.8'}
 
-  vite@8.3.0:
-    resolution: {integrity: sha512-lhZBVvEHefgE+HQZC9O7EBJgCU/nVzFNl7vkS4RE0APtWLP02/8QVIkQtzBxPquh7lq5/78NHipTj7ODQ6XuyQ==}
+  vite@8.3.1:
+    resolution: {integrity: sha512-/bvH9E9tmCXRGp2uXY3WbOldqpTwFkbha/8ANaEQ6VkxhH60KyqLwgZq6lG2y+4uT55x9+9eUHMpQ7uGnOCKjA==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
     peerDependencies:
@@ -2171,8 +2171,8 @@ packages:
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
 
-  ws@8.21.3:
-    resolution: {integrity: sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw==}
+  ws@8.22.0:
+    resolution: {integrity: sha512-Ydggc987+RO0AnWtZ/7Wq9FtNvcrL1b/RO0ud9mWjUPgDrsAAwQSF51sm2hm1XofbU/4jkpGEsLFsZZxU+1DOg==}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1
@@ -2188,12 +2188,15 @@ packages:
     peerDependencies:
       zod: ^3.25.28 || ^4
 
+  zod@4.3.6:
+    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
+
   zod@4.6.2:
     resolution: {integrity: sha512-lh5RCAGFa1Cm2hjtNwLQhSs/AsqdWnTQaBER9fEwN/88pSh7KOtJavtBx/0VlkN/uFd61SwYmljLMDAsHlvzBQ==}
 
 snapshots:
 
-  '@agentclientprotocol/sdk@1.4.0(zod@4.6.2)':
+  '@agentclientprotocol/sdk@1.5.1(zod@4.6.2)':
     dependencies:
       zod: 4.6.2
 
@@ -2221,10 +2224,10 @@ snapshots:
   '@anthropic-ai/claude-agent-sdk-win32-x64@0.3.270':
     optional: true
 
-  '@anthropic-ai/claude-agent-sdk@0.3.270(@anthropic-ai/sdk@0.125.0(zod@4.6.2))(@modelcontextprotocol/sdk@1.30.0(zod@4.6.2))(zod@4.6.2)':
+  '@anthropic-ai/claude-agent-sdk@0.3.270(@anthropic-ai/sdk@0.125.0(zod@4.6.2))(@modelcontextprotocol/sdk@1.31.0(zod@4.6.2))(zod@4.6.2)':
     dependencies:
       '@anthropic-ai/sdk': 0.125.0(zod@4.6.2)
-      '@modelcontextprotocol/sdk': 1.30.0(zod@4.6.2)
+      '@modelcontextprotocol/sdk': 1.31.0(zod@4.6.2)
       zod: 4.6.2
     optionalDependencies:
       '@anthropic-ai/claude-agent-sdk-darwin-arm64': 0.3.270
@@ -2340,48 +2343,48 @@ snapshots:
   '@esbuild/win32-x64@0.25.12':
     optional: true
 
-  '@github/copilot-sdk-darwin-arm64@1.0.13':
+  '@github/copilot-sdk-darwin-arm64@1.0.15':
     optional: true
 
-  '@github/copilot-sdk-darwin-x64@1.0.13':
+  '@github/copilot-sdk-darwin-x64@1.0.15':
     optional: true
 
-  '@github/copilot-sdk-linux-arm64@1.0.13':
+  '@github/copilot-sdk-linux-arm64@1.0.15':
     optional: true
 
-  '@github/copilot-sdk-linux-x64@1.0.13':
+  '@github/copilot-sdk-linux-x64@1.0.15':
     optional: true
 
-  '@github/copilot-sdk-linuxmusl-arm64@1.0.13':
+  '@github/copilot-sdk-linuxmusl-arm64@1.0.15':
     optional: true
 
-  '@github/copilot-sdk-linuxmusl-x64@1.0.13':
+  '@github/copilot-sdk-linuxmusl-x64@1.0.15':
     optional: true
 
-  '@github/copilot-sdk-win32-arm64@1.0.13':
+  '@github/copilot-sdk-win32-arm64@1.0.15':
     optional: true
 
-  '@github/copilot-sdk-win32-x64@1.0.13':
+  '@github/copilot-sdk-win32-x64@1.0.15':
     optional: true
 
-  '@github/copilot-sdk@1.0.13':
+  '@github/copilot-sdk@1.0.15':
     dependencies:
       koffi: 3.2.1
       vscode-jsonrpc: 8.2.1
-      zod: 4.6.2
+      zod: 4.3.6
     optionalDependencies:
-      '@github/copilot-sdk-darwin-arm64': 1.0.13
-      '@github/copilot-sdk-darwin-x64': 1.0.13
-      '@github/copilot-sdk-linux-arm64': 1.0.13
-      '@github/copilot-sdk-linux-x64': 1.0.13
-      '@github/copilot-sdk-linuxmusl-arm64': 1.0.13
-      '@github/copilot-sdk-linuxmusl-x64': 1.0.13
-      '@github/copilot-sdk-win32-arm64': 1.0.13
-      '@github/copilot-sdk-win32-x64': 1.0.13
+      '@github/copilot-sdk-darwin-arm64': 1.0.15
+      '@github/copilot-sdk-darwin-x64': 1.0.15
+      '@github/copilot-sdk-linux-arm64': 1.0.15
+      '@github/copilot-sdk-linux-x64': 1.0.15
+      '@github/copilot-sdk-linuxmusl-arm64': 1.0.15
+      '@github/copilot-sdk-linuxmusl-x64': 1.0.15
+      '@github/copilot-sdk-win32-arm64': 1.0.15
+      '@github/copilot-sdk-win32-x64': 1.0.15
 
-  '@hono/node-server@2.1.1(hono@4.13.7)':
+  '@hono/node-server@2.1.2(hono@4.13.10)':
     dependencies:
-      hono: 4.13.7
+      hono: 4.13.10
 
   '@jridgewell/resolve-uri@3.1.2': {}
 
@@ -2446,9 +2449,9 @@ snapshots:
   '@koromix/koffi-win32-x64@3.2.1':
     optional: true
 
-  '@modelcontextprotocol/sdk@1.30.0(zod@4.6.2)':
+  '@modelcontextprotocol/sdk@1.31.0(zod@4.6.2)':
     dependencies:
-      '@hono/node-server': 2.1.1(hono@4.13.7)
+      '@hono/node-server': 2.1.2(hono@4.13.10)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -2458,7 +2461,7 @@ snapshots:
       eventsource-parser: 3.1.1
       express: 5.2.1
       express-rate-limit: 8.7.0(express@5.2.1)
-      hono: 4.13.7
+      hono: 4.13.10
       jose: 6.2.12
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -2468,110 +2471,110 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@oxc-project/types@0.149.0': {}
+  '@oxc-project/types@0.151.0': {}
 
-  '@oxlint/binding-android-arm-eabi@1.82.0':
+  '@oxlint/binding-android-arm-eabi@1.86.0':
     optional: true
 
-  '@oxlint/binding-android-arm64@1.82.0':
+  '@oxlint/binding-android-arm64@1.86.0':
     optional: true
 
-  '@oxlint/binding-darwin-arm64@1.82.0':
+  '@oxlint/binding-darwin-arm64@1.86.0':
     optional: true
 
-  '@oxlint/binding-darwin-x64@1.82.0':
+  '@oxlint/binding-darwin-x64@1.86.0':
     optional: true
 
-  '@oxlint/binding-freebsd-x64@1.82.0':
+  '@oxlint/binding-freebsd-x64@1.86.0':
     optional: true
 
-  '@oxlint/binding-linux-arm-gnueabihf@1.82.0':
+  '@oxlint/binding-linux-arm-gnueabihf@1.86.0':
     optional: true
 
-  '@oxlint/binding-linux-arm-musleabihf@1.82.0':
+  '@oxlint/binding-linux-arm-musleabihf@1.86.0':
     optional: true
 
-  '@oxlint/binding-linux-arm64-gnu@1.82.0':
+  '@oxlint/binding-linux-arm64-gnu@1.86.0':
     optional: true
 
-  '@oxlint/binding-linux-arm64-musl@1.82.0':
+  '@oxlint/binding-linux-arm64-musl@1.86.0':
     optional: true
 
-  '@oxlint/binding-linux-ppc64-gnu@1.82.0':
+  '@oxlint/binding-linux-ppc64-gnu@1.86.0':
     optional: true
 
-  '@oxlint/binding-linux-riscv64-gnu@1.82.0':
+  '@oxlint/binding-linux-riscv64-gnu@1.86.0':
     optional: true
 
-  '@oxlint/binding-linux-riscv64-musl@1.82.0':
+  '@oxlint/binding-linux-riscv64-musl@1.86.0':
     optional: true
 
-  '@oxlint/binding-linux-s390x-gnu@1.82.0':
+  '@oxlint/binding-linux-s390x-gnu@1.86.0':
     optional: true
 
-  '@oxlint/binding-linux-x64-gnu@1.82.0':
+  '@oxlint/binding-linux-x64-gnu@1.86.0':
     optional: true
 
-  '@oxlint/binding-linux-x64-musl@1.82.0':
+  '@oxlint/binding-linux-x64-musl@1.86.0':
     optional: true
 
-  '@oxlint/binding-openharmony-arm64@1.82.0':
+  '@oxlint/binding-openharmony-arm64@1.86.0':
     optional: true
 
-  '@oxlint/binding-win32-arm64-msvc@1.82.0':
+  '@oxlint/binding-win32-arm64-msvc@1.86.0':
     optional: true
 
-  '@oxlint/binding-win32-ia32-msvc@1.82.0':
+  '@oxlint/binding-win32-ia32-msvc@1.86.0':
     optional: true
 
-  '@oxlint/binding-win32-x64-msvc@1.82.0':
+  '@oxlint/binding-win32-x64-msvc@1.86.0':
     optional: true
 
   '@pwrdrvr/codex-app-server-protocol@0.153.4': {}
 
-  '@rolldown/binding-android-arm-eabi@1.2.8':
+  '@rolldown/binding-android-arm-eabi@1.2.11':
     optional: true
 
-  '@rolldown/binding-android-arm64@1.2.8':
+  '@rolldown/binding-android-arm64@1.2.11':
     optional: true
 
-  '@rolldown/binding-darwin-arm64@1.2.8':
+  '@rolldown/binding-darwin-arm64@1.2.11':
     optional: true
 
-  '@rolldown/binding-darwin-x64@1.2.8':
+  '@rolldown/binding-darwin-x64@1.2.11':
     optional: true
 
-  '@rolldown/binding-freebsd-x64@1.2.8':
+  '@rolldown/binding-freebsd-x64@1.2.11':
     optional: true
 
-  '@rolldown/binding-linux-arm-gnueabihf@1.2.8':
+  '@rolldown/binding-linux-arm-gnueabihf@1.2.11':
     optional: true
 
-  '@rolldown/binding-linux-arm64-gnu@1.2.8':
+  '@rolldown/binding-linux-arm64-gnu@1.2.11':
     optional: true
 
-  '@rolldown/binding-linux-arm64-musl@1.2.8':
+  '@rolldown/binding-linux-arm64-musl@1.2.11':
     optional: true
 
-  '@rolldown/binding-linux-ppc64-gnu@1.2.8':
+  '@rolldown/binding-linux-ppc64-gnu@1.2.11':
     optional: true
 
-  '@rolldown/binding-linux-s390x-gnu@1.2.8':
+  '@rolldown/binding-linux-s390x-gnu@1.2.11':
     optional: true
 
-  '@rolldown/binding-linux-x64-gnu@1.2.8':
+  '@rolldown/binding-linux-x64-gnu@1.2.11':
     optional: true
 
-  '@rolldown/binding-linux-x64-musl@1.2.8':
+  '@rolldown/binding-linux-x64-musl@1.2.11':
     optional: true
 
-  '@rolldown/binding-openharmony-arm64@1.2.8':
+  '@rolldown/binding-openharmony-arm64@1.2.11':
     optional: true
 
-  '@rolldown/binding-win32-arm64-msvc@1.2.8':
+  '@rolldown/binding-win32-arm64-msvc@1.2.11':
     optional: true
 
-  '@rolldown/binding-win32-x64-msvc@1.2.8':
+  '@rolldown/binding-win32-x64-msvc@1.2.11':
     optional: true
 
   '@rolldown/pluginutils@1.0.1': {}
@@ -2613,10 +2616,10 @@ snapshots:
       '@sigx/serialize': 1.0.0
       sigx: 1.0.0
 
-  '@sigx/vite@1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0))':
+  '@sigx/vite@1.0.0(@sigx/server-renderer@1.0.0(sigx@1.0.0))(@sigx/server@1.0.0(sigx@1.0.0))(sigx@1.0.0)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0))':
     dependencies:
       sigx: 1.0.0
-      vite: 8.3.0(@types/node@26.5.1)(jiti@2.7.0)
+      vite: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)
     optionalDependencies:
       '@sigx/server': 1.0.0(sigx@1.0.0)
       '@sigx/server-renderer': 1.0.0(sigx@1.0.0)
@@ -2650,7 +2653,7 @@ snapshots:
 
   '@types/estree@1.0.9': {}
 
-  '@types/node@26.5.1':
+  '@types/node@26.6.3':
     dependencies:
       undici-types: 8.9.0
 
@@ -2658,7 +2661,7 @@ snapshots:
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 26.5.1
+      '@types/node': 26.6.3
 
   '@typescript/typescript-aix-ppc64@7.0.2':
     optional: true
@@ -2732,7 +2735,7 @@ snapshots:
       obug: 2.2.1
       std-env: 4.2.0
       tinyrainbow: 3.1.1
-      vitest: 4.1.11(@types/node@26.5.1)(@vitest/coverage-v8@4.1.11)(happy-dom@20.14.3)(vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0))
+      vitest: 4.1.11(@types/node@26.6.3)(@vitest/coverage-v8@4.1.11)(happy-dom@20.14.5)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0))
 
   '@vitest/expect@4.1.11':
     dependencies:
@@ -2743,13 +2746,13 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.1
 
-  '@vitest/mocker@4.1.11(vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0))':
+  '@vitest/mocker@4.1.11(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0))':
     dependencies:
       '@vitest/spy': 4.1.11
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 8.3.0(@types/node@26.5.1)(jiti@2.7.0)
+      vite: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)
 
   '@vitest/pretty-format@4.1.11':
     dependencies:
@@ -2787,7 +2790,7 @@ snapshots:
   ajv@8.20.0:
     dependencies:
       fast-deep-equal: 3.1.3
-      fast-uri: 3.1.7
+      fast-uri: 3.1.8
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
 
@@ -2815,7 +2818,7 @@ snapshots:
 
   buffer-image-size@0.6.4:
     dependencies:
-      '@types/node': 26.5.1
+      '@types/node': 26.6.3
 
   bytes-iec@3.1.1: {}
 
@@ -2944,7 +2947,7 @@ snapshots:
     dependencies:
       debug: 4.4.3
       express: 5.2.1
-      ip-address: 10.7.0
+      ip-address: 10.7.2
     transitivePeerDependencies:
       - supports-color
 
@@ -2969,7 +2972,7 @@ snapshots:
       on-finished: 2.4.1
       once: 1.4.0
       parseurl: 1.3.3
-      proxy-addr: 2.0.7
+      proxy-addr: 2.0.8
       qs: 6.16.0
       range-parser: 1.3.0
       router: 2.2.0
@@ -2985,7 +2988,7 @@ snapshots:
 
   fast-sha256@1.3.0: {}
 
-  fast-uri@3.1.7: {}
+  fast-uri@3.1.8: {}
 
   fdir@6.5.0(picomatch@4.0.7):
     optionalDependencies:
@@ -3031,15 +3034,15 @@ snapshots:
 
   gopd@1.2.0: {}
 
-  happy-dom@20.14.3:
+  happy-dom@20.14.5:
     dependencies:
-      '@types/node': 26.5.1
+      '@types/node': 26.6.3
       '@types/whatwg-mimetype': 3.0.2
       '@types/ws': 8.18.1
       buffer-image-size: 0.6.4
       entities: 7.0.1
       whatwg-mimetype: 3.0.0
-      ws: 8.21.3
+      ws: 8.22.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -3052,7 +3055,7 @@ snapshots:
     dependencies:
       function-bind: 1.1.2
 
-  hono@4.13.7: {}
+  hono@4.13.10: {}
 
   html-escaper@2.0.2: {}
 
@@ -3070,7 +3073,7 @@ snapshots:
 
   inherits@2.0.4: {}
 
-  ip-address@10.7.0: {}
+  ip-address@10.7.2: {}
 
   ipaddr.js@1.9.1: {}
 
@@ -3232,32 +3235,32 @@ snapshots:
     dependencies:
       wrappy: 1.0.2
 
-  openai@7.15.0(ws@8.21.3)(zod@4.6.2):
+  openai@7.15.0(ws@8.22.0)(zod@4.6.2):
     optionalDependencies:
-      ws: 8.21.3
+      ws: 8.22.0
       zod: 4.6.2
 
-  oxlint@1.82.0:
+  oxlint@1.86.0:
     optionalDependencies:
-      '@oxlint/binding-android-arm-eabi': 1.82.0
-      '@oxlint/binding-android-arm64': 1.82.0
-      '@oxlint/binding-darwin-arm64': 1.82.0
-      '@oxlint/binding-darwin-x64': 1.82.0
-      '@oxlint/binding-freebsd-x64': 1.82.0
-      '@oxlint/binding-linux-arm-gnueabihf': 1.82.0
-      '@oxlint/binding-linux-arm-musleabihf': 1.82.0
-      '@oxlint/binding-linux-arm64-gnu': 1.82.0
-      '@oxlint/binding-linux-arm64-musl': 1.82.0
-      '@oxlint/binding-linux-ppc64-gnu': 1.82.0
-      '@oxlint/binding-linux-riscv64-gnu': 1.82.0
-      '@oxlint/binding-linux-riscv64-musl': 1.82.0
-      '@oxlint/binding-linux-s390x-gnu': 1.82.0
-      '@oxlint/binding-linux-x64-gnu': 1.82.0
-      '@oxlint/binding-linux-x64-musl': 1.82.0
-      '@oxlint/binding-openharmony-arm64': 1.82.0
-      '@oxlint/binding-win32-arm64-msvc': 1.82.0
-      '@oxlint/binding-win32-ia32-msvc': 1.82.0
-      '@oxlint/binding-win32-x64-msvc': 1.82.0
+      '@oxlint/binding-android-arm-eabi': 1.86.0
+      '@oxlint/binding-android-arm64': 1.86.0
+      '@oxlint/binding-darwin-arm64': 1.86.0
+      '@oxlint/binding-darwin-x64': 1.86.0
+      '@oxlint/binding-freebsd-x64': 1.86.0
+      '@oxlint/binding-linux-arm-gnueabihf': 1.86.0
+      '@oxlint/binding-linux-arm-musleabihf': 1.86.0
+      '@oxlint/binding-linux-arm64-gnu': 1.86.0
+      '@oxlint/binding-linux-arm64-musl': 1.86.0
+      '@oxlint/binding-linux-ppc64-gnu': 1.86.0
+      '@oxlint/binding-linux-riscv64-gnu': 1.86.0
+      '@oxlint/binding-linux-riscv64-musl': 1.86.0
+      '@oxlint/binding-linux-s390x-gnu': 1.86.0
+      '@oxlint/binding-linux-x64-gnu': 1.86.0
+      '@oxlint/binding-linux-x64-musl': 1.86.0
+      '@oxlint/binding-openharmony-arm64': 1.86.0
+      '@oxlint/binding-win32-arm64-msvc': 1.86.0
+      '@oxlint/binding-win32-ia32-msvc': 1.86.0
+      '@oxlint/binding-win32-x64-msvc': 1.86.0
 
   parseurl@1.3.3: {}
 
@@ -3279,7 +3282,7 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  proxy-addr@2.0.7:
+  proxy-addr@2.0.8:
     dependencies:
       forwarded: 0.2.0
       ipaddr.js: 1.9.1
@@ -3302,26 +3305,26 @@ snapshots:
 
   require-from-string@2.0.2: {}
 
-  rolldown@1.2.8:
+  rolldown@1.2.11:
     dependencies:
-      '@oxc-project/types': 0.149.0
+      '@oxc-project/types': 0.151.0
       '@rolldown/pluginutils': 1.0.1
     optionalDependencies:
-      '@rolldown/binding-android-arm-eabi': 1.2.8
-      '@rolldown/binding-android-arm64': 1.2.8
-      '@rolldown/binding-darwin-arm64': 1.2.8
-      '@rolldown/binding-darwin-x64': 1.2.8
-      '@rolldown/binding-freebsd-x64': 1.2.8
-      '@rolldown/binding-linux-arm-gnueabihf': 1.2.8
-      '@rolldown/binding-linux-arm64-gnu': 1.2.8
-      '@rolldown/binding-linux-arm64-musl': 1.2.8
-      '@rolldown/binding-linux-ppc64-gnu': 1.2.8
-      '@rolldown/binding-linux-s390x-gnu': 1.2.8
-      '@rolldown/binding-linux-x64-gnu': 1.2.8
-      '@rolldown/binding-linux-x64-musl': 1.2.8
-      '@rolldown/binding-openharmony-arm64': 1.2.8
-      '@rolldown/binding-win32-arm64-msvc': 1.2.8
-      '@rolldown/binding-win32-x64-msvc': 1.2.8
+      '@rolldown/binding-android-arm-eabi': 1.2.11
+      '@rolldown/binding-android-arm64': 1.2.11
+      '@rolldown/binding-darwin-arm64': 1.2.11
+      '@rolldown/binding-darwin-x64': 1.2.11
+      '@rolldown/binding-freebsd-x64': 1.2.11
+      '@rolldown/binding-linux-arm-gnueabihf': 1.2.11
+      '@rolldown/binding-linux-arm64-gnu': 1.2.11
+      '@rolldown/binding-linux-arm64-musl': 1.2.11
+      '@rolldown/binding-linux-ppc64-gnu': 1.2.11
+      '@rolldown/binding-linux-s390x-gnu': 1.2.11
+      '@rolldown/binding-linux-x64-gnu': 1.2.11
+      '@rolldown/binding-linux-x64-musl': 1.2.11
+      '@rolldown/binding-openharmony-arm64': 1.2.11
+      '@rolldown/binding-win32-arm64-msvc': 1.2.11
+      '@rolldown/binding-win32-x64-msvc': 1.2.11
 
   router@2.2.0:
     dependencies:
@@ -3483,22 +3486,22 @@ snapshots:
 
   vary@1.1.2: {}
 
-  vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0):
+  vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.7
       postcss: 8.5.28
-      rolldown: 1.2.8
+      rolldown: 1.2.11
       tinyglobby: 0.2.17
     optionalDependencies:
-      '@types/node': 26.5.1
+      '@types/node': 26.6.3
       fsevents: 2.3.3
       jiti: 2.7.0
 
-  vitest@4.1.11(@types/node@26.5.1)(@vitest/coverage-v8@4.1.11)(happy-dom@20.14.3)(vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0)):
+  vitest@4.1.11(@types/node@26.6.3)(@vitest/coverage-v8@4.1.11)(happy-dom@20.14.5)(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0)):
     dependencies:
       '@vitest/expect': 4.1.11
-      '@vitest/mocker': 4.1.11(vite@8.3.0(@types/node@26.5.1)(jiti@2.7.0))
+      '@vitest/mocker': 4.1.11(vite@8.3.1(@types/node@26.6.3)(jiti@2.7.0))
       '@vitest/pretty-format': 4.1.11
       '@vitest/runner': 4.1.11
       '@vitest/snapshot': 4.1.11
@@ -3515,12 +3518,12 @@ snapshots:
       tinyexec: 1.3.1
       tinyglobby: 0.2.17
       tinyrainbow: 3.1.1
-      vite: 8.3.0(@types/node@26.5.1)(jiti@2.7.0)
+      vite: 8.3.1(@types/node@26.6.3)(jiti@2.7.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
-      '@types/node': 26.5.1
+      '@types/node': 26.6.3
       '@vitest/coverage-v8': 4.1.11(vitest@4.1.11)
-      happy-dom: 20.14.3
+      happy-dom: 20.14.5
     transitivePeerDependencies:
       - msw
 
@@ -3539,10 +3542,12 @@ snapshots:
 
   wrappy@1.0.2: {}
 
-  ws@8.21.3: {}
+  ws@8.22.0: {}
 
   zod-to-json-schema@3.25.2(zod@4.6.2):
     dependencies:
       zod: 4.6.2
+
+  zod@4.3.6: {}
 
   zod@4.6.2: {}

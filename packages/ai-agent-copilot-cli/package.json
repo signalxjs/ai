@@ -46,13 +46,13 @@
         "url": "https://github.com/signalxjs/ai/issues"
     },
     "devDependencies": {
-        "@github/copilot-sdk": "1.0.13",
+        "@github/copilot-sdk": "1.0.15",
         "@sigx/ai": "workspace:*",
         "@sigx/ai-agent": "workspace:*",
         "@sigx/vite": "catalog:",
-        "@types/node": "^26.5.1",
+        "@types/node": "^26.6.3",
         "typescript": "^7.0.2",
-        "vite": "^8.0.3"
+        "vite": "^8.3.1"
     },
     "publishConfig": {
         "access": "public"
