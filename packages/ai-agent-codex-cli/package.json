@@ -51,14 +51,14 @@
         "@sigx/ai-agent-node": "^0.2.0"
     },
     "devDependencies": {
-        "@pwrdrvr/codex-app-server-protocol": "0.153.4",
+        "@pwrdrvr/codex-app-server-protocol": "0.159.2",
         "@sigx/ai": "workspace:*",
         "@sigx/ai-agent": "workspace:*",
         "@sigx/ai-agent-node": "workspace:*",
         "@sigx/vite": "catalog:",
-        "@types/node": "^26.5.1",
+        "@types/node": "^26.6.4",
         "typescript": "^7.0.2",
-        "vite": "^8.0.3"
+        "vite": "^8.3.3"
     },
     "publishConfig": {
         "access": "public"
